@@ -61,16 +61,16 @@ describe("BotAvatar's two avatar outcomes", () => {
     expect(markup).not.toContain("radialGradient");
   });
 
-  it("renders the gradient mascot when the crop is mascot, image or not", () => {
+  it("renders the nation-face img for mascot crop (no blob svg)", () => {
     const markup = renderBot({ avatarUrl: "/api/attachments/cat.webp", avatarCrop: "mascot" });
-    expect(markup).not.toContain("<img");
-    expect(markup).toContain("<svg");
+    expect(markup).not.toContain("radialGradient");
+    expect(markup).toContain("/nation-faces/");
   });
 
-  it("falls back to the gradient mascot when a flat crop has no valid image", () => {
+  it("falls back to the nation-face img when a flat crop has no valid image", () => {
     const markup = renderBot({ avatarUrl: undefined, avatarCrop: "circle" });
-    expect(markup).not.toContain("<img");
-    expect(markup).toContain("<svg");
+    expect(markup).toContain("/nation-faces/");
+    expect(markup).not.toContain("radialGradient");
   });
 });
 
@@ -79,7 +79,7 @@ describe("resolveBotAvatarOutcome", () => {
   // renderToStaticMarkup never fires — there are no events in a static
   // render. The decision is a pure function precisely so this branch is
   // still testable synchronously.
-  it("falls back to the gradient mascot for an image that failed to load", () => {
+  it("falls back to the nation-face img for an image that failed to load", () => {
     expect(
       resolveBotAvatarOutcome({ avatarCrop: "circle", hasUrl: true, imageFailed: true }),
     ).toBe("gradientMascot");

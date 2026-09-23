@@ -14,7 +14,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { MAUS_COLORS, nationFaceUrl, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { CursorAvatar, type CursorAvatarHandle } from "./CursorAvatar";
 import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
 import { MASCOT_BODIES, botMascotBody, type MascotBodyId } from "../../shared/mascot-bodies";
@@ -242,55 +242,27 @@ export function resolveBotAvatarOutcome(params: {
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
 /**
- * NATION agent mark — a color-coded SVG square with the initial letter of
- * the bot's name. Replaces the blob mascot for bots that have no custom
- * uploaded image. The SVG output preserves test assertions that check for
- * `<svg>` in the rendered markup.
+ * NATION Swarm face — renders the bot's color-matched SVG mark from
+ * /nation-faces/<name>.svg. Each SVG is a 64×64 circle with a geometric
+ * HUD mark. No mascot blob, no cartoon faces.
  */
-function AgentMark({
-  name,
+function NationFaceImg({
   color,
   size,
   label,
 }: {
-  name: string | undefined;
   color?: string;
   size: number;
   label?: string;
 }) {
-  const fillHex = MAUS_COLORS[color as MausColor] ?? "#76b900";
-  const initial = (name?.[0] ?? "?").toUpperCase();
-  // Luminance shortcut: use dark ink on bright fills, light ink on dark ones.
-  const [r, g, b] = [
-    parseInt(fillHex.slice(1, 3), 16),
-    parseInt(fillHex.slice(3, 5), 16),
-    parseInt(fillHex.slice(5, 7), 16),
-  ];
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const textFill = lum > 0.45 ? "#000000" : "#f0f0f0";
+  const src = nationFaceUrl(color);
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 100 100"
-      aria-label={label ?? name}
-      role="img"
-      style={{ display: "block", flexShrink: 0 }}
-    >
-      <rect width="100" height="100" fill={fillHex} rx="2" />
-      <text
-        x="50"
-        y="52"
-        dominantBaseline="central"
-        textAnchor="middle"
-        fill={textFill}
-        fontFamily="'SF Mono', 'ui-monospace', 'Fira Code', monospace"
-        fontSize="52"
-        fontWeight="800"
-      >
-        {initial}
-      </text>
-    </svg>
+    <img
+      src={src}
+      alt={label ?? "Agent"}
+      draggable={false}
+      style={{ width: size, height: size, display: "block", flexShrink: 0, borderRadius: 2 }}
+    />
   );
 }
 
@@ -307,9 +279,9 @@ export function BotAvatar({ bot, size = 44, label }: BotAvatarProps) {
   });
 
   if (outcome !== "flatImage") {
+    // No custom image: use the color-matched NATION Swarm face.
     return (
-      <AgentMark
-        name={bot.name}
+      <NationFaceImg
         color={bot.color}
         size={size}
         label={label ?? bot.name}

@@ -74,6 +74,40 @@ export const MAUS_COLORS = {
   coral: "#E5634E",
 } satisfies Record<MausColor, string>;
 
+/**
+ * All 16 NATION Swarm face identifiers, in palette order.
+ * Served from /nation-faces/<name>.svg (public directory).
+ */
+export const NATION_FACES = [
+  "comet", "copper", "dusk", "ember", "frost", "harbor",
+  "iris", "kiln", "meadow", "moss", "nation", "oak",
+  "pollen", "quartz", "slate", "tide",
+] as const;
+export type NationFace = (typeof NATION_FACES)[number];
+
+/**
+ * Maps each bot color to the NATION Swarm face that shares its palette tone.
+ * Falls back to "nation" for any unmapped value.
+ */
+export const COLOR_TO_FACE: Record<MausColor, NationFace> = {
+  green:  "moss",
+  blue:   "frost",
+  red:    "ember",
+  orange: "copper",
+  purple: "iris",
+  cyan:   "harbor",
+  pink:   "quartz",
+  yellow: "pollen",
+  teal:   "tide",
+  coral:  "kiln",
+};
+
+/** Return the URL for a bot's nation-face based on its assigned color. */
+export function nationFaceUrl(color: MausColor | string | undefined): string {
+  const face = COLOR_TO_FACE[color as MausColor] ?? "nation";
+  return `/nation-faces/${face}.svg`;
+}
+
 export const MAUS_MOTIONS = [
   "arrive",
   "switch",
