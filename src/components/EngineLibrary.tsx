@@ -11,7 +11,7 @@ export function engineReady(instance: InstanceInfo): boolean {
 }
 
 const providers: Record<string, string> = {
-  claudeAgent: "Anthropic", codex: "OpenAI", grok: "xAI", grokAgent: "xAI",
+  claudeAgent: "Nation API", codex: "Nation API", grok: "xAI", grokAgent: "xAI",
   kimiAgent: "Moonshot AI", droidAgent: "Factory", cursorAgent: "Cursor",
   antigravityAgent: "Google", opencodeGo: "OpenCode", qwenAgent: "Qwen",
   hermesAgent: "Nous Research", piAgent: "pi.dev",
@@ -21,10 +21,9 @@ const providers: Record<string, string> = {
  * closing a card does not abandon an in-progress sign-in or a CLI path draft. */
 export function EngineCard({ instance, children }: { instance: InstanceInfo; children: ReactNode }) {
   const ready = engineReady(instance);
-  const email = instance.snapshot.authenticated === true ? instance.snapshot.account?.email : undefined;
-  const subtitle = email ?? (instance.access === "custom"
+  const subtitle = instance.access === "custom"
     ? t("engines.library.custom")
-    : providers[instance.driverKind] ?? instance.driverKind);
+    : providers[instance.driverKind] ?? instance.driverKind;
   // Some CLIs return their executable name rather than a version. Do not show
   // duplicated labels such as “Grok · grok”; retain the raw value in details.
   const version = instance.snapshot.version?.match(/\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?/)?.[0];

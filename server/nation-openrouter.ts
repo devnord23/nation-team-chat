@@ -51,3 +51,46 @@ export function nationOpenRouterStatus(env: NodeJS.ProcessEnv = process.env): Na
 export function openRouterBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return (env.OPENROUTER_API_URL ?? "").trim() || "https://openrouter.ai/api/v1";
 }
+
+export interface NationOpenRouterTestResult {
+  ok: boolean;
+  message: string;
+}
+
+/**
+ * Admin-only: test the OpenRouter connection by requesting the model list.
+ * Never called by non-admin code paths; the key stays server-only.
+ */
+export async function testOpenRouterConnection(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<NationOpenRouterTestResult> {
+  const key = (env.OPENROUTER_API_KEY ?? "").trim();
+  if (!key) {
+    return { ok: false, message: "OPENROUTER_API_KEY is not configured" };
+  }
+  const baseUrl = openRouterBaseUrl(env);
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!res.ok) {
+      return { ok: false, message: `OpenRouter returned HTTP ${res.status}` };
+    }
+    const data = (await res.json()) as { data?: unknown[] };
+    const count = Array.isArray(data?.data) ? data.data.length : 0;
+    return { ok: true, message: `Connected — ${count} model${count === 1 ? "" : "s"} available` };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return { ok: false, message: "Request timed out (10 s)" };
+    }
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}

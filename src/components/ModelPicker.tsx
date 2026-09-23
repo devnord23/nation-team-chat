@@ -665,9 +665,9 @@ export function ModelPicker({
                   {railInstance.driverKind === "claudeAgent" && (
                     <ClaudeAccountSelect accounts={claudeAccounts} selectedId={railInstance.instanceId} onSelect={selectRail} />
                   )}
-                  {railInstance.snapshot.authenticated && railInstance.snapshot.account && (
+                  {railInstance.snapshot.authenticated && railInstance.snapshot.account?.organization && (
                     <p className="mt-1 break-words text-[11px] text-ink-secondary">
-                      {[railInstance.snapshot.account.email, railInstance.snapshot.account.organization].filter(Boolean).join(" · ")}
+                      {railInstance.snapshot.account.organization}
                     </p>
                   )}
                   <div className="mt-0.5 text-[11.5px] text-ink-secondary">

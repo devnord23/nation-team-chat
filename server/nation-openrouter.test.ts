@@ -6,6 +6,7 @@ import {
   nationOpenRouterStatus,
   openRouterBaseUrl,
   resolveNationModel,
+  testOpenRouterConnection,
 } from "./nation-openrouter.ts";
 
 describe("NATION_DEFAULT_MODEL", () => {
@@ -107,5 +108,13 @@ describe("openRouterBaseUrl", () => {
   it("uses OPENROUTER_API_URL override when set", () => {
     expect(openRouterBaseUrl({ OPENROUTER_API_URL: "https://custom.example.com/api/v1" }))
       .toBe("https://custom.example.com/api/v1");
+  });
+});
+
+describe("testOpenRouterConnection", () => {
+  it("returns not-ok when OPENROUTER_API_KEY is absent", async () => {
+    const result = await testOpenRouterConnection({});
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("OPENROUTER_API_KEY");
   });
 });

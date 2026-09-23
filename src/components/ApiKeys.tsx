@@ -398,8 +398,8 @@ export function VpsConnection() {
   );
 }
 
-/** The OpenAI-compatible engine's base URL: a setting next to its key, so
- * OpenRouter, Groq, Together or OpenAI itself are one field away. */
+/** The compatible API engine's base URL: a setting next to its key, so
+ * OpenRouter, Groq, Together, or another provider are one field away. */
 export function OpenAiCompatUrl() {
   const { state, dispatch } = useStore();
   const saved = state.config?.openaiCompat?.url ?? "";

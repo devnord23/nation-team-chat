@@ -2,7 +2,7 @@ import { loadLocalEnv } from "./load-local-env.ts";
 loadLocalEnv();
 import { cloudVpsPublicStatus } from "./cloud-vps-from-env.ts";
 import { adminGatePublicStatus, adminPinMatches } from "./admin-gate.ts";
-import { nationOpenRouterStatus } from "./nation-openrouter.ts";
+import { nationOpenRouterStatus, testOpenRouterConnection } from "./nation-openrouter.ts";
 
 // OpenMausBot server Ã¢â‚¬â€ the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
@@ -17775,6 +17775,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const pin = typeof body?.pin === "string" ? body.pin : "";
       if (!adminPinMatches(pin)) return json(res, 401, { ok: false, error: "bad_pin" });
       return json(res, 200, { ok: true, adminGate: adminGatePublicStatus() });
+    }
+
+    // ── Nation admin-only OpenRouter endpoints ──
+    // These paths are not in CLIENT_ALLOW so they already require the admin
+    // scope. The additional check below makes the intent explicit and adds an
+    // extra guard against scope-confusion bugs.
+    if (path.startsWith("/api/admin/openrouter")) {
+      if (!auth.scopes.includes("admin")) {
+        return json(res, 403, { error: "forbidden: admin scope required" });
+      }
+      if (method === "GET" && path === "/api/admin/openrouter/status") {
+        return json(res, 200, {
+          ...nationOpenRouterStatus(),
+          // Admin gets the base URL too (not the key value)
+          baseUrl: (process.env.OPENROUTER_API_URL ?? "").trim() || "https://openrouter.ai/api/v1",
+        });
+      }
+      if (method === "POST" && path === "/api/admin/openrouter/test") {
+        const result = await testOpenRouterConnection();
+        return json(res, 200, { testResult: result });
+      }
+      return json(res, 404, { error: "not found" });
     }
     if (method === "GET" && path === "/api/config") {
       return json(res, 200, configForAccess(configStatus(), auth.scopes.includes("admin")));

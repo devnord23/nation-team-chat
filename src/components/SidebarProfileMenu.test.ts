@@ -19,21 +19,21 @@ describe("profileInitials", () => {
     expect(profileInitials({ name: "Ada Byron Lovelace" })).toBe("AB");
   });
 
-  it("falls back to the email, then to a placeholder", () => {
-    expect(profileInitials({ email: "you@x.dev" })).toBe("Y");
-    expect(profileInitials({})).toBe("?");
-    expect(profileInitials(undefined)).toBe("?");
+  it("falls back to N when no name is set", () => {
+    expect(profileInitials({ email: "you@x.dev" })).toBe("N");
+    expect(profileInitials({})).toBe("N");
+    expect(profileInitials(undefined)).toBe("N");
   });
 
   it("ignores whitespace-only names", () => {
-    expect(profileInitials({ name: "   ", email: "you@x.dev" })).toBe("Y");
+    expect(profileInitials({ name: "   ", email: "you@x.dev" })).toBe("N");
   });
 });
 
 describe("profileLabel", () => {
-  it("prefers the name, then the email, then You", () => {
+  it("uses the name, else You — email is never shown", () => {
     expect(profileLabel({ name: "Omkar", email: "o@x.dev" })).toBe("Omkar");
-    expect(profileLabel({ email: "o@x.dev" })).toBe("o@x.dev");
+    expect(profileLabel({ email: "o@x.dev" })).toBe("You");
     expect(profileLabel(undefined)).toBe("You");
   });
 });

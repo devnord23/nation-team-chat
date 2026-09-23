@@ -41,13 +41,12 @@ export function profileInitials(profile?: { name?: string; email?: string }): st
       .map((w) => w[0]!.toUpperCase())
       .join("");
   }
-  const email = profile?.email?.trim();
-  return email ? email[0]!.toUpperCase() : "?";
+  return "N";
 }
 
-/** The name shown on the row: the profile name, else the email, else "You". */
+/** The name shown on the row: the profile name, else "You". Email is never shown. */
 export function profileLabel(profile?: { name?: string; email?: string }): string {
-  return profile?.name?.trim() || profile?.email?.trim() || t("sidebar.profile.you");
+  return profile?.name?.trim() || t("sidebar.profile.you");
 }
 
 export type UpdatePhase =
