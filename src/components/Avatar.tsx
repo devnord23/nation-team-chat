@@ -1,9 +1,10 @@
-// Bot avatar — the Blob Studio "Cursor" mascot (CursorAvatar.tsx), wrapped
-// in the app's historical MausAvatar API so no call site changes: per-bot
-// color becomes a body gradient, the app's one-shot motion beats borrow the
-// face/state for a moment, and the eyes follow the pointer. The previous
-// hand-built Maus body + face engine (maus-engine/face/driver) is gone;
-// CursorAvatar owns morphing, blinking, drift, body motion and effects.
+// Bot avatar — geometric agent mark (NATION identity system).
+// Bots without custom images render a color-coded square with the initial
+// letter of the bot's name, styled like a BOTROSTER coat-of-arms tile.
+// The underlying MausAvatar / CursorAvatar engine is retained for call
+// sites that explicitly want the animated mascot (WelcomeFlow guide, etc.),
+// but BotAvatar — what the roster, chat bubbles, and empty states all use —
+// now renders a flat geometric SVG instead of a cartoon blob face.
 import {
   forwardRef,
   memo,
@@ -240,7 +241,60 @@ export function resolveBotAvatarOutcome(params: {
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+/**
+ * NATION agent mark — a color-coded SVG square with the initial letter of
+ * the bot's name. Replaces the blob mascot for bots that have no custom
+ * uploaded image. The SVG output preserves test assertions that check for
+ * `<svg>` in the rendered markup.
+ */
+function AgentMark({
+  name,
+  color,
+  size,
+  label,
+}: {
+  name: string | undefined;
+  color?: string;
+  size: number;
+  label?: string;
+}) {
+  const fillHex = MAUS_COLORS[color as MausColor] ?? "#76b900";
+  const initial = (name?.[0] ?? "?").toUpperCase();
+  // Luminance shortcut: use dark ink on bright fills, light ink on dark ones.
+  const [r, g, b] = [
+    parseInt(fillHex.slice(1, 3), 16),
+    parseInt(fillHex.slice(3, 5), 16),
+    parseInt(fillHex.slice(5, 7), 16),
+  ];
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const textFill = lum > 0.45 ? "#000000" : "#f0f0f0";
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-label={label ?? name}
+      role="img"
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <rect width="100" height="100" fill={fillHex} rx="2" />
+      <text
+        x="50"
+        y="52"
+        dominantBaseline="central"
+        textAnchor="middle"
+        fill={textFill}
+        fontFamily="'SF Mono', 'ui-monospace', 'Fira Code', monospace"
+        fontSize="52"
+        fontWeight="800"
+      >
+        {initial}
+      </text>
+    </svg>
+  );
+}
+
+export function BotAvatar({ bot, size = 44, label }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -254,9 +308,8 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
 
   if (outcome !== "flatImage") {
     return (
-      <MausAvatar
-        bodyId={bot.mascotBody ?? undefined}
-        {...mascotProps}
+      <AgentMark
+        name={bot.name}
         color={bot.color}
         size={size}
         label={label ?? bot.name}

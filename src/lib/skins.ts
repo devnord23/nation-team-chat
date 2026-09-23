@@ -38,7 +38,7 @@ export const SKINS: readonly Skin[] = [
 
 export const DEFAULT_SKIN: SkinId = "nation";
 
-const KEY = "omb-skin";
+const KEY = "nation-ui-skin"; // renamed from "omb-skin" so legacy skin preferences are ignored
 
 // The input is whatever localStorage handed back — a string this app wrote
 // on an earlier run, a value edited by hand, or a leftover from a renamed

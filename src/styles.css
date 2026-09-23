@@ -626,7 +626,9 @@
 [data-skin="nation"] .rounded-lg    { border-radius: 2px; }
 [data-skin="nation"] .rounded-xl    { border-radius: 3px; }
 [data-skin="nation"] .rounded-2xl   { border-radius: 4px; }
-[data-skin="nation"] .rounded-3xl   { border-radius: 6px; }
+/* rounded-3xl = the composer pill (24px default). Flatten to 2px so the
+   message dock reads as a rectangular HUD panel, not a consumer search bar. */
+[data-skin="nation"] .rounded-3xl   { border-radius: 2px; }
 /* Pill buttons and pill tags become rectangular: 2px keeps a micro-bevel. */
 [data-skin="nation"] .rounded-full  { border-radius: 2px; }
 /* Status indicator dots and avatar circles must stay circular — they're
@@ -634,7 +636,8 @@
 [data-skin="nation"] .size-1.rounded-full,
 [data-skin="nation"] .size-1\.5.rounded-full,
 [data-skin="nation"] .size-2.rounded-full,
-[data-skin="nation"] .size-2\.5.rounded-full  { border-radius: 50%; }
+[data-skin="nation"] .size-2\.5.rounded-full,
+[data-skin="nation"] .size-3.rounded-full  { border-radius: 50%; }
 
 /* 2. Tighter letter-spacing and font-weight for HUD headings. */
 [data-skin="nation"] h1,
@@ -652,7 +655,7 @@
 }
 
 /* 4. Composer area: sharper top border, no soft gradient edge. */
-[data-skin="nation"] [data-composer] {
+[data-skin="nation"] [data-tour="composer"] {
   border-top: 1px solid var(--color-hairline);
 }
 
@@ -682,6 +685,24 @@
 [data-skin="nation"] [data-empty-state] > svg,
 [data-skin="nation"] [data-empty-state] > canvas {
   display: none;
+}
+
+/* 9. Sidebar section headers: uppercase tracking for ops-console register. */
+[data-skin="nation"] [data-section-name] {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+/* 10. Onboarding: hide the blob mascot guide; the card stands alone. */
+[data-skin="nation"] .welcome-maus { display: none; }
+
+/* 11. Composer pill → flat dock: override the shadow ring and add a top rule. */
+[data-skin="nation"] [data-tour="composer"] {
+  box-shadow: none;
+  border-radius: 2px;
 }
 
 /* Shiki emits both palettes so cached blocks follow the nearest skin without
