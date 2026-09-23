@@ -1153,5 +1153,6 @@
   "engines.icon.help": "Elige un proveedor o sube una imagen cuadrada PNG, JPEG o WebP de hasta 128 KB. Solo se modificará esta instancia del motor.",
   "engines.icon.uploadAria": "Subir un icono de proveedor personalizado para {name}",
   "engines.icon.formatError": "Sube una imagen PNG, JPEG o WebP.",
-  "engines.icon.sizeError": "Los iconos de proveedor deben ocupar como máximo 128 KB."
+  "engines.icon.sizeError": "Los iconos de proveedor deben ocupar como máximo 128 KB.",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }

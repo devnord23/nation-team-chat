@@ -1153,5 +1153,6 @@
   "engines.icon.help": "प्रदाता चुनें या 128 KB तक की चौकोर PNG, JPEG या WebP छवि अपलोड करें। इससे केवल इस इंजन इंस्टेंस में बदलाव होगा।",
   "engines.icon.uploadAria": "{name} के लिए कस्टम प्रदाता आइकन अपलोड करें",
   "engines.icon.formatError": "PNG, JPEG या WebP छवि अपलोड करें।",
-  "engines.icon.sizeError": "प्रदाता के आइकन का आकार 128 KB या उससे कम होना चाहिए।"
+  "engines.icon.sizeError": "प्रदाता के आइकन का आकार 128 KB या उससे कम होना चाहिए।",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }

@@ -1153,5 +1153,6 @@
   "engines.icon.help": "プロバイダーを選択するか、128 KB 以下の正方形の PNG、JPEG、WebP 画像をアップロードしてください。このエンジンインスタンスだけが変更されます。",
   "engines.icon.uploadAria": "{name} のカスタムプロバイダーアイコンをアップロード",
   "engines.icon.formatError": "PNG、JPEG、WebP 画像をアップロードしてください。",
-  "engines.icon.sizeError": "プロバイダーアイコンは 128 KB 以下にしてください。"
+  "engines.icon.sizeError": "プロバイダーアイコンは 128 KB 以下にしてください。",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }

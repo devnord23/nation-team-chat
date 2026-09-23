@@ -1687,5 +1687,6 @@
   "engines.icon.help": "Виберіть постачальника або завантажте квадратне зображення PNG, JPEG чи WebP розміром до 128 КБ. Це змінить лише цей екземпляр рушія.",
   "engines.icon.uploadAria": "Завантажити власний значок постачальника для {name}",
   "engines.icon.formatError": "Завантажте зображення PNG, JPEG чи WebP.",
-  "engines.icon.sizeError": "Значки постачальників мають бути розміром не більше 128 КБ."
+  "engines.icon.sizeError": "Значки постачальників мають бути розміром не більше 128 КБ.",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }

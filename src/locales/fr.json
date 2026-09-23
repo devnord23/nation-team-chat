@@ -1153,5 +1153,6 @@
   "engines.icon.help": "Choisissez un fournisseur ou importez une image carrée PNG, JPEG ou WebP de 128 Ko maximum. Seule cette instance du moteur sera modifiée.",
   "engines.icon.uploadAria": "Importer une icône de fournisseur personnalisée pour {name}",
   "engines.icon.formatError": "Importez une image PNG, JPEG ou WebP.",
-  "engines.icon.sizeError": "Les icônes de fournisseur ne doivent pas dépasser 128 Ko."
+  "engines.icon.sizeError": "Les icônes de fournisseur ne doivent pas dépasser 128 Ko.",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }

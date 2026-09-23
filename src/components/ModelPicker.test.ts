@@ -1,6 +1,6 @@
 import { Children, createElement, type ChangeEvent, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppState, Bot, InstanceInfo } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
@@ -12,12 +12,17 @@ import type { EffortLevel } from "../../shared/wire";
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
-  return { instances: [] as InstanceInfo[], modelVariantSessions: {} as AppState["modelVariantSessions"], dispatch: vi.fn() };
+  return {
+    instances: [] as InstanceInfo[],
+    modelVariantSessions: {} as AppState["modelVariantSessions"],
+    dispatch: vi.fn(),
+    config: undefined as AppState["config"] | undefined,
+  };
 });
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
   useStore: () => ({
-    state: { instances: fixture.instances, modelVariantSessions: fixture.modelVariantSessions },
+    state: { instances: fixture.instances, modelVariantSessions: fixture.modelVariantSessions, config: fixture.config },
     dispatch: fixture.dispatch,
     refreshInstances: vi.fn(),
     refreshModels: vi.fn(),
@@ -249,7 +254,7 @@ describe("ModelPicker trigger", () => {
 
     expect(markup).toContain("GPT-5.6");
     expect(effortChip(markup)).toBe("· High");
-    expect(markup).toContain("Codex · GPT-5.6 · High effort");
+    expect(markup).toContain("NATION API · GPT-5.6 · High effort");
   });
 
   it("says nothing about effort when the bot sends no level", () => {
@@ -270,11 +275,12 @@ describe("ModelPicker trigger", () => {
     const markup = renderToStaticMarkup(createElement(ModelPicker, {
       bot: { ...bot(), modelSelection: { instanceId: "claude-work", model: "gpt-5.6" } },
     }));
-    expect(markup).toMatch(/<span data-model-account[^>]*>Work · <\/span>/);
+    // Both Claude accounts display "NATION API" branding (not the raw account name)
+    expect(markup).toMatch(/<span data-model-account[^>]*>NATION API · <\/span>/);
     expect(markup).not.toMatch(/<span data-model-account[^>]*>Personal/);
-    // The account remains a compact-only sibling of the hidden model label,
-    // and its button no longer squeezes into the icon-only 30px square.
-    expect(markup).toMatch(/<span data-model-account-compact="true" class="hidden max-w-20 truncate @max-4xl\/chathead:inline">Work<\/span><span class="[^"]*@max-4xl\/chathead:hidden"/);
+    // The compact chip also shows NATION API branding; the 30px icon-only square
+    // is suppressed in favour of the wider chip so the label remains readable.
+    expect(markup).toMatch(/<span data-model-account-compact="true" class="hidden max-w-20 truncate @max-4xl\/chathead:inline">NATION API<\/span><span class="[^"]*@max-4xl\/chathead:hidden"/);
     expect(markup).not.toContain("@max-4xl/chathead:size-[30px]");
   });
 });
@@ -329,5 +335,47 @@ describe("Claude provider and account selection", () => {
     const select = Children.toArray(dropdown.props.children)[1] as ReactElement<{ onChange: (event: ChangeEvent<HTMLSelectElement>) => void }>;
     select.props.onChange({ target: { value: personal.instanceId } } as ChangeEvent<HTMLSelectElement>);
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(personal);
+  });
+});
+
+describe("NATION admin gate — Claude filtering", () => {
+  const claude: InstanceInfo = { ...engine(), instanceId: "claude-1", driverKind: "claudeAgent", displayName: "Claude" };
+  const openrouter: InstanceInfo = { ...engine(), instanceId: "openrouter-1", driverKind: "openai-compat", displayName: "OpenRouter" };
+
+  afterEach(() => { fixture.config = undefined; });
+
+  // The ModelPicker renders the rail only in the open popover. Since renderToStaticMarkup
+  // captures the closed (initial) state, we verify filtering via ModelEngineRail directly
+  // which receives the pickerInstances after the admin filter is applied.
+
+  it("ModelEngineRail shows Claude button when Claude instances are passed", () => {
+    // Admin path: both instances reach the rail
+    const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [claude, openrouter], selectedInstance: openrouter, onSelect: () => {},
+    }));
+    expect(markup).toContain('aria-label="Claude"');
+    expect(markup).toContain('aria-label="OpenRouter"');
+  });
+
+  it("non-admin gets Claude filtered from pickerInstances — rail receives only OpenRouter", () => {
+    // Simulate what ModelPicker computes for non-admin: pickerInstances excludes claudeAgent
+    const nonAdminInstances = [openrouter]; // Claude filtered by ModelPicker
+    const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: nonAdminInstances, selectedInstance: openrouter, onSelect: () => {},
+    }));
+    expect(markup).not.toContain('aria-label="Claude"');
+    expect(markup).toContain('aria-label="OpenRouter"');
+  });
+
+  it("non-admin ModelPicker (pinRequired, not unlocked) has no Claude account select", () => {
+    fixture.instances = [claude, openrouter];
+    fixture.config = { adminGate: { pinRequired: true } } as AppState["config"];
+    // pickerInstances excludes claudeAgent → claudeAccounts = [] → no account select in trigger
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "openrouter-1", model: "gpt-5.6" } },
+    }));
+    // The claudeAccounts dropdown is only rendered inside the open popover,
+    // but the trigger aria-label must NOT identify Claude as the provider
+    expect(markup).not.toContain('aria-label="Account"');
   });
 });

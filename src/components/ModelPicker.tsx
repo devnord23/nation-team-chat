@@ -11,6 +11,7 @@ import type { EffortLevel } from "../../shared/wire";
 import type { ModelVariantOption } from "../../shared/runtime-events";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { configuredModelInstances, isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { EngineSetup, EngineUpdateNotice, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -350,7 +351,13 @@ export function ModelPicker({
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
-  const pickerInstances = configuredModelInstances(state.instances);
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+  });
+  const pickerInstances = configuredModelInstances(state.instances).filter(
+    (instance) => admin || instance.driverKind !== "claudeAgent",
+  );
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
     active?.models.options.find((option) => option.id === selection.model)?.variants?.find((option) => option.id === selection.variant)
       ?? { id: selection.variant, label: selection.variant },

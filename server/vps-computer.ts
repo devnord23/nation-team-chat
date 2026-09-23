@@ -348,7 +348,11 @@ export function defaultRunner(args: string[], options: VpsCommandOptions = {}): 
       settle(() => reject(new Error(`Docker-over-SSH stdin failed: ${error.message}`)));
     });
     child.on("error", (error) => {
-      settle(() => reject(new Error(`Docker-over-SSH could not start: ${error.message}`)));
+      const nodeError = error as NodeJS.ErrnoException;
+      const msg = nodeError.code === "ENOENT"
+        ? "Docker is not installed on the VPS or is not on the remote PATH. Install Docker on the VPS and ensure it is on PATH, then retry."
+        : `Docker-over-SSH could not start: ${error.message}`;
+      settle(() => reject(new Error(msg)));
     });
     child.on("close", (code, signal) => {
       if (timedOut) {

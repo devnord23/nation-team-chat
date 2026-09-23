@@ -1153,5 +1153,6 @@
   "engines.icon.help": "选择提供商，或上传不超过 128 KB 的正方形 PNG、JPEG 或 WebP 图片。此操作仅更改此引擎实例。",
   "engines.icon.uploadAria": "为 {name} 上传自定义提供商图标",
   "engines.icon.formatError": "请上传 PNG、JPEG 或 WebP 图片。",
-  "engines.icon.sizeError": "提供商图标不得超过 128 KB。"
+  "engines.icon.sizeError": "提供商图标不得超过 128 KB。",
+  "computer.phase.starting": "Starting your bot's computerâ€¦"
 }
