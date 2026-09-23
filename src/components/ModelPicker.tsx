@@ -354,6 +354,7 @@ export function ModelPicker({
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
     pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
   });
   const pickerInstances = configuredModelInstances(state.instances).filter(
     (instance) => admin || instance.driverKind !== "claudeAgent",

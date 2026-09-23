@@ -1532,6 +1532,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const admin = isProductAdmin({
     remoteClient,
     pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
   });
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);

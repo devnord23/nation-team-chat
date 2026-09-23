@@ -172,6 +172,7 @@ export function NationAdminPage() {
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
     pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
   });
 
   if (!admin) {

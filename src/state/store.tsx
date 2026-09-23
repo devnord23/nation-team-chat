@@ -573,6 +573,14 @@ export interface ConfigStatus {
   nationOpenrouter?: { configured: boolean; model: string };
   /** Admin gate status — drives Settings visibility for engine and key sections. */
   adminGate?: { pinRequired: boolean };
+  /**
+   * Server-authoritative owner flag. Set to true when auth.scopes includes
+   * "admin" (loopback/Electron or a paired admin session); false otherwise.
+   * When present, client-side isProductAdmin() trusts this over its own
+   * heuristics so that non-owner hosted-server users are never mistakenly
+   * granted admin UI access.
+   */
+  isProductOwner?: boolean;
   /** Voice. `configured` = the engine has what it needs (an ElevenLabs or
    * Fish Audio key, or a Chatterbox server address); `ready` = that AND a voice, which is
    * what it takes to actually speak. The key itself is never echoed back;
@@ -631,7 +639,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate"
+  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -657,6 +665,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     billing: frame.billing,
     nationOpenrouter: frame.nationOpenrouter,
     adminGate: frame.adminGate,
+    isProductOwner: frame.isProductOwner,
   };
 }
 
@@ -1383,6 +1392,8 @@ export function reducer(state: AppState, action: Action): AppState {
         pluginsOpen: false,
       };
     case "showAdmin":
+      // Deny silently if the server has told us this is not the owner.
+      if (state.config?.isProductOwner === false) return state;
       return {
         ...state,
         activeView: "admin",

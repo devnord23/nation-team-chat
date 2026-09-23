@@ -475,6 +475,7 @@ export function SettingsModal() {
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
     pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
   });
   const visibleSections = availableSections.filter((entry) => {
     if (!admin && isAdminOnlySettingsSection(entry.id)) return false;

@@ -31,6 +31,7 @@ import { TeamMapPage } from "@/components/TeamMapPage";
 import { NationAdminPage } from "@/components/NationAdminPage";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { isProductAdmin } from "@/lib/admin-gate";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -159,6 +160,13 @@ function Shell() {
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
 
+  // Eject from admin view if the server-provided owner flag revokes access.
+  useEffect(() => {
+    if (state.activeView === "admin" && state.config?.isProductOwner === false) {
+      dispatch({ type: "showChat" });
+    }
+  }, [state.activeView, state.config?.isProductOwner, dispatch]);
+
   useEffect(() => {
     if (
       localVmWorkspaceBotId &&
@@ -265,7 +273,11 @@ function Shell() {
           menuButtonRef.current?.focus();
         }}
       />}
-      {state.activeView === "admin" ? (
+      {state.activeView === "admin" && isProductAdmin({
+        remoteClient: Boolean(window.ogb?.remoteClient),
+        pinRequired: state.config?.adminGate?.pinRequired,
+        isProductOwner: state.config?.isProductOwner,
+      }) ? (
         <NationAdminPage />
       ) : state.activeView === "team-map" ? (
         <TeamMapPage />

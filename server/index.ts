@@ -10972,12 +10972,15 @@ function configStatus() {
 }
 
 function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean) {
-  if (admin) return status;
+  // Always inject the authoritative server-side admin verdict so the client
+  // never has to guess from remoteClient/pinRequired heuristics alone.
+  if (admin) return { ...status, isProductOwner: true };
   // Configured-or-not is fine; an SSH alias, an email, a browser partition
   // id, and the sign-in list are not a client's business. Preserve the
   // source objects.
   return {
     ...status,
+    isProductOwner: false,
     signIn: { admins: [], members: [] },
     vps: { configured: status.vps.configured, sshAlias: "" },
     profile: { name: status.profile.name, email: "" },
