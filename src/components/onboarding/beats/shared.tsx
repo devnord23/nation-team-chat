@@ -17,7 +17,7 @@ export interface BeatProps {
 }
 
 export const inputClass =
-  "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none";
+  "w-full rounded border border-hairline/40 bg-inset px-3 py-2.5 text-[14px] text-ink placeholder:text-ink-secondary focus:border-accent/60 focus:outline-none";
 
 /** Index for the `.stagger` utility; each sibling arrives 40ms after the last. */
 export function staggerIndex(i: number): CSSProperties {
@@ -34,7 +34,7 @@ export function PrimaryButton({
       data-primary=""
       {...rest}
       className={cn(
-        "w-full shrink-0 rounded-lg bg-accent py-2.5 text-[15px] font-medium text-white transition-[transform,opacity] duration-150 active:scale-[0.98] disabled:opacity-40",
+        "w-full shrink-0 rounded bg-accent py-2.5 text-[14px] font-medium text-white transition-[transform,opacity] duration-150 active:scale-[0.98] disabled:opacity-40",
         className,
       )}
     >

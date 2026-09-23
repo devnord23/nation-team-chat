@@ -578,7 +578,7 @@
   --color-menu: #111111;    /* = card: unchanged */
   --color-inset: #080808;
   --color-control: #1c1c1c;
-  --color-hairline: #303030;
+  --color-hairline: #404040;
 
   --color-ink: #f0f0f0;
   --color-ink-secondary: #969696;   /* 5.2:1 on raised-hover, ✓ AA */
@@ -605,6 +605,83 @@
     "Segoe UI", system-ui, sans-serif;
   --radius-lg: 3px;
   --radius-xl: 6px;
+}
+
+/* ── Nation skin: HUD structural overrides ──────────────────────────────────
+   Tailwind compiles rounded-* utilities at build time from its own scale, so
+   the skin block's --radius-* variables only reach the .ui-button rule above.
+   Every rounded-* hardcoded in component JSX needs a selector-weight override.
+   These rules live OUTSIDE the skin variable block so they can target child
+   elements and keep the other skins completely untouched.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* 1. Flatten consumer-SaaS rounding across ALL surfaces in the nation skin.
+      Chat bubbles (rounded-2xl), cards (rounded-xl/2xl), modals, approvals,
+      pills (rounded-full) all drop to ops-console precision.
+      Exception: explicit size-* dots keep their circle via the rule below. */
+[data-skin="nation"] .rounded-none  { border-radius: 0; }
+[data-skin="nation"] .rounded-sm    { border-radius: 1px; }
+[data-skin="nation"] .rounded       { border-radius: 1px; }
+[data-skin="nation"] .rounded-md    { border-radius: 2px; }
+[data-skin="nation"] .rounded-lg    { border-radius: 2px; }
+[data-skin="nation"] .rounded-xl    { border-radius: 3px; }
+[data-skin="nation"] .rounded-2xl   { border-radius: 4px; }
+[data-skin="nation"] .rounded-3xl   { border-radius: 6px; }
+/* Pill buttons and pill tags become rectangular: 2px keeps a micro-bevel. */
+[data-skin="nation"] .rounded-full  { border-radius: 2px; }
+/* Status indicator dots and avatar circles must stay circular — they're
+   identified by being tiny (size-1 / size-1.5 / size-2) AND rounded-full. */
+[data-skin="nation"] .size-1.rounded-full,
+[data-skin="nation"] .size-1\.5.rounded-full,
+[data-skin="nation"] .size-2.rounded-full,
+[data-skin="nation"] .size-2\.5.rounded-full  { border-radius: 50%; }
+
+/* 2. Tighter letter-spacing and font-weight for HUD headings. */
+[data-skin="nation"] h1,
+[data-skin="nation"] h2,
+[data-skin="nation"] h3 {
+  letter-spacing: -0.01em;
+}
+
+/* 3. Monospaced accent for the "thinking" indicator — ops-console log feel. */
+[data-skin="nation"] .thinking-shimmer {
+  font-family: "SF Mono", ui-monospace, "Fira Code", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* 4. Composer area: sharper top border, no soft gradient edge. */
+[data-skin="nation"] [data-composer] {
+  border-top: 1px solid var(--color-hairline);
+}
+
+/* 5. Scrollbars slightly more visible on the void-black ground. */
+[data-skin="nation"] ::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+}
+[data-skin="nation"] ::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}
+
+/* 6. Selection uses the accent at lower opacity so it stays readable. */
+[data-skin="nation"] ::selection {
+  background: color-mix(in oklab, #76b900 30%, transparent);
+  color: var(--color-ink);
+}
+
+/* 7. Code blocks: tighter line-height for the dense ops feel. */
+[data-skin="nation"] .chat-md pre,
+[data-skin="nation"] .chat-md code {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* 8. Nation-branded chat empty state: hide the blob avatar, show a
+      geometric badge instead via the ::before pseudo on the wrapper. */
+[data-skin="nation"] [data-empty-state] > svg,
+[data-skin="nation"] [data-empty-state] > canvas {
+  display: none;
 }
 
 /* Shiki emits both palettes so cached blocks follow the nearest skin without

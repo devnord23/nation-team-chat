@@ -26,14 +26,14 @@ export type Skin = {
 
 export const SKINS: readonly Skin[] = [
   { id: "nation", name: "Nation", tagline: "City-OS command center. Void black, NVIDIA green." },
-  { id: "midnight", name: "Midnight", tagline: "The original. Cool and dark." },
-  { id: "atelier", name: "Atelier", tagline: "Daylight on paper, warm and quiet." },
-  { id: "foundry", name: "Foundry", tagline: "Night shift. Dark, warm, lit in brass." },
-  { id: "lagoon", name: "Lagoon", tagline: "Cool daylight. Porcelain and deep teal." },
-  { id: "graphite", name: "Graphite", tagline: "Quiet charcoal and softened steel blue." },
-  { id: "linen", name: "Linen", tagline: "Clean daylight with a restrained navy accent." },
-  { id: "dusk", name: "Dusk", tagline: "Muted plum after dark, calm and low-key." },
-  { id: "daylight", name: "Daylight", tagline: "Midnight in reverse. Near-white, ink-black bubbles." },
+  { id: "midnight", name: "Midnight", tagline: "Near-black with cool blue accent." },
+  { id: "atelier", name: "Atelier", tagline: "Warm paper tones, daylight palette." },
+  { id: "foundry", name: "Foundry", tagline: "Dark warm surfaces, brass accent." },
+  { id: "lagoon", name: "Lagoon", tagline: "Tinted porcelain, deep teal accent." },
+  { id: "graphite", name: "Graphite", tagline: "Neutral charcoal, steel blue accent." },
+  { id: "linen", name: "Linen", tagline: "Clean daylight, navy accent." },
+  { id: "dusk", name: "Dusk", tagline: "Dark plum ground, violet accent." },
+  { id: "daylight", name: "Daylight", tagline: "Near-white with dark ink bubbles." },
 ];
 
 export const DEFAULT_SKIN: SkinId = "nation";
