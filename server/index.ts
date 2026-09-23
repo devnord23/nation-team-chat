@@ -2,6 +2,7 @@ import { loadLocalEnv } from "./load-local-env.ts";
 loadLocalEnv();
 import { cloudVpsPublicStatus } from "./cloud-vps-from-env.ts";
 import { adminGatePublicStatus, adminPinMatches } from "./admin-gate.ts";
+import { nationOpenRouterStatus } from "./nation-openrouter.ts";
 
 // OpenMausBot server Ã¢â‚¬â€ the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
@@ -10918,6 +10919,7 @@ function configStatus() {
       localEnv: cloudVpsPublicStatus(),
     },
     adminGate: adminGatePublicStatus(),
+    nationOpenrouter: nationOpenRouterStatus(),
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
     // the chosen voice is a setting, not a secret; the key is reported the
     // same configured-or-not way as every other credential

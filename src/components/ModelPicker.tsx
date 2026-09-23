@@ -619,7 +619,12 @@ export function ModelPicker({
               <>
                 <div className="shrink-0 px-4 pb-2 pt-3.5">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-[14px] font-semibold text-ink">NATION API</div>
+                    <div className="flex min-w-0 flex-col">
+                      <div className="truncate text-[14px] font-semibold text-ink">NATION API</div>
+                      {state.config?.nationOpenrouter?.configured && (
+                        <div className="text-[11px] text-success/80">nation hold get free credit</div>
+                      )}
+                    </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"

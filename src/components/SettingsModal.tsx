@@ -485,7 +485,10 @@ export function SettingsModal() {
     .filter((entry) => entry.id !== "workspaces" || workspacesAvailable(state.config))
     // sign-in by email is a hosted server's; the desktop app pairs devices under Remote access
     .filter((entry) => entry.id !== "people" || !window.ogb);
-  const admin = isProductAdmin({ remoteClient: Boolean(window.ogb?.remoteClient) });
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+  });
   const visibleSections = availableSections.filter((entry) => {
     if (!admin && isAdminOnlySettingsSection(entry.id)) return false;
     return sectionMatches(entry, q);

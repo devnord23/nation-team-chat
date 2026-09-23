@@ -1,17 +1,26 @@
 ﻿/**
  * Cloud VPS connection from gitignored .env.local (VPS_*).
  * Secrets stay in env — never in git or API responses.
+ *
+ * Key sources (either suffices for key auth):
+ *   VPS_SSH_KEY_PATH — path to a PEM private-key file
+ *   VPS_SSH_KEY      — raw PEM private-key content (for containerised deployments)
+ *
+ * Password-only auth is NEVER sufficient for the live desktop path.
  */
 export type VpsAuthMethod = "password" | "key";
 
 export type CloudVpsPublicStatus = {
   configured: boolean;
+  /** True only when host + user + at least one key source are present.
+   * Password-only configurations are never ready. */
   ready: boolean;
   host: string | null;
   user: string | null;
   port: number;
   label: string;
   authMethod: VpsAuthMethod;
+  /** True when a key is available (path or inline content), regardless of authMethod. */
   authSecretPresent: boolean;
   sshAlias: string | null;
   missing: string[];
@@ -30,15 +39,22 @@ export function cloudVpsPublicStatus(env: NodeJS.ProcessEnv = process.env): Clou
   const portNum = Number(portRaw);
   const port = Number.isFinite(portNum) && portNum > 0 ? portNum : 22;
   const authMethod = (trim(env.VPS_AUTH_METHOD).toLowerCase() === "password" ? "password" : "key") as VpsAuthMethod;
-  const password = trim(env.VPS_PASSWORD);
+
+  // Accept either a file path or inline key content.
   const sshKeyPath = trim(env.VPS_SSH_KEY_PATH);
-  const authSecretPresent = authMethod === "password" ? password.length > 0 : sshKeyPath.length > 0;
+  const sshKeyContent = trim(env.VPS_SSH_KEY);
+  const hasKey = sshKeyPath.length > 0 || sshKeyContent.length > 0;
+
+  // A key (path or inline) is always required — password alone is not accepted.
+  const authSecretPresent = hasKey;
 
   const missing: string[] = [];
   if (!host) missing.push("VPS_HOST");
   if (!user) missing.push("VPS_USER");
-  if (authMethod === "password" && !password) missing.push("VPS_PASSWORD");
-  if (authMethod === "key" && !sshKeyPath) missing.push("VPS_SSH_KEY_PATH");
+  if (!hasKey) {
+    // Report the canonical env var name; operators may use either.
+    missing.push("VPS_SSH_KEY_PATH (or VPS_SSH_KEY)");
+  }
 
   return {
     configured: Boolean(host && user),
