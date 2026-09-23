@@ -1,9 +1,9 @@
 // App settings, as a real modal with sections rather than one long panel.
-// Per-bot settings (persona, model, computer) live in BotSettingsDialog — this
+// Per-bot settings (persona, model, computer) live in BotSettingsDialog â€” this
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { Archive, Coins, FlaskConical, KeyRound, Monitor, Palette, Search, TabletSmartphone, Terminal, User, Users, X, Building2 } from "lucide-react";
+import { Archive, Coins, FlaskConical, KeyRound, Monitor, Palette, Search, Terminal, User, Users, X, Building2 } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { browserAvailable, browserUnavailableReason, builtInBrowserEnabled, showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
@@ -15,7 +15,6 @@ import { ApiKeyRow, OpenAiCompatUrl, VpsConnection } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
 import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
-import { CompanionSection } from "./CompanionSection";
 import { ServerPairingCard } from "./ServerPairingCard";
 import { PeopleSection } from "./PeopleSection";
 import { CustomDomainSettings } from "./CustomDomainSettings";
@@ -34,11 +33,12 @@ import { ThreadCleanupSettings } from "./ThreadCleanupSettings";
 import { WorkspaceBackupSettings } from "./WorkspaceBackupSettings";
 import { CompanyBackupSettings } from "./CompanyBackupSettings";
 import { cn } from "@/lib/cn";
+import { isProductAdmin, isAdminOnlySettingsSection } from "@/lib/admin-gate";
 import { setShowThreads, useShowThreads } from "@/lib/thread-preferences";
 
 // `labelKey`, not a label: t() reads the active pack when it is called, so a
 // label resolved here at module scope would freeze the language the app booted
-// in. The English keywords stay untranslated — they are a search index, and a
+// in. The English keywords stay untranslated â€” they are a search index, and a
 // pack that omits them still matches what people type.
 const SECTIONS: Array<{
   id: AppSettingsSection;
@@ -53,7 +53,6 @@ const SECTIONS: Array<{
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "composio", "box", "xai", "vps"] },
   { id: "engines", labelKey: "settings.section.engines", icon: Terminal, keywords: ["models", "claude", "grok", "providers", "cli"] },
-  { id: "companion", labelKey: "settings.section.companion", icon: TabletSmartphone, keywords: ["companion", "device", "phone", "desktop", "client", "host", "pair", "pairing", "mobile", "https", "secure", "tailscale", "wifi", "remote", "advanced", "domain", "dns", "self-hosted", "server", "caddy"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["vm", "virtual", "desktop"] },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
   { id: "people", labelKey: "settings.section.people", icon: Users, keywords: ["people", "users", "invite", "sign in", "members", "admins", "access"] },
@@ -170,7 +169,7 @@ function UpdatesRow() {
 
 /** Usage analytics, on by default and switchable here. Naming what is sent
  * matters more than the switch: people who cannot see the scope assume the
- * worst, and the worst — conversation text — is exactly what this never
+ * worst, and the worst â€” conversation text â€” is exactly what this never
  * sends (autocapture is off; see lib/analytics.ts). */
 function AnalyticsRow() {
   const [on, setOn] = useState(analyticsEnabled);
@@ -425,7 +424,7 @@ function BrowserProfilesRow() {
 }
 
 /** Writes a redacted diagnostics file to a location the user picks. The
- * report holds versions, configured-or-not booleans and the server.log tail —
+ * report holds versions, configured-or-not booleans and the server.log tail â€”
  * never credential values (the desktop shell does not read secret fields). */
 function DiagnosticsRow() {
   const [exporting, setExporting] = useState(false);
@@ -479,14 +478,18 @@ export function SettingsModal() {
   useEffect(() => window.ogb?.environments?.onOpenSettings?.(() => setQuery("")), []);
   useEffect(() => window.ogb?.onOpenAppSettings?.(() => setQuery("")), []);
   const q = query.trim().toLowerCase();
-  const availableSections = SECTIONS.filter((entry) => !remoteActive || entry.id === "companion" || entry.id === "appearance" || entry.id === "desktopWorkspaces")
+  const availableSections = SECTIONS.filter((entry) => !remoteActive || entry.id === "appearance" || entry.id === "desktopWorkspaces")
     .filter((entry) => entry.id !== "desktopWorkspaces" || Boolean(window.ogb?.environments))
     .filter((entry) => entry.id !== "organization" || Boolean(window.ogb?.organization))
     // the operator's screen for other workspaces exists only where a fleet agent does
     .filter((entry) => entry.id !== "workspaces" || workspacesAvailable(state.config))
     // sign-in by email is a hosted server's; the desktop app pairs devices under Remote access
     .filter((entry) => entry.id !== "people" || !window.ogb);
-  const visibleSections = availableSections.filter((entry) => sectionMatches(entry, q));
+  const admin = isProductAdmin({ remoteClient: Boolean(window.ogb?.remoteClient) });
+  const visibleSections = availableSections.filter((entry) => {
+    if (!admin && isAdminOnlySettingsSection(entry.id)) return false;
+    return sectionMatches(entry, q);
+  });
   const sectionLabelKey = SECTIONS.find((entry) => entry.id === section)?.labelKey;
   const nextVisibleSection = visibleSections.some((entry) => entry.id === section) ? undefined : visibleSections[0]?.id;
 
@@ -711,14 +714,8 @@ export function SettingsModal() {
               <>
                 <RemoteComputerSection />
                 {!remoteActive && <CustomDomainSettings />}
-                {/* mints an admin/client session token for anything that isn't the phone companion
-                    flow (MCP clients, `openmausbot pair`, a second desktop app), and pairs phones to a
-                    hosted server. Shown for the desktop app's own server (#950) AND when this desktop is
-                    a remote client of a hosted workspace: its requests carry that server's session, and
-                    Settings there is the only place that server's phones can be paired from (MOCA-84).
-                    The server decides who may act — an owner or an admin session — not this gate. */}
+                {/* Session pairing for MCP clients, CLI pair, and a second desktop app. */}
                 <ServerPairingCard />
-                {!remoteActive && <CompanionSection profileEmail={state.config?.profile?.email} />}
               </>
             )}
 

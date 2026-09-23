@@ -19,7 +19,7 @@ export interface BrandStatus {
   notice?: string;
 }
 
-export const DEFAULT_BRAND: Brand = { name: "NATION Team" };
+export const DEFAULT_BRAND: Brand = { name: "Nation Team Chat", tagline: "Nation · thenation.city · @visitnation", supportUrl: "https://t.me/thenation_city" };
 
 let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default", file: "" };
 
