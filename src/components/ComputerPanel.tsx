@@ -333,6 +333,9 @@ export function ComputerPanel({
   const [previewError, setPreviewError] = useState<Error | string | null>(null);
   const [previewRefreshing, setPreviewRefreshing] = useState(false);
   const [previewRetry, setPreviewRetry] = useState(0);
+  // How long (ms) we have been waiting for the first screenshot after ready.
+  const [previewWaitMs, setPreviewWaitMs] = useState(0);
+  const previewWaitStart = useRef<number | null>(null);
   const [vmFrame, setVmFrame] = useState<string | null>(null);
   // The Local VM's interactive noVNC viewer (passworded, autoconnect). The
   // preview below is a periodic screenshot that swallows clicks — this URL is
@@ -868,6 +871,24 @@ export function ComputerPanel({
     };
   }, [panelView, cloudPreviewReady, threadPath, cloudBackend, viewerOpen, pageVisible, pending, controlPending, previewRetry]);
 
+  // Track how long we have been waiting for the first preview frame so the UI
+  // can offer a fallback message after an extended wait rather than spinning
+  // indefinitely. Resets when a frame arrives or cloudPreviewReady turns off.
+  const frameSrcAvailable = Boolean(polledFrame ?? vmFrame ?? localFrame ?? live);
+  useEffect(() => {
+    if (!cloudPreviewReady || frameSrcAvailable) {
+      previewWaitStart.current = null;
+      setPreviewWaitMs(0);
+      return;
+    }
+    previewWaitStart.current ??= Date.now();
+    const tick = () => {
+      if (previewWaitStart.current !== null) setPreviewWaitMs(Date.now() - previewWaitStart.current);
+    };
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [cloudPreviewReady, frameSrcAvailable]);
+
   // Local VM preview comes directly from Cua Driver through the harness. It
   // does not use the password-protected noVNC viewer or cloud endpoints.
   useEffect(() => {
@@ -1042,8 +1063,10 @@ export function ComputerPanel({
       }
       if (!ownsConnection()) throw new DOMException("The selected conversation changed", "AbortError");
 
+      // For Local VM, the viewer URL is already known from the status response.
+      // For cloud/VPS, we must call /join to get (or create) the tunnel URL.
       let viewerUrl = vmViewerUrl;
-      if (cloudPreviewReady) {
+      if (cloudPreviewReady && !viewerUrl) {
         const result = await api(threadPath("computer/join"), { method: "POST", signal: controller.signal });
         viewerUrl = result.joinUrl?.constructor === String ? String(result.joinUrl) : null;
       }
@@ -1393,7 +1416,9 @@ export function ComputerPanel({
                 {currentTeamComputer
                   ? `${currentTeamComputer.name} · ${boxState ?? "unavailable"}`
                   : cloudPreviewReady
-                  ? t("computer.waitingFrame")
+                  ? previewWaitMs >= 15_000
+                    ? t("computer.previewUnavailable")
+                    : t("computer.waitingFrame")
                   : phase === "ready"
                     ? t("computer.autoChooseCloudOpen")
                   : phase === "vm"
@@ -1406,6 +1431,17 @@ export function ComputerPanel({
                       : t("computer.capturingLocal")
                     : emptyState[phase]}
               </span>
+              {cloudPreviewReady && previewWaitMs >= 15_000 && !control.held && !control.helpReason && (
+                <button
+                  type="button"
+                  onClick={() => void openDesktop()}
+                  disabled={controlPending || pending === "join"}
+                  className="mt-1 flex items-center gap-2 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover disabled:opacity-50"
+                >
+                  {pending === "join" ? <Loader2 size={13} className="animate-spin" /> : <Monitor size={13} />}
+                  {t("computer.open")}
+                </button>
+              )}
               {currentTeamComputer && <>
                 <p className="text-[12px]">Shared files and signed-in accounts. Auto uses this Box, not a private computer.</p>
                 <button type="button" onClick={() => dispatch({ type: "showTeamMap" })}

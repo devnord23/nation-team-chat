@@ -1733,6 +1733,7 @@
   "computer.open": "Open",
   "computer.watchOnly": "Watch-only preview",
   "computer.waitingFrame": "Waiting for the first frameâ€¦",
+  "computer.previewUnavailable": "Preview unavailable — use Open Desktop to connect directly.",
   "computer.autoChooseCloudOpen": "Auto found an existing cloud computer. Choose Cloud to open it.",
   "computer.capturingVm": "Capturing the Local VM screenâ€¦",
   "computer.linuxReady": "Ready for approved bot actions. Start the separate preview below when you want to watch the screen.",

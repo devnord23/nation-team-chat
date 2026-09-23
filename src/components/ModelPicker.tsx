@@ -28,6 +28,24 @@ function modelLabel(instance: InstanceInfo | undefined, model: string): string {
   return instance?.models.options.find((option) => option.id === model)?.label ?? model;
 }
 
+/** Simple client-side check: does the model ID look like a Claude/Anthropic slug? */
+function looksLikeClaude(model: string): boolean {
+  return /^claude[/-]/i.test(model) || /^anthropic\//i.test(model) || /\/claude[/-]/i.test(model);
+}
+
+/**
+ * Model label for the public-facing UI (non-admin users).
+ * Claude/Anthropic-backed models are masked to "NATION API" so vendor
+ * identity is never surfaced to regular users. When no instance is found
+ * for a Claude model ID, the raw ID is also masked.
+ */
+function publicModelLabel(instance: InstanceInfo | undefined, model: string, admin: boolean): string {
+  if (admin) return modelLabel(instance, model);
+  if (instance?.driverKind === "claudeAgent") return "NATION API";
+  if (!instance && looksLikeClaude(model)) return "NATION API";
+  return modelLabel(instance, model);
+}
+
 export function engineStatus(instance: InstanceInfo): string {
   if (needsCli(instance)) return t("model.setupRequired");
   if (needsSignIn(instance)) return t("model.signInRequired");
@@ -103,7 +121,7 @@ export function EffortRow({
 }
 
 function variantLabel(option: ModelVariantOption): string {
-  return option.id === "default" ? "OpenCode default" : option.label;
+  return option.id === "default" ? "Default" : option.label;
 }
 
 /** ACP variant ids are opaque; their model/session declares the available choices. */
@@ -270,7 +288,7 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
     const claude = instance.driverKind === "claudeAgent";
     const target = claude ? claudeInstance ?? instance : instance;
     const selected = claude ? selectedInstance?.driverKind === "claudeAgent" : instance.instanceId === selectedInstance?.instanceId;
-    const label = claude ? "Claude" : instance.displayName;
+    const label = claude ? "NATION API" : instance.displayName;
     const attention = needsCli(target) || needsSignIn(target) || Boolean(target.snapshot.update);
     return (
       <button
@@ -546,8 +564,8 @@ export function ModelPicker({
         bot.busy
           ? t(threadId ? "model.threadBusy" : "model.busy")
           : active
-          ? `NATION API · ${modelLabel(active, selection.model)}${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
-          : selection.model
+          ? `NATION API · ${publicModelLabel(active, selection.model, admin)}${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
+          : "NATION API"
       }
     >
       {/* InstanceProviderMark hidden — third-party provider logos not shown in top bar */}
@@ -559,7 +577,7 @@ export function ModelPicker({
           {showActiveAccount && (
             <span data-model-account className="text-ink-secondary">NATION API · </span>
           )}
-          {modelLabel(active, selection.model)}
+          {publicModelLabel(active, selection.model, admin)}
         </span>
         {/* outside the truncating span: a long model name must not be what
             hides the effort the header exists to surface */}
