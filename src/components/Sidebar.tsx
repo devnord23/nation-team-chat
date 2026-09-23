@@ -1988,6 +1988,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
       <DesktopWorkspaceSwitcher compact={density === "icons"} />
       <OrganizationIdentity compact={density === "icons"} />
+      {density !== "icons" && (
+        <div className="mx-3 mb-1 flex items-center gap-2.5 px-1">
+          <div className="flex size-6 items-center justify-center rounded-[5px] bg-accent text-[10px] font-bold text-accent-ink">N</div>
+          <span className="text-[13px] font-semibold tracking-tight text-ink">NATION Team</span>
+        </div>
+      )}
       {/* Search */}
       <div className={cn("pt-1 pb-3", density === "icons" ? "hidden" : "px-3")}>
         <div className="flex items-center gap-2 rounded-md border border-hairline/40 bg-inset/40 px-2.5 py-1.5 focus-within:border-accent/50">

@@ -278,15 +278,25 @@ function Shell() {
       ) : bot ? (
         <ChatView bot={bot} />
       ) : (
-        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
-          <Loader2 size={20} className="animate-spin" />
-          <div className="text-[14px]">
-            {state.connected ? "No bots yet" : "Connecting to the bot server…"}
-          </div>
-          {!state.connected && (
-            <div className="text-[12px]">
-              Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
-            </div>
+        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 bg-app px-6 text-ink-secondary">
+          {state.connected ? (
+            <>
+              <div className="flex size-12 items-center justify-center rounded-xl bg-accent text-[20px] font-bold text-accent-ink">N</div>
+              <div className="text-center">
+                <div className="text-[17px] font-semibold text-ink">Your AI team is ready</div>
+                <div className="mt-1 text-[13px]">Create your first bot to start chatting with your AI teammates.</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              <div className="text-center">
+                <div className="text-[14px]">Connecting to the bot server…</div>
+                <div className="mt-1 text-[12px]">
+                  Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
+                </div>
+              </div>
+            </>
           )}
         </main>
       )}

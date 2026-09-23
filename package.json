@@ -1,16 +1,16 @@
 {
-  "name": "openmausbot",
+  "name": "nation-team-chat",
   "private": true,
   "version": "0.1.85",
-  "description": "A local-first chat app for running a team of AI agents.",
-  "homepage": "https://github.com/milind-soni/OpenMausBot",
+  "description": "Your own team of AI bots, in a chat app. Persistent, named AI teammates that share one durable computer.",
+  "homepage": "https://github.com/devnord23/nation-team-chat",
   "repository": {
     "type": "git",
-    "url": "https://github.com/milind-soni/OpenMausBot.git"
+    "url": "https://github.com/devnord23/nation-team-chat.git"
   },
   "author": {
-    "name": "Milind Soni",
-    "email": "46266943+milind-soni@users.noreply.github.com"
+    "name": "NATION",
+    "url": "https://thenation.city"
   },
   "license": "Apache-2.0",
   "desktopName": "com.openmausbot.app.desktop",
