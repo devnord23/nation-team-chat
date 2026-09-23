@@ -1990,7 +1990,14 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <OrganizationIdentity compact={density === "icons"} />
       {density !== "icons" && (
         <div className="mx-3 mb-1.5 flex items-center gap-2.5 border-b border-hairline/30 pb-2.5 px-1 pt-1">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-accent text-[11px] font-black tracking-tighter text-white">N</div>
+          <img
+            src="/nation-faces/nation.svg"
+            alt="NATION"
+            width={28}
+            height={28}
+            draggable={false}
+            style={{ width: 28, height: 28, display: "block", flexShrink: 0 }}
+          />
           <div className="flex min-w-0 flex-col">
             <span className="text-[12px] font-bold tracking-widest text-ink uppercase">NATION</span>
             <span className="text-[10px] uppercase tracking-widest text-ink-secondary/70">Team Chat</span>
