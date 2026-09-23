@@ -166,6 +166,7 @@
   --color-accent: #1084fe;
   --color-accent-border: #459ffe;
   --color-accent-text: #7fc0ff;
+  --color-focus: #459ffe;
   --color-accent-ink: #ffffff;
   --color-bubble-user: #5a5a5a;
   --color-bubble-user-ink: #fcfcfc;   /* = ink: unchanged */
@@ -544,6 +545,66 @@
     "Segoe UI", system-ui, sans-serif;
   --radius-lg: 8px;
   --radius-xl: 14px;
+}
+
+/* ── Nation ────────────────────────────────────────────────────────────────
+   NATION city-OS / command-center HUD aesthetic.
+
+   Design concept: a void-black ops console — the kind of surface a
+   mission-control operator stares at for hours. Every surface is near-void;
+   the only colour that matters is the accent, which is NVIDIA green (#76b900).
+   Text stays cool off-white so the eye never fights the dark ground.
+
+   Structural choices:
+   • Nearly-black ladder: app=#000 → panel → card → raised → raised-hover,
+     each step just perceptible, giving the three columns visual depth without
+     adding hue.
+   • NVIDIA green (#76b900) as the sole accent: live status, primary actions,
+     focus rings, text links.  Black ink on the green fill (not white) — at
+     L=0.386 the green is too bright for white text to clear AA.
+   • Danger is a warm red with dark ink, same HUD logic.
+   • Tight corners (3 px / 6 px) to read as precision tooling, not consumer
+     chat.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="nation"] {
+  --code-color-scheme: dark;
+  --color-app: #000000;
+  --color-panel: #0d0d0d;
+  --color-raised: #1a1a1a;
+  --color-raised-hover: #242424;
+  --color-composer: #1a1a1a;    /* = raised: unchanged */
+  --color-composer-ring: transparent;
+  --color-card: #111111;
+  --color-menu: #111111;    /* = card: unchanged */
+  --color-inset: #080808;
+  --color-control: #1c1c1c;
+  --color-hairline: #303030;
+
+  --color-ink: #f0f0f0;
+  --color-ink-secondary: #969696;   /* 5.2:1 on raised-hover, ✓ AA */
+
+  /* NVIDIA green family. The fill is bright (L≈0.386) so ink must be black. */
+  --color-accent: #76b900;
+  --color-accent-border: #8fcc00;
+  --color-accent-text: #76b900;     /* 8.7:1 on app/panel/card ✓ */
+  --color-focus: #76b900;           /* 8.7:1 on app/panel/card ✓ */
+  --color-accent-ink: #000000;      /* 8.7:1 on #76b900 ✓ */
+
+  --color-bubble-user: #1a1a1a;     /* = raised */
+  --color-bubble-user-ink: #f0f0f0; /* = ink */
+
+  --color-success: #5cb800;         /* green-family; 7.5:1 on card ✓ */
+  --color-success-ink: #000000;
+  --color-danger: #e84545;          /* warm red; 4.8:1 on card ✓ */
+  --color-danger-ink: #000000;
+  --color-warning: #e09900;         /* amber; 7.8:1 on card ✓ */
+  --color-scrollbar: #3a3a3a;       /* 1.8:1 on app ✓ */
+  --color-maus-line: #969696;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", system-ui, sans-serif;
+  --radius-lg: 3px;
+  --radius-xl: 6px;
 }
 
 /* Shiki emits both palettes so cached blocks follow the nearest skin without

@@ -37,6 +37,47 @@ pnpm dev
 
 The web UI connects to the local bot server on port 8799 via `/api` proxy.
 
+## OpenRouter (Recommended)
+
+OpenRouter is the fastest path to a working bot — no direct Anthropic or OpenAI
+key required.
+
+**1. Get a free key at <https://openrouter.ai/keys>.**
+
+**2. Set the environment variable:**
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-…
+# Optional: choose any model from https://openrouter.ai/models
+export OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct
+```
+
+Or copy `.env.example` to `.env` and fill in `OPENROUTER_API_KEY`.
+
+**3. Start the server, create a bot, and select the engine:**
+
+```
+pnpm dev:server
+pnpm dev        # → http://localhost:5199
+```
+
+In the UI: **New Bot → Engine → "OpenAI-compatible (OpenRouter / Groq)"**.  
+The server reads `OPENROUTER_API_KEY` automatically — no extra config needed.
+
+The `OPENROUTER_MODEL` variable sets the default model for the driver.
+You can also override it per-bot in the bot settings panel.
+
+### Model override
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `OPENROUTER_API_KEY` | *(none)* | Your OpenRouter API key |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct` | Default model id |
+| `OPENROUTER_API_URL` | `https://openrouter.ai/api/v1` | Override endpoint (Groq, llama.cpp, etc.) |
+
+`OPENAI_COMPAT_API_KEY` / `OPENAI_COMPAT_MODEL` / `OPENAI_COMPAT_URL` are
+legacy aliases for the same three variables.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and adjust as needed:
@@ -48,10 +89,9 @@ Copy `.env.example` to `.env` and adjust as needed:
 | `OMB_PUBLIC_URL` | `http://localhost:8080` | Public URL for webhooks |
 | `OMB_UI_PORT` | `5199` | Vite dev server port |
 | `OMB_PORT` | `8799` | Bot server API port |
-| `ENGINES` | `@anthropic-ai/claude-code @openai/codex` | AI engines to install |
-
-Each bot runs on an AI CLI you install (Claude Code, Codex, etc.) using your
-own API key or login. NATION Team does not ship its own model.
+| `ENGINES` | `@anthropic-ai/claude-code @openai/codex` | AI engines to install (optional when using OpenRouter) |
+| `OPENROUTER_API_KEY` | *(none)* | OpenRouter API key |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct` | Default model for the OpenAI-compat driver |
 
 ## Deploy to Vercel
 
@@ -75,7 +115,7 @@ docker compose up
 - Ask-first approval cards for consequential actions
 - Computer panel with live screen preview and take-control
 - Onboarding flow, welcome tour
-- Multiple AI engine support (Claude, Codex, ACP, Grok, Ollama)
+- Multiple AI engine support (Claude, Codex, ACP, Grok, Ollama, **OpenRouter**)
 - Voice mode, browser automation, MCP tool integration
 - Routines (scheduled bot actions)
 - Team library for sharing bot packages

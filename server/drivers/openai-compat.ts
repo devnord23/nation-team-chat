@@ -42,19 +42,25 @@ function decodeConfig(raw: unknown): OpenAICompatConfig {
   const config = (raw ?? {}) as Record<string, unknown>;
   if (config.tools !== undefined && typeof config.tools !== "boolean") throw new Error("tools must be a boolean");
   if (config.managedModels !== undefined && (!Array.isArray(config.managedModels) || !config.managedModels.length || config.managedModels.some(model => typeof model !== "string" || !model.trim()))) throw new Error("Invalid managed models.");
-  const envUrl = process.env.OPENAI_COMPAT_URL;
+  // OPENROUTER_API_URL and OPENAI_COMPAT_URL are aliases; OPENROUTER wins when set.
+  const envUrl = process.env.OPENROUTER_API_URL || process.env.OPENAI_COMPAT_URL;
   return {
     ...(config.tools !== undefined ? { tools: config.tools as boolean } : {}),
     ...(config.managedModels ? { managedModels: config.managedModels as string[] } : {}),
     url: (typeof config.url === "string" && config.url ? config.url : envUrl || "https://openrouter.ai/api/v1")
       .replace(/\/+$/, ""),
+    // If the caller set a config-level key env name, respect it; otherwise prefer
+    // OPENROUTER_API_KEY over the generic OPENAI_COMPAT_API_KEY so that users
+    // who set OPENROUTER_API_KEY don't need to rename their variable.
     apiKeyEnv: typeof config.apiKeyEnv === "string" && config.apiKeyEnv
       ? config.apiKeyEnv
+      : process.env.OPENROUTER_API_KEY
+      ? "OPENROUTER_API_KEY"
       : "OPENAI_COMPAT_API_KEY",
     key: typeof config.key === "string" && config.key ? config.key : undefined,
     model: typeof config.model === "string" && config.model
       ? config.model
-      : process.env.OPENAI_COMPAT_MODEL || undefined,
+      : process.env.OPENROUTER_MODEL || process.env.OPENAI_COMPAT_MODEL || undefined,
     // An explicit empty override disables inherited routing for an isolated
     // connection (CLI setup uses this). Absent still inherits the global pin.
     provider: typeof config.provider === "string"
@@ -74,7 +80,7 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
   install: {
     docsUrl: "https://openrouter.ai/keys",
     signInCommand:
-      "add {\"openaiCompat\":{\"key\":\"sk-or-v1-…\"}} to ~/.openmausbot/config.json (or set OPENAI_COMPAT_API_KEY)",
+      "set OPENROUTER_API_KEY in the environment (or add {\"openaiCompat\":{\"key\":\"sk-or-v1-…\"}} to ~/.openmausbot/config.json)",
     command: {
       darwin:
         "Get a free key at https://openrouter.ai/keys (or https://console.groq.com) then add it to ~/.openmausbot/config.json under openaiCompat.key",
@@ -93,8 +99,10 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
       config.key ??
       input.environment[config.apiKeyEnv] ??
       input.environment.OPENAI_COMPAT_API_KEY ??
+      input.environment.OPENROUTER_API_KEY ??
       process.env[config.apiKeyEnv] ??
       process.env.OPENAI_COMPAT_API_KEY ??
+      process.env.OPENROUTER_API_KEY ??
       "";
     let catalog: ModelCatalog = config.managedModels
       ? { default: config.managedModels[0], options: config.managedModels.map(id => ({ id, label: id })) }
@@ -159,8 +167,8 @@ export const OpenAICompatDriver: ProviderDriver<OpenAICompatConfig> = {
           : {}),
       }),
       httpErrorLabel: "upstream",
-      missingKeyError: `no API key — set ${config.apiKeyEnv} or add it to the instance config`,
-      unavailableReason: `no API key — set ${config.apiKeyEnv} or add it to the instance config`,
+      missingKeyError: `no API key — set OPENROUTER_API_KEY (or ${config.apiKeyEnv}) or add it to the instance config`,
+      unavailableReason: `no API key — set OPENROUTER_API_KEY (or ${config.apiKeyEnv}) or add it to the instance config`,
       timeoutMs: idleTimeoutMs(),
       reasoning: true,
       billing: "metered",
