@@ -1,10 +1,9 @@
-// Bot avatar — geometric agent mark (NATION identity system).
-// Bots without custom images render a color-coded square with the initial
-// letter of the bot's name, styled like a BOTROSTER coat-of-arms tile.
-// The underlying MausAvatar / CursorAvatar engine is retained for call
-// sites that explicitly want the animated mascot (WelcomeFlow guide, etc.),
-// but BotAvatar — what the roster, chat bubbles, and empty states all use —
-// now renders a flat geometric SVG instead of a cartoon blob face.
+// Bot avatar — the Blob Studio "Cursor" mascot (CursorAvatar.tsx), wrapped
+// in the app's historical MausAvatar API so no call site changes: per-bot
+// color becomes a body gradient, the app's one-shot motion beats borrow the
+// face/state for a moment, and the eyes follow the pointer. The previous
+// hand-built Maus body + face engine (maus-engine/face/driver) is gone;
+// CursorAvatar owns morphing, blinking, drift, body motion and effects.
 import {
   forwardRef,
   memo,
@@ -14,7 +13,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MAUS_COLORS, nationFaceUrl, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { CursorAvatar, type CursorAvatarHandle } from "./CursorAvatar";
 import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
 import { MASCOT_BODIES, botMascotBody, type MascotBodyId } from "../../shared/mascot-bodies";
@@ -241,32 +240,7 @@ export function resolveBotAvatarOutcome(params: {
  * values and images that fail to load both fall back to the animated mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-/**
- * NATION Swarm face — renders the bot's color-matched SVG mark from
- * /nation-faces/<name>.svg. Each SVG is a 64×64 circle with a geometric
- * HUD mark. No mascot blob, no cartoon faces.
- */
-function NationFaceImg({
-  color,
-  size,
-  label,
-}: {
-  color?: string;
-  size: number;
-  label?: string;
-}) {
-  const src = nationFaceUrl(color);
-  return (
-    <img
-      src={src}
-      alt={label ?? "Agent"}
-      draggable={false}
-      style={{ width: size, height: size, display: "block", flexShrink: 0, borderRadius: 2 }}
-    />
-  );
-}
-
-export function BotAvatar({ bot, size = 44, label }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -279,9 +253,10 @@ export function BotAvatar({ bot, size = 44, label }: BotAvatarProps) {
   });
 
   if (outcome !== "flatImage") {
-    // No custom image: use the color-matched NATION Swarm face.
     return (
-      <NationFaceImg
+      <MausAvatar
+        bodyId={bot.mascotBody ?? undefined}
+        {...mascotProps}
         color={bot.color}
         size={size}
         label={label ?? bot.name}

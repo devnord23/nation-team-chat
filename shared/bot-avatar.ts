@@ -10,18 +10,15 @@ export const botAvatarCropSchema = z.enum(BOT_AVATAR_CROPS);
 export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 
 /**
- * Custom avatars are deliberately limited to this app's attachment server
- * OR the built-in nation-face set served from public/nation-faces/.
- * Besides making persisted profiles portable across desktop/browser clients,
- * this prevents a bot profile from becoming an external tracking pixel.
- * The nation-faces directory is an allowlist of trusted, script-free SVGs
- * that ship with the product.
+ * Custom avatars are limited to this app's attachment server OR the six
+ * built-in bot-face assets served from public/bot-faces/. The /bot-faces/
+ * path is an explicit allowlist of product-owned images; no external URLs.
  */
 export const botAvatarUrlSchema = z
   .string()
   .regex(
-    /^(?:\/api\/attachments\/[A-Za-z0-9-]+\.(?:png|jpg|gif|webp)|\/nation-faces\/[a-z]+\.svg)$/,
-    "must be a stored PNG/JPEG/GIF/WebP attachment or a built-in nation-face SVG",
+    /^(?:\/api\/attachments\/[A-Za-z0-9-]+\.(?:png|jpg|gif|webp)|\/bot-faces\/(?:coordinator|researcher|builder|analyst|creator|operator)\.(?:svg|png))$/,
+    "must be a stored attachment or a built-in bot-face",
   );
 
 export function botAvatarUrlFromStoredPath(path: string): string | null {
@@ -44,9 +41,7 @@ export interface BotAvatarProfile {
 
 export function botAvatarProfile(value: BotAvatarProfileInput): BotAvatarProfile {
   const profile: BotAvatarProfile = {
-    // Default to "circle" — bots without an explicit crop use the nation-face
-    // image (served as a circle-cropped img) rather than the mascot blob.
-    avatarCrop: botAvatarCropSchema.safeParse(value.avatarCrop).data ?? "circle",
+    avatarCrop: botAvatarCropSchema.safeParse(value.avatarCrop).data ?? "mascot",
   };
   const url = botAvatarUrlSchema.safeParse(value.avatarUrl);
   if (url.success) profile.avatarUrl = url.data;

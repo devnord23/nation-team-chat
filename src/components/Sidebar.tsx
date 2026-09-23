@@ -1989,32 +1989,22 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       <DesktopWorkspaceSwitcher compact={density === "icons"} />
       <OrganizationIdentity compact={density === "icons"} />
       {density !== "icons" && (
-        <div className="mx-3 mb-1.5 flex items-center gap-2.5 border-b border-hairline/30 pb-2.5 px-1 pt-1">
-          <img
-            src="/nation-faces/nation.svg"
-            alt="NATION"
-            width={28}
-            height={28}
-            draggable={false}
-            style={{ width: 28, height: 28, display: "block", flexShrink: 0 }}
-          />
-          <div className="flex min-w-0 flex-col">
-            <span className="text-[12px] font-bold tracking-widest text-ink uppercase">NATION</span>
-            <span className="text-[10px] uppercase tracking-widest text-ink-secondary/70">Team Chat</span>
-          </div>
+        <div className="mx-3 mb-1 flex items-center gap-2.5 px-1">
+          <div className="flex size-6 items-center justify-center rounded-[5px] bg-accent text-[10px] font-bold text-accent-ink">N</div>
+          <span className="text-[13px] font-semibold tracking-tight text-ink">NATION Team</span>
         </div>
       )}
       {/* Search */}
       <div className={cn("pt-1 pb-3", density === "icons" ? "hidden" : "px-3")}>
-        <div className="flex items-center gap-2 rounded border border-hairline/50 bg-inset/60 px-2.5 py-1.5 focus-within:border-accent/70 focus-within:bg-inset">
-          <Search size={13} className="text-ink-secondary/70" />
+        <div className="flex items-center gap-2 rounded-md border border-hairline/40 bg-inset/40 px-2.5 py-1.5 focus-within:border-accent/50">
+          <Search size={14} className="text-ink-secondary" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setQuery("")}
             placeholder={t("sidebar.search")}
             aria-label={t("sidebar.searchAria")}
-            className="w-full bg-transparent text-[12px] text-ink placeholder:text-ink-secondary/60 focus:outline-none"
+            className="w-full bg-transparent text-[12.5px] text-ink placeholder:text-ink-secondary focus:outline-none"
           />
         </div>
       </div>

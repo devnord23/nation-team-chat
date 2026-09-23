@@ -109,20 +109,13 @@ export function ApprovalCard({
   return (
     <div
       data-tour={settled ? undefined : "approval"}
-      data-approval={settled ? "settled" : "pending"}
       className={cn(
-        "w-full max-w-[840px] rounded-lg border bg-card",
-        settled
-          ? "border-hairline/30 opacity-70"
-          : "border-accent/50 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_8%,transparent)]",
+        "w-full max-w-[840px] rounded-2xl border bg-card p-4",
+        settled ? "border-hairline/30 opacity-70" : "border-accent/40",
       )}
     >
-      {/* header bar */}
-      <div className={cn(
-        "flex items-center justify-between gap-3 border-b px-4 py-2.5",
-        settled ? "border-hairline/20" : "border-accent/20 bg-accent/[0.04]",
-      )}>
-        <div className="text-[13.5px] font-semibold text-ink">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-[15px] font-semibold text-ink">
           {isTeamSetup ? card.title : profileHeader ?? (
             <>
               {bot
@@ -131,70 +124,64 @@ export function ApprovalCard({
             </>
           )}
         </div>
-        {displayTool && !isTeamSetup && (
-          <span className="shrink-0 rounded border border-hairline/30 bg-raised px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary">
-            {displayTool}
-          </span>
-        )}
+        {displayTool && !isTeamSetup && <span className="shrink-0 font-mono text-[11px] text-ink-secondary">{displayTool}</span>}
       </div>
 
-      {/* body */}
-      <div className="p-3">
-        {/* what, exactly */}
-        <pre
-          tabIndex={0}
-          aria-label={
-            isRoutineRequest
-              ? t("approval.aria.routineDetails")
-              : isSkillRequest
-                ? t("approval.aria.skillDetails")
-                : isProfileRequest
-                  ? t("approval.aria.profileChange")
-                  : t("approval.aria.details")
-          }
-          className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded bg-inset px-3 py-2 font-mono text-[12px] leading-relaxed text-ink"
-        >
-          {card.subtitle}
-        </pre>
+      {/* what, exactly */}
+      <pre
+        tabIndex={0}
+        aria-label={
+          isRoutineRequest
+            ? t("approval.aria.routineDetails")
+            : isSkillRequest
+              ? t("approval.aria.skillDetails")
+              : isProfileRequest
+                ? t("approval.aria.profileChange")
+                : t("approval.aria.details")
+        }
+        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink"
+      >
+        {card.subtitle}
+      </pre>
 
-        {card.skillRequest && <SkillRequestPreview request={card.skillRequest} />}
+      {card.skillRequest && <SkillRequestPreview request={card.skillRequest} />}
 
-        {heldNote && (
-          <div className="mt-2 rounded border border-warning/30 bg-warning/[0.08] px-3 py-2 text-[12px] text-warning">
-            {heldNote}
-          </div>
-        )}
-
-        {/* status */}
-        <div className="mt-2.5 flex items-center gap-1.5 text-[12px] text-ink-secondary">
-          {settled === "allow" ? (
-            <>
-              <Check size={12} className="text-success" />
-              {isTeamSetup ? (card.teamSetupRequest?.deletion ? "Bot deleted" : "Team setup applied") : skillSettledLabel ??
-                routineSettledLabel ??
-                (isProfileRequest
-                  ? t("approval.status.profileUpdated")
-                  : isRoutineRequest
-                    ? t("approval.status.routineConfirmed")
-                    : isSkillRequest
-                      ? t("approval.status.skillConfirmed")
-                      : t("approval.status.allowed"))}
-            </>
-          ) : settled ? (
-            <>
-              <X size={12} /> {isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup
-                ? t("approval.status.cancelled")
-                : t("approval.status.denied")}
-            </>
-          ) : (
-            <>
-              <ShieldCheck size={12} className="text-accent" />
-              {isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup
-                ? t("approval.status.waitingConfirmation")
-                : t("approval.status.waitingAnswer")}
-            </>
-          )}
+      {heldNote && (
+        <div className="mt-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
+          {heldNote}
         </div>
+      )}
+
+      {/* The decision lives in the composer (one place to answer, and it
+          can't be scrolled past); here we only record what happened. */}
+      <div className="mt-3 flex items-center gap-1.5 text-[13px] text-ink-secondary">
+        {settled === "allow" ? (
+          <>
+            <Check size={14} className="text-success" />
+            {isTeamSetup ? (card.teamSetupRequest?.deletion ? "Bot deleted" : "Team setup applied") : skillSettledLabel ??
+              routineSettledLabel ??
+              (isProfileRequest
+                ? t("approval.status.profileUpdated")
+                : isRoutineRequest
+                  ? t("approval.status.routineConfirmed")
+                  : isSkillRequest
+                    ? t("approval.status.skillConfirmed")
+                    : t("approval.status.allowed"))}
+          </>
+        ) : settled ? (
+          <>
+            <X size={14} /> {isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup
+              ? t("approval.status.cancelled")
+              : t("approval.status.denied")}
+          </>
+        ) : (
+          <>
+            <ShieldCheck size={14} className="text-accent" />
+            {isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup
+              ? t("approval.status.waitingConfirmation")
+              : t("approval.status.waitingAnswer")}
+          </>
+        )}
       </div>
     </div>
   );

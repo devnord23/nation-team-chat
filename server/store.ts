@@ -406,32 +406,17 @@ const COLORS: MausColor[] = [
 ];
 
 /**
- * 16 NATION Swarm face filenames in palette order, matching
- * public/nation-faces/<name>.svg. Each bot is assigned the face that
- * corresponds to its color; cycling ensures variety across the roster.
+ * The six NATION bot-face assets in public/bot-faces/, cycled across new bots
+ * in order so the roster gets variety out of the box.
  */
-const NATION_FACES_BY_COLOR: Record<string, string> = {
-  green:  "moss",
-  blue:   "frost",
-  red:    "ember",
-  orange: "copper",
-  purple: "iris",
-  cyan:   "harbor",
-  pink:   "quartz",
-  yellow: "pollen",
-  teal:   "tide",
-  coral:  "kiln",
-};
-const ALL_NATION_FACES = [
-  "comet", "copper", "dusk", "ember", "frost", "harbor",
-  "iris", "kiln", "meadow", "moss", "nation", "oak",
-  "pollen", "quartz", "slate", "tide",
-] as const;
-
-function nationFaceForBot(color: string, botIndex: number): string {
-  // Prefer the color-matched face; fall back to cycling through all 16.
-  return NATION_FACES_BY_COLOR[color] ?? ALL_NATION_FACES[botIndex % ALL_NATION_FACES.length]!;
-}
+const BOT_FACES: Array<{ url: string; color: MausColor }> = [
+  { url: "/bot-faces/coordinator.svg", color: "green"  },
+  { url: "/bot-faces/researcher.svg",  color: "purple" },
+  { url: "/bot-faces/builder.svg",     color: "cyan"   },
+  { url: "/bot-faces/analyst.svg",     color: "yellow" },
+  { url: "/bot-faces/creator.svg",     color: "orange" },
+  { url: "/bot-faces/operator.svg",    color: "blue"   },
+];
 
 /** Sections are persisted as display labels, so exact trimmed labels are
  * their identity. Missing/blank means the unsectioned (General) team. */
@@ -1474,8 +1459,9 @@ export class Store {
     this.rememberSections([profile.section]);
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
     const section = sectionKey(profile.section);
-    const color = profile.color ?? COLORS[this.bots.length % COLORS.length];
-    const face = nationFaceForBot(color, this.bots.length);
+    // Cycle through the six bot-face assets for the first bots; fall back to
+    // the color wheel for any extras beyond the set.
+    const faceEntry = BOT_FACES[this.bots.length % BOT_FACES.length]!;
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -1485,11 +1471,11 @@ export class Store {
       soul: profile.soul ?? "",
       soulHash: soulHash(profile.soul ?? ""),
       notifications: true,
-      color,
-      // Default avatar: the color-matched NATION Swarm face (a static SVG
-      // served from /nation-faces/). Circle crop; no mascot body.
-      avatarUrl: `/nation-faces/${face}.svg`,
-      avatarCrop: "circle",
+      color: profile.color ?? faceEntry.color,
+      // Default avatar: circle-cropped bot-face SVG from public/bot-faces/.
+      // Bots with an explicit custom image or color override ignore this.
+      avatarUrl: `/bot-faces/${faceEntry.url.split("/").pop()!}`,
+      avatarCrop: "circle" as const,
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
       ...(profile.mascotBody ? { mascotBody: profile.mascotBody } : {}),
       unread: false,
