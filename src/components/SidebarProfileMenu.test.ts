@@ -163,7 +163,7 @@ describe("outward links", () => {
     expect(DOCS_URL).toBe("https://github.com/milind-soni/OpenMausBot/tree/main/docs");
   });
 
-  it("sends Send Feedback to the Discord community", () => {
-    expect(FEEDBACK_URL).toBe("https://discord.gg/9Wb8MEpXRs");
+  it("sends Send Feedback to the Nation Telegram", () => {
+    expect(FEEDBACK_URL).toBe("https://t.me/thenation_city");
   });
 });

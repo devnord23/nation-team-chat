@@ -10,16 +10,15 @@ export const botAvatarCropSchema = z.enum(BOT_AVATAR_CROPS);
 export type BotAvatarCrop = z.infer<typeof botAvatarCropSchema>;
 
 /**
- * Custom avatars are deliberately limited to this app's attachment server.
- * Besides making persisted profiles portable across desktop/browser clients,
- * this prevents a bot profile from becoming an external tracking pixel or a
- * script-capable SVG.
+ * Custom avatars are limited to this app's attachment server OR the six
+ * built-in bot-face assets served from public/bot-faces/. The /bot-faces/
+ * path is an explicit allowlist of product-owned images; no external URLs.
  */
 export const botAvatarUrlSchema = z
   .string()
   .regex(
-    /^\/api\/attachments\/[A-Za-z0-9-]+\.(?:png|jpg|gif|webp)$/,
-    "must be a stored PNG, JPEG, GIF, or WebP attachment",
+    /^(?:\/api\/attachments\/[A-Za-z0-9-]+\.(?:png|jpg|gif|webp)|\/bot-faces\/(?:coordinator|researcher|builder|analyst|creator|operator)\.(?:svg|png))$/,
+    "must be a stored attachment or a built-in bot-face",
   );
 
 export function botAvatarUrlFromStoredPath(path: string): string | null {

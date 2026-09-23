@@ -27,7 +27,7 @@ export interface PeerLine {
 // The note is one bracketed line with a fixed opening; the wording after
 // the workspace clause varies by delivery and is not needed here.
 const PROVENANCE_NOTE =
-  /^\[(Message from|Delegated by|Thread opened by) @([^,\]]+), another bot in this NATION Team workspace[^\]]*\]\s*/;
+  /^\[(Message from|Delegated by|Thread opened by) @([^,\]]+), another bot in this (?:Nation Team Chat|NATION Team|OpenMausBot) workspace[^\]]*\]\s*/;
 
 const DELIVERY: Record<string, PeerDelivery> = {
   "Message from": "ask_bot",

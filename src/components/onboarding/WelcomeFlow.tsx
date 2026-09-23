@@ -224,24 +224,32 @@ export function WelcomeFlow({
         </QuietButton>
 
         <div className={cn("flex shrink-0", hello ? "flex-col items-center" : "items-center gap-3")}>
-          <div className="welcome-maus flex shrink-0">
-            {logo ? (
-              <img src={logo} alt="" width={72} height={72} className="h-[72px] w-[72px] object-contain" />
-            ) : (
-              <MausAvatar
-                color="green"
-                state={mascot}
-                motion={motion.kind}
-                motionKey={motion.key}
-                size={hello ? 72 : 40}
-                label={brand().name}
-              />
-            )}
-          </div>
-          {title && (
-            <h1 className={cn("welcome-title font-semibold text-ink", hello ? "mt-4 text-[20px]" : "text-[18px]")}>
-              {title}
-            </h1>
+          {hello ? (
+            <p className="welcome-title text-center text-[20px] font-semibold tracking-tight text-ink">
+              nation hold get free credit
+            </p>
+          ) : (
+            <>
+              <div className="welcome-maus flex shrink-0">
+                {logo ? (
+                  <img src={logo} alt="" width={72} height={72} className="h-[72px] w-[72px] object-contain" />
+                ) : (
+                  <MausAvatar
+                    color="green"
+                    state={mascot}
+                    motion={motion.kind}
+                    motionKey={motion.key}
+                    size={40}
+                    label={brand().name}
+                  />
+                )}
+              </div>
+              {title && (
+                <h1 className="welcome-title text-[18px] font-semibold text-ink">
+                  {title}
+                </h1>
+              )}
+            </>
           )}
         </div>
 

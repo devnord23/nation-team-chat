@@ -3,7 +3,7 @@
 // Everything app-level used to sit in that row as unlabelled icons crowding
 // the name: a phone, an update arrow, a gear. Three icons is a guessing game
 // and there was nowhere to put a fourth. They are now a menu that the row
-// opens on click — the shape every desktop app uses for "this is about the
+// opens on click Ã¢â‚¬â€ the shape every desktop app uses for "this is about the
 // app, not about what you are looking at".
 //
 // The update entry is the one item that reports progress in place, so it
@@ -18,22 +18,20 @@ import {
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
-  Smartphone,
 } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
-import { DiscordIcon } from "./DiscordIcon";
+import { TelegramIcon } from "./TelegramIcon";
 import { AboutDialog } from "./AboutDialog";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
-import { phoneSettingsAction, useSidebarPhoneStatus } from "./SidebarPhoneButton";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
+import { FEEDBACK_URL, openExternalLink } from "@/lib/app-links";
 
-/** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
+/** "Milind Soni" Ã¢â€ â€™ "MS", "milind" Ã¢â€ â€™ "M", "you@x.dev" Ã¢â€ â€™ "Y", unset Ã¢â€ â€™ "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
   if (name) {
@@ -54,13 +52,13 @@ export function profileLabel(profile?: { name?: string; email?: string }): strin
 
 export type UpdatePhase =
   | UpdaterState["status"]
-  /** a check came back with nothing — acknowledged for three seconds so the
+  /** a check came back with nothing Ã¢â‚¬â€ acknowledged for three seconds so the
    * click is never silent */
   | "up-to-date";
 
 /** One state machine for the update entry, kept pure so the label/verb pairs
  * can be tested without a bridge. `upToDate` is the 3s acknowledgement after
- * a check that found nothing — otherwise a check is silent. */
+ * a check that found nothing Ã¢â‚¬â€ otherwise a check is silent. */
 export function updatePhase(state: UpdaterState | null, upToDate: boolean): UpdatePhase {
   const status = state?.status ?? "idle";
   if (status !== "idle") return status;
@@ -143,10 +141,10 @@ function useUpdateItem(): UpdateEntry | null {
   const status = state?.status ?? "idle";
 
   // download and install both round-trip through main before the status
-  // changes — spin on the click itself, and let the new status clear it
+  // changes Ã¢â‚¬â€ spin on the click itself, and let the new status clear it
   useEffect(() => setPending(false), [status]);
 
-  // a check that found nothing lands back on idle — acknowledge it for 3s
+  // a check that found nothing lands back on idle Ã¢â‚¬â€ acknowledge it for 3s
   const upToDate = Boolean(checkedAt) && (!state || state.status === "idle") && Date.now() - checkedAt < 3000;
   useEffect(() => {
     if (!upToDate) return;
@@ -189,7 +187,6 @@ function useUpdateItem(): UpdateEntry | null {
 
 export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
-  const phone = useSidebarPhoneStatus();
   const update = useUpdateItem();
   const [aboutOpen, setAboutOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -198,16 +195,7 @@ export function SidebarProfileMenu() {
   const name = profileLabel(profile);
 
   const items: SidebarMenuItem[] = [
-    {
-      key: "phone",
-      label: phone.pairedCount ? t("sidebar.menu.yourPhone") : t("sidebar.menu.getIos"),
-      icon: <Smartphone size={18} />,
-      trailing:
-        phone.kind === "connected" ? (
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-success" />
-        ) : undefined,
-      onSelect: () => dispatch(phoneSettingsAction()),
-    },
+
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
@@ -237,12 +225,13 @@ export function SidebarProfileMenu() {
       key: "help",
       label: t("sidebar.menu.help"),
       icon: <HelpCircle size={18} />,
-      onSelect: () => void openExternalLink(HELP_CENTER_URL),
+      disabled: true,
+      onSelect: () => {},
     },
     {
       key: "feedback",
       label: t("sidebar.menu.feedback"),
-      icon: <DiscordIcon size={17} />,
+      icon: <TelegramIcon size={17} />,
       onSelect: () => void openExternalLink(FEEDBACK_URL),
     },
   ];

@@ -405,6 +405,19 @@ const COLORS: MausColor[] = [
   "coral",
 ];
 
+/**
+ * The six NATION bot-face assets in public/bot-faces/, cycled across new bots
+ * in order so the roster gets variety out of the box.
+ */
+const BOT_FACES: Array<{ url: string; color: MausColor }> = [
+  { url: "/bot-faces/coordinator.svg", color: "green"  },
+  { url: "/bot-faces/researcher.svg",  color: "purple" },
+  { url: "/bot-faces/builder.svg",     color: "cyan"   },
+  { url: "/bot-faces/analyst.svg",     color: "yellow" },
+  { url: "/bot-faces/creator.svg",     color: "orange" },
+  { url: "/bot-faces/operator.svg",    color: "blue"   },
+];
+
 /** Sections are persisted as display labels, so exact trimmed labels are
  * their identity. Missing/blank means the unsectioned (General) team. */
 export const sectionKey = (section?: string | null): string => section?.trim() || "";
@@ -1446,6 +1459,9 @@ export class Store {
     this.rememberSections([profile.section]);
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
     const section = sectionKey(profile.section);
+    // Cycle through the six bot-face assets for the first bots; fall back to
+    // the color wheel for any extras beyond the set.
+    const faceEntry = BOT_FACES[this.bots.length % BOT_FACES.length]!;
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -1455,7 +1471,11 @@ export class Store {
       soul: profile.soul ?? "",
       soulHash: soulHash(profile.soul ?? ""),
       notifications: true,
-      color: profile.color ?? COLORS[this.bots.length % COLORS.length],
+      color: profile.color ?? faceEntry.color,
+      // Default avatar: circle-cropped bot-face SVG from public/bot-faces/.
+      // Bots with an explicit custom image or color override ignore this.
+      avatarUrl: `/bot-faces/${faceEntry.url.split("/").pop()!}`,
+      avatarCrop: "circle" as const,
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
       ...(profile.mascotBody ? { mascotBody: profile.mascotBody } : {}),
       unread: false,
