@@ -837,12 +837,14 @@ export function ModelPicker({
             ) : (
               <div className="px-4 py-5 text-[13px] text-ink-secondary">{t("model.noProviders")}</div>
             )}
-            <button type="button" onClick={() => {
-              setOpen(false);
-              dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
-            }} className="shrink-0 border-t border-hairline/40 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
-              {t("settings.engines.title")}
-            </button>
+            {admin && (
+              <button type="button" onClick={() => {
+                setOpen(false);
+                dispatch({ type: "showAdmin" });
+              }} className="shrink-0 border-t border-hairline/40 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
+                {t("settings.engines.title")}
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -41,9 +41,12 @@ export function isProductAdmin(options: {
   return true;
 }
 
-/** Settings section ids that expose engine, keys, VPS, or build internals. */
+/**
+ * Settings section ids that are admin-only.
+ * "engines" is intentionally absent — it no longer lives in Settings at all;
+ * it is only accessible via the Admin page.
+ */
 export const ADMIN_ONLY_SETTINGS_SECTIONS = new Set([
-  "engines",
   "connections",
   "experimental",
   "workspaces",
