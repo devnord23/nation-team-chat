@@ -32,7 +32,7 @@ describe("resolveLocale", () => {
 
 describe("t", () => {
   it("returns the English catalog value by default", () => {
-    expect(t("engines.cloud")).toBe("Cloud");
+    expect(t("engines.cloud")).toBe("VPS");
   });
 
   it("keeps new team lifecycle labels available in partial packs, with interpolated names and counts", () => {

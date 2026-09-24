@@ -90,7 +90,7 @@ interface AcpTurn {
   turn: SendTurnInput;
   turnConfig: AcpConfig;
   controlsHost: boolean;
-  state: { settled: boolean; promptSent: boolean; text: string; producedItem: boolean };
+  state: { settled: boolean; promptSent: boolean; text: string; producedItem: boolean; observedActivity: boolean };
   asks: Map<string, AcpAskFinish>;
   interruptTimer: ReturnType<typeof setTimeout> | null;
   flushAssistantText: () => void;
@@ -407,7 +407,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
   const SOURCE = support.nativeSource;
   const decodeConfig = decodeAcpConfig(support.defaultCli);
   const DENY_TIMEOUT_NOTE =
-    "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+    "NATION: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
   return {
     driverKind: DRIVER_KIND,
@@ -840,6 +840,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             void handleClientFileRequest(msg);
             return;
           }
+          current.state.observedActivity = true;
           if (msg.method !== "session/request_permission") {
             // never leave an unknown server request hanging — the agent blocks
             return send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
@@ -959,6 +960,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             return;
           }
           if (!current || !current.state.promptSent) return;
+          current.state.observedActivity = true;
           const u = p.update ?? {};
           switch (u.sessionUpdate) {
             case "agent_message_chunk": {
@@ -1227,7 +1229,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         ): Promise<any> =>
           session.acp.request(method, params, timeoutMs, receive, idleMs, idleMessage);
 
-        const state = { settled: false, promptSent: false, text: "", producedItem: false };
+        const state = { settled: false, promptSent: false, text: "", producedItem: false, observedActivity: false };
         const asks = new Map<string, AcpAskFinish>();
         const modelOf = (result: any): string | null => {
           const option = (Array.isArray(result?.configOptions) ? result.configOptions : []).find(
@@ -1356,7 +1358,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             let runtimeAcceptsImages = await handshake();
             let init = session.initResult;
 
-            const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+            let cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+            // Some ACP agents acknowledge a missing saved session with {}.
+            // Retry only a just-loaded, instantly refused, completely silent
+            // prompt. Never replay a turn that emitted content or used tools.
+            for (let resumeAttempt = 0; resumeAttempt < 2; resumeAttempt += 1) {
+            let justLoaded = false;
             let sessionResult: any = null;
             for (;;) {
               const liveSessionId = session.sessionId;
@@ -1394,7 +1401,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                    * genuinely new session */
                 }
               }
-              if (loaded) break;
+              if (loaded) { justLoaded = true; break; }
               if (cursor && liveSessionId === cursor) {
                 // The agent refused (or never answered) re-establishing its
                 // own live session on this process. Continuity outranks the
@@ -1511,6 +1518,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             state.promptSent = true;
             const promptIdleMs = promptIdleTimeoutMs();
+            const promptStartedAt = Date.now();
             const result = await request(
               "session/prompt",
               { sessionId, prompt: [{ type: "text", text }, ...imageBlocks] },
@@ -1520,6 +1528,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               `${DRIVER_KIND} went fully silent ${Math.round(promptIdleMs / 1000)} s after the message and the turn was stopped. ` +
                 "Raise OPENMAUS_ACP_PROMPT_IDLE_TIMEOUT_MS if this model legitimately takes longer to answer.",
             );
+            if (resumeAttempt === 0 && justLoaded && (result?.stopReason === "refusal" || result?.stopReason === "error") &&
+                Date.now() - promptStartedAt < 1500 && !state.settled &&
+                !state.observedActivity && !state.text && !state.producedItem && current.asks.size === 0) {
+              cursor = null;
+              session.sessionId = null;
+              session.sessionKey = null;
+              session.sessionConfigResult = null;
+              state.promptSent = false;
+              sessionAllows.delete(threadId);
+              continue;
+            }
             // opencode 1.18.18 reports usage at the result root; grok and
             // gemini put it under _meta. Read both rather than lose the count.
             const usage = result?.usage ?? result?._meta ?? {};
@@ -1546,6 +1565,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 message: errorMessage,
               });
               settle(threadId, session, false, reason ?? "failed");
+            }
+            break;
             }
           } catch (e) {
             if (!state.settled) {

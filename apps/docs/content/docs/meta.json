@@ -1,18 +1,15 @@
 {
-  "title": "OpenMausBot",
+  "title": "Nation Team Chat",
   "root": true,
   "pages": [
     "index",
     "getting-started",
     "features",
-    "providers",
     "computers",
     "connected-apps",
     "mobile",
-    "self-hosting",
     "security",
     "troubleshooting",
-    "changelog",
-    "contributing"
+    "changelog"
   ]
 }

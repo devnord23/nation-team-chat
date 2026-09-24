@@ -19,7 +19,7 @@ import "./styles.css";
 
 const PREVIEW_BOT = {
   id: "preview-bot",
-  name: "Maus",
+  name: "NATION agent",
   color: "green",
   soul: "",
 } as unknown as Bot;

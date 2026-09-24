@@ -80,7 +80,7 @@ describe("enterprise hook point", () => {
     expect(status.edition).toBe("oss");
     expect(status.notice).toContain("OMB_LICENSE_KEY is set but no enterprise layer exists");
     expect(entitled("whitelabel")).toBe(false);
-    expect(describeEdition(status)).toContain("open-source edition (OMB_LICENSE_KEY is set");
+    expect(describeEdition(status)).toBe("NATION Team Chat");
   });
 
   it("registers the layer's entitlements from the key", async () => {
@@ -93,14 +93,14 @@ describe("enterprise hook point", () => {
     expect(editionStatus()).toEqual(status);
     expect(entitled("whitelabel")).toBe(true);
     expect(entitled("budgets")).toBe(false);
-    expect(describeEdition(status)).toBe("openmausbot enterprise edition for Acme until 2027-01-01: sso, whitelabel");
+    expect(describeEdition(status)).toBe("NATION enterprise edition for Acme until 2027-01-01: sso, whitelabel");
   });
 
   it("loads a compiled layer (server/index.js) the way an image ships it", async () => {
     const dir = fakeLayer(`export function register() { return { customer: "Built", features: ["admin"], expiresAt: null }; }`, "index.js");
     const status = await loadEnterpriseLayer({ dir, licenseKey: "k" });
     expect(status).toEqual({ edition: "enterprise", customer: "Built", features: ["admin"], expiresAt: null });
-    expect(describeEdition(status)).toBe("openmausbot enterprise edition for Built: admin");
+    expect(describeEdition(status)).toBe("NATION enterprise edition for Built: admin");
   });
 
   it("stops granting features the moment the license expires, without a restart", async () => {

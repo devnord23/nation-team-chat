@@ -32,7 +32,7 @@ const RINGS: Array<Array<{ slug: string; label: string; domain: string }>> = [
   [
     { slug: "gmail", label: "Gmail", domain: "gmail.com" },
     { slug: "slack", label: "Slack", domain: "slack.com" },
-    { slug: "github", label: "GitHub", domain: "github.com" },
+    { slug: "workspace", label: "Workspace", domain: "thenation.city" },
   ],
   [
     { slug: "notion", label: "Notion", domain: "notion.so" },

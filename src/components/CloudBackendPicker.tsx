@@ -1,3 +1,5 @@
+import { useStore } from "@/state/store";
+import { isProductAdmin } from "@/lib/admin-gate";
 // The Box / Self-hosted VPS segmented control shown under the "Runs on"
 // picker whenever a bot can end up on a cloud computer. One component, two
 // homes (ComputerPanel and the bot settings dialog's Access section), so the copy and the disabled
@@ -16,6 +18,8 @@ export function CloudBackendPicker({
   vpsSupported: boolean;
   onChange: (backend: CloudBackend) => void;
 }) {
+  const { state } = useStore();
+  if (!isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) return <p className="mt-3 text-sm text-ink-secondary">NATION Isolated PC</p>;
   return (
     <div className="mt-3 rounded-lg bg-inset p-3">
       <div className="text-[12px] font-medium text-ink">{compact ? "Cloud provider" : "Cloud backend"}</div>

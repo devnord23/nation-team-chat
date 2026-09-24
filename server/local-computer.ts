@@ -371,7 +371,7 @@ export function readCuaConnection({
   const candidates = userData ? [join(userData, "cua-connection.json")] : [];
   if (platform === "darwin") {
     // Legacy/dev fallback. Packaged Electron passes its exact userData path.
-    for (const directory of ["OpenMausBot", "openmausbot", "OpenGrokBot", "opengrokbot"]) {
+    for (const directory of ["NATION", "openmausbot", "NATION", "opengrokbot"]) {
       candidates.push(join(home, "Library", "Application Support", directory, "cua-connection.json"));
     }
   }

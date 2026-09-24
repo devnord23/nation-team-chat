@@ -1417,8 +1417,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           )}
           <TurnPresence
             avatar={
-              // BotAvatar, not a bare MausAvatar: an uploaded profile image
-              // (and a chosen mascot body) must match the sidebar row.
+              // BotAvatar: an uploaded profile image or default soft-tower face
+              // must match the sidebar row.
               <BotAvatar
                 bot={bot}
                 state={toolInFlight ? "working" : "thinking"}

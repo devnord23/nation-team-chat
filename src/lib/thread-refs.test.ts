@@ -124,7 +124,7 @@ describe("canonical thread links", () => {
 
   it("copies and parses one spelling, and rejects near-misses", () => {
     const link = threadRefUrl({ botId: "scout", threadId: uuid });
-    expect(link).toBe(`openmausbot://thread/${uuid}?bot=scout`);
+    expect(link).toBe(`nation://thread/${uuid}?bot=scout`);
     // the paste path accepts exactly what copy emits
     expect(parseThreadRefUrl(link)).toEqual({ threadId: uuid, botId: "scout" });
     expect(parseThreadRefUrl(`openmausbot://thread/${uuid}`)).toEqual({ threadId: uuid });
@@ -160,7 +160,7 @@ describe("canonical thread links", () => {
     expect(serializeThreadRefs(sent + " plus #Nothing", threads)).toBe(sent + " plus #Nothing");
     // brackets in a title survive the round trip
     const bracketed = [scout("b", "QA [PR] 245")];
-    expect(serializeThreadRefs("see #QA [PR] 245", bracketed)).toBe("see [QA \\[PR\\] 245](openmausbot://thread/b?bot=scout)");
+    expect(serializeThreadRefs("see #QA [PR] 245", bracketed)).toBe("see [QA \\[PR\\] 245](nation://thread/b?bot=scout)");
   });
 
   it("displays canonical links as title chips and dead links as raw text", () => {

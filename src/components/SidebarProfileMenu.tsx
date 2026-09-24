@@ -29,7 +29,7 @@ import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { FEEDBACK_URL, openExternalLink } from "@/lib/app-links";
+import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
 
 /** "Milind Soni" Ã¢â€ â€™ "MS", "milind" Ã¢â€ â€™ "M", "you@x.dev" Ã¢â€ â€™ "Y", unset Ã¢â€ â€™ "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -224,8 +224,7 @@ export function SidebarProfileMenu() {
       key: "help",
       label: t("sidebar.menu.help"),
       icon: <HelpCircle size={18} />,
-      disabled: true,
-      onSelect: () => {},
+      onSelect: () => void openExternalLink(HELP_CENTER_URL),
     },
     {
       key: "feedback",

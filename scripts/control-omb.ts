@@ -182,7 +182,7 @@ export async function runControlOmb(
     const health = rawHealth as { status: string; endpoint?: string; app: string; packaged: boolean };
     const instances = (models as { instances?: Array<{ instanceId?: string; snapshot?: { state?: string } }> }).instances ?? [];
     return {
-      ok: health.app === "openmausbot"
+      ok: ["nation-team-chat", "openmausbot"].includes(health.app)
         && instances.some((instance) => instance.snapshot?.state === "available"),
       health: endpoint ? { ...health, endpoint } : health,
       availableEngines: instances
@@ -383,7 +383,7 @@ export async function launchVerificationServer(
   enterprise?: { dir: string; licenseKey: string },
   room?: { scripted: boolean },
   /** Optional repository-owned fake providers for multi-engine setup checks. */
-  extraProviders: Array<"codex"> = [],
+  extraProviders: Array<"codex" | "hermes"> = [],
   /** Programmatic tests only: an owned loopback Box provider, never a live account. */
   boxFixtureApi?: string,
 ): Promise<VerificationServer> {
@@ -414,10 +414,16 @@ export async function launchVerificationServer(
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     ...(boxFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
+    defaultModelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
     instances: {
       // The synthetic map omits the default computer engine. Register it
       // only when an owned Box provider backs this fixture's cloud panel.
       ...(boxFixtureApi ? { computer: { driver: "boxAgent" } } : {}),
+      ...(extraProviders.includes("hermes") ? { hermes: {
+        driver: "hermesAgent", displayName: "NATION fixture",
+        config: { cli: fileURLToPath(new URL("../server/testing/fake-acp-cli.ts", import.meta.url)), fullAuto: false },
+        environment: { FAKE_ACP_MODE: "happy" },
+      } } : {}),
       ...(extraProviders.includes("codex") ? { codex: {
         driver: "codex", displayName: "Verification Codex", config: { cli: fileURLToPath(new URL("../server/testing/fake-codex-app-server.ts", import.meta.url)) },
       } } : {}),
@@ -466,7 +472,7 @@ export async function launchVerificationServer(
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
         const body = response.ok ? await response.json() as { app?: string } : null;
-        if (body?.app === "openmausbot") break;
+        if (["nation-team-chat", "openmausbot"].includes(body?.app ?? "")) break;
       } catch {
         // The server is still starting.
       }

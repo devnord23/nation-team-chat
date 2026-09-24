@@ -1,31 +1,12 @@
 ---
-title: Composio for self-hosters
-description: Configure project-key access, scoped permissions, and headless development.
-icon: KeyRound
+title: Self hosted composio
+description: Help for your Nation Team Chat workspace.
 ---
 
-The simplest open-source setup is for each installation owner to create a Composio project and paste that project's key into OpenMausBot. This avoids operating a shared credential broker and keeps usage attached to the user's own Composio account.
+Connected tools let agents work with services enabled for your workspace. Available connections depend on your workspace configuration.
 
-## Least-privilege scoped key
+Use the connection flow provided in the app. Keep passwords and secret keys out of chat. Review the task and requested permissions before authorizing work.
 
-If you use a scoped Composio project key, grant:
+If a connection stops working, ask your workspace owner to check it in Admin.
 
-- Sessions: read and write
-- Toolkits: read
-- Connected accounts: read and write
-
-Connected-account write access is required for upstream revocation during disconnect.
-
-## Source and headless runs
-
-Set the key on the harness process:
-
-```bash
-COMPOSIO_API_KEY=ak_your_project_key pnpm dev:server
-```
-
-OpenMausBot creates a stable random Composio user identifier and reuses the returned Session. It does not store raw Gmail, Slack, GitHub, or other provider tokens.
-
-## Managed broker
-
-The repository also contains a Cloudflare Worker broker for managed deployments. It returns the same account-aware inventory shape while keeping broker credentials out of the renderer. Use it only when you intentionally operate a hosted connection service; it is not required for ordinary self-hosting.
+[Contact NATION support](https://t.me/thenation_city).

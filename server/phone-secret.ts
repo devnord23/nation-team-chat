@@ -393,13 +393,13 @@ export class PhoneSecretBridge {
   private async provideWithinLimit(context: PhoneSecretContext): Promise<void> {
     if (!this.identity) {
       throw new PhoneSecretError(
-        "Secure phone entry is not ready on this computer. Reopen OpenMausBot and try again.",
+        "Secure phone entry is not ready on this computer. Reopen NATION and try again.",
         503,
       );
     }
     const identity = await this.identity.catch(() => {
       throw new PhoneSecretError(
-        "Secure phone entry is not ready on this computer. Reopen OpenMausBot and try again.",
+        "Secure phone entry is not ready on this computer. Reopen NATION and try again.",
         503,
       );
     });

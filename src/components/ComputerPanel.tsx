@@ -224,7 +224,7 @@ export function ComputerPanel({
   const liveTask = profileBot.tasks?.find((task) => task.threadId === profileBot.threadId);
   const livePlace = effectivePlace(profileBot, liveTask);
   const threadBot = currentTaskBot(profileBot);
-  const connectionKey = `${profileBot.id}:${profileBot.threadId}:${livePlace}:${profileBot.cloudBackend ?? "box"}:${threadBot.modelSelection.instanceId}`;
+  const connectionKey = `${profileBot.id}:${profileBot.threadId}:${livePlace}:${profileBot.cloudBackend ?? "vps"}:${threadBot.modelSelection.instanceId}`;
   const [autoSurface, setAutoSurface] = useState<{ key: string; surface: Bot["computer"] } | null>(null);
   const autoSurfaceCurrent = autoSurface?.key === connectionKey;
   const surfaceReady = livePlace !== "auto" || autoSurfaceCurrent;
@@ -232,7 +232,7 @@ export function ComputerPanel({
   // and capability checks belong to the selected conversation, not that default.
   const bot = { ...threadBot, computer: livePlace === "auto"
     ? autoSurfaceCurrent ? autoSurface.surface : undefined : livePlace };
-  const viewerConnectionKey = `${bot.id}:${bot.threadId}:${bot.computer}:${bot.cloudBackend ?? "box"}`;
+  const viewerConnectionKey = `${bot.id}:${bot.threadId}:${bot.computer}:${bot.cloudBackend ?? "vps"}`;
   const viewerConnection = useRef(viewerConnectionKey);
   viewerConnection.current = viewerConnectionKey;
   const desktopJoin = useRef<AbortController | null>(null);
@@ -266,7 +266,7 @@ export function ComputerPanel({
   const [teamComputer, setTeamComputer] = useState<{
     id: string; name: string; botId: string; section: string;
   } | null>(null);
-  const cloudBackend = bot.cloudBackend ?? "box";
+  const cloudBackend = bot.cloudBackend ?? "vps";
   const computerSelectionPersisted = Boolean(
     persistedComputerSelection
       && persistedComputerSelection.botId === bot.id
@@ -1202,7 +1202,7 @@ export function ComputerPanel({
   };
 
   const openVmSettings = () => {
-    window.sessionStorage.setItem("openmausbot.settings.section", "computer");
+    window.sessionStorage.setItem("nation.settings.section", "computer");
     dispatch({ type: "toggleAppSettings", open: true });
   };
 

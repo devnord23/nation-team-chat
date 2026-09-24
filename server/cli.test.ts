@@ -82,39 +82,15 @@ describe("openmausbot command line", () => {
     expect(qrToString("https://example.com").length).toBeGreaterThan(200);
   });
 
-  describe("the two links one pairing window has", () => {
-    const url = "https://mini.example/pair#code=ABCD-EFGH-JKLM";
-    const invite = `openmausbot://pair?address=https%3A%2F%2Fmini.example&token=omb_pair_${"a".repeat(43)}&name=mini`;
-    const block = (over: Record<string, unknown> = {}) =>
-      pairingBlock({ code: "ABCD-EFGH-JKLM", url, inviteUrl: invite, expiresAt: Date.now() + 60_000, ...over });
-
-    it("gives an Android phone the app-scheme QR, because its scanner rejects https", () => {
-      const out = block({ phone: "android" });
-      expect(out).toContain(qrToString(invite));
-      expect(out).not.toContain(qrToString(url));
-      expect(out).toContain("Scan that in the OpenMausBot app");
-      // The web link is still offered, but not as the thing to scan.
-      expect(out).toContain(`web browser:   ${url}`);
-      expect(out).not.toContain("open or scan:");
-    });
-
-    it("gives everyone else the web QR, and still prints the app link rather than only naming it", () => {
-      const out = block({ phone: "ios" });
+  describe("NATION browser pairing", () => {
+    const url = "https://thenation.city/swarm/pair#code=ABCD-EFGH-JKLM";
+    const invite = "openmausbot://pair?address=legacy&token=old";
+    it.each(["ios", "android"] as const)("uses a browser QR for %s and never exposes legacy schemes", phone => {
+      const out = pairingBlock({ code: "ABCD-EFGH-JKLM", url, inviteUrl: invite, expiresAt: Date.now() + 60_000, phone });
       expect(out).toContain(qrToString(url));
-      expect(out).not.toContain(qrToString(invite));
-      // Naming a link the block never prints leaves the iOS app, which takes a
-      // pasted invite, with nothing to paste.
-      expect(out).toContain(`phone app:     ${invite}`);
       expect(out).toContain(`open or scan:  ${url}`);
-    });
-
-    it("says plainly when an Android phone asked for an app link this server cannot build", () => {
-      const out = block({ phone: "android", inviteUrl: null });
-      expect(out).toContain(qrToString(url));
-      expect(out).toContain("The Android app needs the phone-app link");
-      expect(out).toContain("OMB_PUBLIC_URL");
-      // It must not claim the QR is scannable in the app when it is not.
-      expect(out).not.toContain("Scan that in the OpenMausBot app");
+      expect(out).toContain("Nation Team Chat in your browser");
+      expect(out).not.toContain("openmausbot");
     });
   });
 
@@ -152,7 +128,7 @@ describe("openmausbot command line", () => {
     try {
       const deadline = Date.now() + 60_000;
       while (!out.includes("open or scan:") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
-      expect(out).toContain(`OpenMausBot is running on http://127.0.0.1:${port}, reachable at https://mini.example`);
+      expect(out).toContain(`NATION is running on http://127.0.0.1:${port}, reachable at https://mini.example`);
       expect(out).toMatch(/pairing code:  [A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}/);
       expect(out).toContain("open or scan:  https://mini.example/pair#code=");
       expect(out).toMatch(/[▀▄█]/);
@@ -448,7 +424,7 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
     const gateway = `http://127.0.0.1:${originPort}`;
     try {
       const deadline = Date.now() + 60_000;
-      while (!out.includes("OpenMausBot is running") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
+      while (!out.includes("NATION is running") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
       expect(out).toContain("using the installation credential from OMB_INSTALLATION_CREDENTIAL");
       expect(out).toContain(`reachable at ${stub.endpointUrl}`);
       expect(existsSync(join(dataDir, "tunnel-account.json"))).toBe(false);
@@ -501,7 +477,7 @@ describe.skipIf(process.platform === "win32")("serve --tunnel", () => {
     try {
       const deadline = Date.now() + 60_000;
       while (!out.includes("open or scan:") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
-      expect(out).toContain(`OpenMausBot is running on http://127.0.0.1:${port}, reachable at ${stub.endpointUrl}`);
+      expect(out).toContain(`NATION is running on http://127.0.0.1:${port}, reachable at ${stub.endpointUrl}`);
       expect(out).toContain(`open or scan:  ${stub.endpointUrl}/pair#code=`);
       // a fresh connector token was fetched for this run
       expect(stub.calls).toContain("POST /v1/installations/self/endpoint");
@@ -605,7 +581,7 @@ describe.skipIf(process.platform === "win32")("serve --domain", () => {
     try {
       const deadline = Date.now() + 60_000;
       while (!out.includes("open or scan:") && Date.now() < deadline && child.exitCode === null) await new Promise((r) => setTimeout(r, 200));
-      expect(out).toContain(`OpenMausBot is running on http://127.0.0.1:${port}, reachable at https://omb.example.test`);
+      expect(out).toContain(`NATION is running on http://127.0.0.1:${port}, reachable at https://omb.example.test`);
       expect(out).toContain("https: Caddy serves https://omb.example.test");
       expect(out).toContain("open or scan:  https://omb.example.test/pair#code=");
       const args = readFileSync(join(home, "caddy-args.txt"), "utf8").trim();
