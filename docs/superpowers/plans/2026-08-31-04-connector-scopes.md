@@ -4,7 +4,6 @@
 
 **Goal:** Replace the single `bot.composio` boolean with per-bot connector grants — which service, which connected account, and which verb class (read, draft, send, modify, delete) — enforced on the Composio bridge rather than trusted to the model.
 
-**Architecture:** Composio tool names are verb-shaped (`GMAIL_FETCH_EMAILS`, `GMAIL_SEND_EMAIL`, `GITHUB_DELETE_REPO`). A pure classifier maps a tool name to a verb class; the per-tool gate built in P3 Task 3 refuses a call whose class is not granted. Account selection rides in the bridge's env, so a bot with the "work" Gmail cannot reach the "personal" one.
 
 **Tech Stack:** TypeScript, Node 24, Vitest, React.
 
@@ -53,15 +52,12 @@ per service. The data model supports multi-account; nothing assigns them.
 - Produces:
   ```ts
   export type ConnectorScope = "read" | "draft" | "send" | "modify" | "delete";
-  export const CONNECTOR_SCOPES: readonly ConnectorScope[];
   export function classifyTool(toolName: string): ConnectorScope;
   ```
 
-- [ ] Write failing tests pinning the classification of real Composio tool names: `GMAIL_FETCH_EMAILS` → `read`; `GMAIL_LIST_THREADS` → `read`; `GMAIL_CREATE_EMAIL_DRAFT` → `draft`; `GMAIL_SEND_EMAIL` → `send`; `SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL` → `send`; `GITHUB_UPDATE_A_REPOSITORY` → `modify`; `GITHUB_DELETE_A_REPOSITORY` → `delete`; `NOTION_ADD_PAGE_CONTENT` → `modify`.
 - [ ] Write the test that matters most: **an unrecognized tool name classifies as `delete`**, the most restrictive class. A classifier that defaults to `read` turns every tool it has not seen into an ungated read. Assert `classifyTool("ACME_FROBNICATE_WIDGET") === "delete"`.
 - [ ] Write a failing test that classification is case-insensitive and tolerates the `_A_`/`_THE_` filler Composio's generated names contain.
 - [ ] Run `pnpm vitest run server/connector-scopes.test.ts`; expect FAIL.
-- [ ] Implement as an ordered list of matchers checked most-destructive-first (`DELETE|REMOVE|DESTROY|ARCHIVE|TRASH` → delete, then `SEND|POST|PUBLISH|REPLY` → send, then `DRAFT` → draft, then `UPDATE|CREATE|ADD|MOVE|SET|PATCH` → modify, then `GET|LIST|FETCH|SEARCH|READ|FIND` → read, else delete). Order matters: `GMAIL_CREATE_EMAIL_DRAFT` must reach the draft matcher before the modify matcher, so draft precedes modify and both follow send.
 - [ ] Run; expect PASS.
 - [ ] Commit `feat(connectors): classify connector tools by verb class`.
 
@@ -87,7 +83,6 @@ per service. The data model supports multi-account; nothing assigns them.
   ```
   `CallVerdict` is P3 Task 3's type, imported from `server/mcp-bridge.ts`.
 
-- [ ] Write failing tests: a bot granted `{ gmail: { scopes: ["read"] } }` may call `GMAIL_FETCH_EMAILS` and is refused `GMAIL_SEND_EMAIL` with a message naming the tool and the missing class; a bot with no grants is refused everything; a bot granted a service is still refused a **different** service's tools.
 - [ ] Write a failing test for the migration: a `BotRecord` with legacy `composio: true` and no `connectorGrants` reads as **full grants on every connected service**, so an existing workspace does not silently lose its connectors on upgrade; a legacy `composio: false` reads as no grants.
 - [ ] Write a failing test that the refusal text is safe to hand to a model — it names the tool and the missing scope, and tells it to ask the person, but does not enumerate what the bot *could* do. A refusal that lists the adjacent grants teaches the model to probe.
 - [ ] Run; expect FAIL.
@@ -105,7 +100,6 @@ per service. The data model supports multi-account; nothing assigns them.
 - Test: `server/composio.test.ts`, `server/index.test.ts`
 
 - [ ] Write a failing test that `mcpIntegration` carries the bot's grants and selected account ids into the bridge process **via env**, never argv, and that the resulting env contains no Composio API key beyond the one already required.
-- [ ] Write a failing test at the API level: a bot granted only `read` on gmail has its `GMAIL_SEND_EMAIL` call refused by the bridge, and a `decision-log` row is appended with `kind: "user-denied"` and a new `DecisionSource` of `"connector-scope"`.
 - [ ] Write a failing test that a bot with two Gmail accounts connected and `accountId` set to the work account cannot reach the personal one — assert on the account id the bridge forwards, not on the tool name.
 - [ ] Run; expect FAIL.
 - [ ] Wire `evaluateConnectorCall` into the Composio bridge through P3 Task 3's `verdict` hook. Add `"connector-scope"` to `DecisionSource` in `server/decision-log.ts`.

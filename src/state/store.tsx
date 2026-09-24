@@ -1858,15 +1858,8 @@ export function reducer(state: AppState, action: Action): AppState {
         appSettingsOpen: open ? false : state.appSettingsOpen,
       };
     }
-    case "togglePlugins": {
-      const open = action.open ?? !state.pluginsOpen;
-      return {
-        ...state,
-        pluginsOpen: open,
-        pluginsSurface: action.surface ?? state.pluginsSurface,
-        ...(open ? { settingsOpen: false, appSettingsOpen: false, newBotOpen: false, shortcutsOpen: false } : {}),
-      };
-    }
+    case "togglePlugins":
+      return { ...state, pluginsOpen: false };
     case "botCreationPending":
       return { ...state, botCreationPending: action.on };
     case "toggleNewBot": {
