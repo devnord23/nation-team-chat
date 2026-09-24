@@ -18,6 +18,14 @@
   ],
   "rewrites": [
     {
+      "source": "/admin",
+      "destination": "/swarm/admin/index.html"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/swarm/admin/index.html"
+    },
+    {
       "source": "/swarm/connectors/:path*",
       "destination": "https://server.aurk.org/nation-team-chat/api/connectors/:path*"
     },
@@ -78,6 +86,14 @@
       "destination": "/swarm/ledger/index.html"
     },
     {
+      "source": "/swarm/admin",
+      "destination": "/swarm/admin/index.html"
+    },
+    {
+      "source": "/swarm/admin/",
+      "destination": "/swarm/admin/index.html"
+    },
+    {
       "source": "/swarm/:path*",
       "destination": "/swarm/index.html"
     }
@@ -89,5 +105,20 @@
       "nation-remove-connectors": false,
       "nation-crypto-credits": false
     }
-  }
+  },
+  "headers": [
+    {
+      "source": "/admin/:path*",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
+      ]
+    }
+  ]
 }

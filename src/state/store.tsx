@@ -1,4 +1,5 @@
-import { responseErrorMessage } from "../lib/api-error-message";
+import { api, apiUrl } from "../lib/api-client";
+export { api, apiUrl, ApiError } from "../lib/api-client";
 // Server-backed store. The React app holds no transports of its own:
 // it dispatches typed commands over HTTP and folds the one SSE event
 // stream from the harness server into local state. The reducer stays
@@ -2237,14 +2238,7 @@ export const initialState: AppState = {
 };
 
 // ── API client ─────────────────────────────────────────────────────────
-export class ApiError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
+
 
 /** Keep the created bot reachable even when applying its optional preset fails. */
 export async function createBotWithRole(role?: BotRole, request: typeof api = api): Promise<{ bot: Bot; profileError?: string }> {
@@ -2280,28 +2274,6 @@ export const MESSAGE_PAGE_SIZE = 200;
  * under nation-app). import.meta.env.BASE_URL is replaced at build time by
  * Vite, so this has zero runtime overhead.
  */
-export function apiUrl(path: string): string {
-  if (path.startsWith("/")) return import.meta.env.BASE_URL + path.slice(1);
-  return path;
-}
-
-export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
-  // timeoutMs races the fetch against AbortSignal.timeout, combined with any
-  // caller signal so either can cancel. Omitted means no behavior change.
-  const { timeoutMs, signal, ...rest } = init ?? {};
-  const res = await fetch(apiUrl(path), {
-    headers: { "content-type": "application/json" },
-    ...rest,
-    signal: timeoutMs === undefined
-      ? signal
-      : signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-        : AbortSignal.timeout(timeoutMs),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(responseErrorMessage(body, res.headers.get("x-nation-error-schema")), res.status);
-  return body;
-}
 
 type TrustedApprovalBridge = {
   setMode(

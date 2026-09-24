@@ -2,13 +2,16 @@ import { NationCreditAdmin } from "./NationCreditAdmin";
 /**
  * Nation Admin Page — accessible only to the account owner (product admin).
  *
- * Consolidates: OpenRouter status, engine settings, connector/API-key settings.
- * Non-admins receive a 403 from every /api/admin/* endpoint and the nav link
- * never renders, so there is no meaningful surface for non-admins to reach.
+ * Dedicated /admin entry: provider status and billing, without the chat shell.
+ * The server authorizes every admin endpoint; this component also waits for
+ * its authoritative owner verdict before rendering controls.
  */
 import { useState } from "react";
 import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, XCircle } from "lucide-react";
-import { api, useStore } from "@/state/store";
+import { api } from "@/lib/api-client";
+import type { ConfigStatus } from "@/state/store";
+
+export type NationAdminConfig = Pick<ConfigStatus, "isProductOwner" | "adminGate" | "nationOpenrouter">;
 import { isProductAdmin } from "@/lib/admin-gate";
 import { Card } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
@@ -21,9 +24,8 @@ interface OpenRouterAdminStatus {
   testResult?: { ok: boolean; message: string };
 }
 
-function OpenRouterSection() {
-  const { state } = useStore();
-  const status = state.config?.nationOpenrouter;
+function OpenRouterSection({ config }: { config: NationAdminConfig }) {
+  const status = config.nationOpenrouter;
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -125,14 +127,13 @@ const TABS = [
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
-export function NationAdminPage() {
-  const { state, dispatch } = useStore();
+export function NationAdminPage({ config }: { config: NationAdminConfig | null }) {
   const [tab, setTab] = useState<TabId>("openrouter");
 
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
-    pinRequired: state.config?.adminGate?.pinRequired,
-    isProductOwner: state.config?.isProductOwner,
+    pinRequired: config?.adminGate?.pinRequired,
+    isProductOwner: config?.isProductOwner,
   });
 
   if (!admin) {
@@ -143,20 +144,23 @@ export function NationAdminPage() {
           <div className="text-[15px] font-semibold text-ink">Admin access required</div>
           <div className="mt-1 text-[13px]">This page is only available to the account owner.</div>
         </div>
-        <button
-          type="button"
-          onClick={() => dispatch({ type: "showChat" })}
+        <a
+          href="/swarm/"
           className="mt-2 flex items-center gap-2 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover"
         >
           <ChevronLeft size={14} />
-          Back to chat
-        </button>
+          Back to Swarm
+        </a>
       </main>
     );
   }
 
   return (
     <main className="flex h-full min-w-0 flex-1 flex-col bg-app">
+      <div className="flex items-center justify-between border-b border-hairline/30 px-6 py-3">
+        <a href="/admin" className="text-sm font-semibold tracking-wide text-ink">NATION / ADMIN</a>
+        <a href="/swarm/" className="text-sm text-ink-secondary hover:text-ink">Back to Swarm</a>
+      </div>
       {/* Header */}
       <div className="shrink-0 border-b border-hairline/30 px-6 py-4">
         <div className="flex items-center gap-3">
@@ -191,7 +195,7 @@ export function NationAdminPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto max-w-[700px]">
-          {tab === "openrouter" && <OpenRouterSection />}
+          {tab === "openrouter" && <OpenRouterSection config={config!} />}
           {tab === "credits" && <NationCreditAdmin />}
         </div>
       </div>

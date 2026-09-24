@@ -30,13 +30,13 @@ it.each([false, true])("offers only server-managed API controls when owner=%s", 
   expect(html).not.toMatch(/type="password"|API key|Install|Sign in|Claude|Anthropic|Grok|xAI|Your engines/i);
 });
 it("keeps owner administration inaccessible to members", () => {
-  const html = renderToStaticMarkup(createElement(NationAdminPage));
+  const html = renderToStaticMarkup(createElement(NationAdminPage, { config: fixture.state.config }));
   expect(html).toContain("Admin access required");
   expect(html).not.toContain("Test connection");
 });
 it("keeps the owner API status without legacy setup tabs", () => {
   fixture.state.config.isProductOwner = true;
-  const html = renderToStaticMarkup(createElement(NationAdminPage));
+  const html = renderToStaticMarkup(createElement(NationAdminPage, { config: fixture.state.config }));
   expect(html).toContain("NATION API");
   expect(html).not.toMatch(/Keys &amp; Integrations|API Keys|Your engines|type="password"/);
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/state/store";
+import { api } from "@/lib/api-client";
 const field = "w-full rounded-xl border border-hairline/50 bg-inset p-3 text-ink";
 const button = "rounded-xl bg-accent px-4 py-2 font-medium text-accent-ink disabled:opacity-50";
 

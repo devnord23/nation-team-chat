@@ -28,10 +28,8 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { LocalVmWorkspace } from "@/components/LocalVmWorkspace";
 import { TeamMapPage } from "@/components/TeamMapPage";
-import { NationAdminPage } from "@/components/NationAdminPage";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
-import { isProductAdmin } from "@/lib/admin-gate";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -152,9 +150,9 @@ function Shell() {
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
 
-  // Eject from admin view if the server-provided owner flag revokes access.
+  // Legacy saved navigation must never mount admin controls in the chat workspace.
   useEffect(() => {
-    if (state.activeView === "admin" && state.config?.isProductOwner === false) {
+    if (state.activeView === "admin") {
       dispatch({ type: "showChat" });
     }
   }, [state.activeView, state.config?.isProductOwner, dispatch]);
@@ -266,13 +264,7 @@ function Shell() {
           menuButtonRef.current?.focus();
         }}
       />}
-      {state.activeView === "admin" && isProductAdmin({
-        remoteClient: Boolean(window.ogb?.remoteClient),
-        pinRequired: state.config?.adminGate?.pinRequired,
-        isProductOwner: state.config?.isProductOwner,
-      }) ? (
-        <NationAdminPage />
-      ) : state.activeView === "team-map" ? (
+      {state.activeView === "team-map" ? (
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
         <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />
