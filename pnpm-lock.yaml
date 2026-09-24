@@ -4,6 +4,29 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@mermaid-js/parser@2.0.0':
+    hash: 349f0052ed1d3318e923a7871a66ebadd1d50e61851793f80f121adbcbb94c31
+    path: patches/mermaid-js__parser2.0.0.patch
+  chevrotain@11.1.2:
+    hash: 2d8bfacd33d0af45f115d5d6256f00fcac28aa9e33c69515d49d8ab3922f8194
+    path: patches/chevrotain11.1.2.patch
+  elkjs@0.9.3:
+    hash: b44612ab7a65134b8b95f3e758f833036216c664ca6dfb2b357b31ea00764983
+    path: patches/elkjs0.9.3.patch
+  hast-util-to-jsx-runtime@2.3.6:
+    hash: 4b0bb0f74c7dd67fc13feaa3ba92bb0108a28e4aa7e60f78191a170e78c72ced
+    path: patches/hast-util-to-jsx-runtime2.3.6.patch
+  marked@16.4.2:
+    hash: a87c14e1833c8e2a22f7039f13e4d823960df164edd044ab36bc473c9fa03c90
+    path: patches/marked16.4.2.patch
+  mermaid@12.0.0:
+    hash: 86e21167aafec04ddb261f5fcfe8ac6a2bc0c1d9916a12f7f359ae285c1bb2d4
+    path: patches/mermaid12.0.0.patch
+  react-markdown@10.1.0:
+    hash: 2385e72ae67afa5cddd0589554be021dad299492467362b99e12450754e37392
+    path: patches/react-markdown10.1.0.patch
+
 importers:
 
   .:
@@ -43,7 +66,7 @@ importers:
         version: 2.0.3
       mermaid:
         specifier: ^12.0.0
-        version: 12.0.0
+        version: 12.0.0(patch_hash=86e21167aafec04ddb261f5fcfe8ac6a2bc0c1d9916a12f7f359ae285c1bb2d4)
       posthog-js:
         specifier: ^1.415.6
         version: 1.415.6
@@ -61,7 +84,7 @@ importers:
         version: 19.2.8(react@19.2.8)
       react-markdown:
         specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.2.18)(react@19.2.8)
+        version: 10.1.0(patch_hash=2385e72ae67afa5cddd0589554be021dad299492467362b99e12450754e37392)(@types/react@19.2.18)(react@19.2.8)
       rehype-katex:
         specifier: ^7.0.1
         version: 7.0.1
@@ -170,7 +193,7 @@ importers:
         version: 19.2.8(react@19.2.8)
       react-markdown:
         specifier: ^10.1.0
-        version: 10.1.0(@types/react@19.2.18)(react@19.2.8)
+        version: 10.1.0(patch_hash=2385e72ae67afa5cddd0589554be021dad299492467362b99e12450754e37392)(@types/react@19.2.18)(react@19.2.8)
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4.3.3
@@ -5762,7 +5785,7 @@ snapshots:
       estree-util-is-identifier-name: 3.0.0
       estree-util-scope: 1.0.0
       estree-walker: 3.0.3
-      hast-util-to-jsx-runtime: 2.3.6
+      hast-util-to-jsx-runtime: 2.3.6(patch_hash=4b0bb0f74c7dd67fc13feaa3ba92bb0108a28e4aa7e60f78191a170e78c72ced)
       markdown-extensions: 2.0.0
       recma-build-jsx: 1.0.0
       recma-jsx: 1.0.1(acorn@8.18.0)
@@ -5780,7 +5803,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@mermaid-js/parser@2.0.0':
+  '@mermaid-js/parser@2.0.0(patch_hash=349f0052ed1d3318e923a7871a66ebadd1d50e61851793f80f121adbcbb94c31)':
     dependencies:
       '@chevrotain/types': 11.1.2
 
@@ -6787,7 +6810,7 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
-  chevrotain@11.1.2:
+  chevrotain@11.1.2(patch_hash=2d8bfacd33d0af45f115d5d6256f00fcac28aa9e33c69515d49d8ab3922f8194):
     dependencies:
       '@chevrotain/cst-dts-gen': 11.1.2
       '@chevrotain/gast': 11.1.2
@@ -7241,7 +7264,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  elkjs@0.9.3: {}
+  elkjs@0.9.3(patch_hash=b44612ab7a65134b8b95f3e758f833036216c664ca6dfb2b357b31ea00764983): {}
 
   emoji-regex@8.0.0: {}
 
@@ -7499,7 +7522,7 @@ snapshots:
       estree-util-value-to-estree: 3.5.0
       github-slugger: 2.0.0
       hast-util-to-estree: 3.1.3
-      hast-util-to-jsx-runtime: 2.3.6
+      hast-util-to-jsx-runtime: 2.3.6(patch_hash=4b0bb0f74c7dd67fc13feaa3ba92bb0108a28e4aa7e60f78191a170e78c72ced)
       mdast-util-mdx: 3.0.0
       mdast-util-to-markdown: 2.1.2
       npm-to-yarn: 3.2.0
@@ -7746,7 +7769,7 @@ snapshots:
       stringify-entities: 4.0.4
       zwitch: 2.0.4
 
-  hast-util-to-jsx-runtime@2.3.6:
+  hast-util-to-jsx-runtime@2.3.6(patch_hash=4b0bb0f74c7dd67fc13feaa3ba92bb0108a28e4aa7e60f78191a170e78c72ced):
     dependencies:
       '@types/estree': 1.0.9
       '@types/hast': 3.0.5
@@ -8026,7 +8049,7 @@ snapshots:
 
   markdown-table@3.0.4: {}
 
-  marked@16.4.2: {}
+  marked@16.4.2(patch_hash=a87c14e1833c8e2a22f7039f13e4d823960df164edd044ab36bc473c9fa03c90): {}
 
   matcher@3.0.0:
     dependencies:
@@ -8210,14 +8233,14 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
 
-  mermaid@12.0.0:
+  mermaid@12.0.0(patch_hash=86e21167aafec04ddb261f5fcfe8ac6a2bc0c1d9916a12f7f359ae285c1bb2d4):
     dependencies:
       '@braintree/sanitize-url': 7.1.2
       '@iconify/utils': 3.1.7
-      '@mermaid-js/parser': 2.0.0
+      '@mermaid-js/parser': 2.0.0(patch_hash=349f0052ed1d3318e923a7871a66ebadd1d50e61851793f80f121adbcbb94c31)
       '@types/d3': 7.4.3
       '@upsetjs/venn.js': 2.0.0
-      chevrotain: 11.1.2
+      chevrotain: 11.1.2(patch_hash=2d8bfacd33d0af45f115d5d6256f00fcac28aa9e33c69515d49d8ab3922f8194)
       cytoscape: 3.34.3
       cytoscape-cose-bilkent: 4.1.0(cytoscape@3.34.3)
       cytoscape-fcose: 2.2.0(cytoscape@3.34.3)
@@ -8226,11 +8249,11 @@ snapshots:
       dagre-d3-es: 7.0.14
       dayjs: 1.11.23
       dompurify: 3.4.13
-      elkjs: 0.9.3
+      elkjs: 0.9.3(patch_hash=b44612ab7a65134b8b95f3e758f833036216c664ca6dfb2b357b31ea00764983)
       es-toolkit: 1.52.0
       katex: 0.16.47
       khroma: 2.1.0
-      marked: 16.4.2
+      marked: 16.4.2(patch_hash=a87c14e1833c8e2a22f7039f13e4d823960df164edd044ab36bc473c9fa03c90)
       roughjs: 4.6.6
       stylis: 4.4.0
       ts-dedent: 2.3.0
@@ -8850,13 +8873,13 @@ snapshots:
       react: 19.2.8
       scheduler: 0.27.0
 
-  react-markdown@10.1.0(@types/react@19.2.18)(react@19.2.8):
+  react-markdown@10.1.0(patch_hash=2385e72ae67afa5cddd0589554be021dad299492467362b99e12450754e37392)(@types/react@19.2.18)(react@19.2.8):
     dependencies:
       '@types/hast': 3.0.5
       '@types/mdast': 4.0.4
       '@types/react': 19.2.18
       devlop: 1.1.0
-      hast-util-to-jsx-runtime: 2.3.6
+      hast-util-to-jsx-runtime: 2.3.6(patch_hash=4b0bb0f74c7dd67fc13feaa3ba92bb0108a28e4aa7e60f78191a170e78c72ced)
       html-url-attributes: 3.0.1
       mdast-util-to-hast: 13.2.1
       react: 19.2.8
