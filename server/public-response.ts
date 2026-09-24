@@ -3,6 +3,7 @@ import { publicError } from "../shared/public-error.ts";
 export const PUBLIC_MODEL_SELECTION = Object.freeze({ instanceId: "nation", model: "NATION API" });
 const PRIVATE_KEYS = new Set([
   "driverKind", "providerKind", "engineName", "providerName", "lastInstanceId",
+  "cwd", "sshAlias", "image_ref", "base_image_ref", "driver_version", "container_name", "container_id", "image_id",
   "lastModel", "resumeCursors", "modelVariants", "nativeSessionId", "sessionConfigResult", "raw", "sessionId",
 ]);
 
