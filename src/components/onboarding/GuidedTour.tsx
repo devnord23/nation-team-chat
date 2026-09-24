@@ -83,8 +83,10 @@ export function GuidedTour() {
           return;
         }
         case "openApps":
+          if (!press("nav-apps")) dispatch({ type: "togglePlugins", open: true });
           return;
         case "closeApps":
+          dispatch({ type: "togglePlugins", open: false });
           return;
         case "openAutomations":
           if (!press("nav-automations")) dispatch({ type: "showRoutines" });

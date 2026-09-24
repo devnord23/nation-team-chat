@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 // Per-turn MCP transport for the shared Chat Completions runtime. Approval is
 // owned by the caller; only registered, schema-validated calls reach this file.
 import { Ajv, type ValidateFunction } from "ajv";
@@ -12,7 +13,7 @@ export interface ChatToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
-export interface ChatToolResult { text: string; ok: boolean }
+export interface ChatToolResult { text: string; ok: boolean; images?: Array<{ data: string; mimeType: string }> }
 /** The transport cannot safely continue this turn. A dispatched operation may
  * already have taken effect, so callers must not retry it through a new round. */
 export class ChatToolSessionError extends Error {}
@@ -26,7 +27,7 @@ export interface ChatToolSession {
 type Server = { command: string; args: string[]; env: Record<string, string> };
 const STARTUP_MS = 8_000;
 const CALL_MS = 10 * 60_000;
-const FRAME_BYTES = 2 * 1024 * 1024;
+const FRAME_BYTES = 12 * 1024 * 1024; // bounded desktop screenshot frames
 const OUTPUT_BYTES = 50 * 1024;
 const TOOL_COUNT = 128;
 const MAX_PAGES = 100;
@@ -235,6 +236,18 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
   const servers: Array<[string, Server]> = [];
   if (integrations?.agents) servers.push(["agents", integrations.agents]);
   if (integrations?.composio) servers.push(["composio", integrations.composio]);
+  if (integrations?.localComputer) servers.push(["computer", integrations.localComputer]);
+  if (integrations?.browser) servers.push(["browser", integrations.browser]);
+  if (integrations?.computer) {
+    const box = integrations.computer;
+    if (!box.control?.url || !box.control.token) throw new Error("Box requires a turn-scoped computer lease");
+    servers.push(["computer", { command: process.execPath,
+      args: [fileURLToPath(new URL("../box-computer-mcp.ts", import.meta.url))],
+      env: { NATION_BOX_ID: box.boxId, BOX_TOKEN: box.token,
+        OMB_CONTROL_URL: box.control.url, OMB_CONTROL_TOKEN: box.control.token,
+        ...(process.env.OMB_BOX_API ? { OMB_BOX_API: process.env.OMB_BOX_API } : {}) },
+    }]);
+  }
   // this client starts its servers and talks over stdio; a remote (url)
   // entry is skipped here and reaches Claude and Codex bots
   for (const [name, server] of Object.entries(integrations?.custom ?? {})) {
@@ -305,15 +318,21 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         if (signal.aborted || callSignal.aborted) throw aborted();
         if (!object(result) || !Array.isArray(result.content) || (result.isError !== undefined && typeof result.isError !== "boolean")) throw new Error("MCP tool returned an invalid result; execution outcome may be uncertain");
         const parts: string[] = [];
+        const images: NonNullable<ChatToolResult["images"]> = [];
         let unsupported = 0;
         for (const item of result.content) {
           if (!object(item) || typeof item.type !== "string" || (item.type === "text" && typeof item.text !== "string")) throw new Error("MCP tool returned invalid content; execution outcome may be uncertain");
           if (item.type === "text") parts.push(item.text as string);
-          else unsupported += 1;
+          else if (item.type === "image" && typeof item.data === "string" &&
+            typeof item.mimeType === "string" && ["image/png", "image/jpeg", "image/webp"].includes(item.mimeType) &&
+            item.data.length <= 11_184_812 && /^[A-Za-z0-9+/]+={0,2}$/.test(item.data) &&
+            item.data.length % 4 === 0 && images.length < 4) {
+            images.push({ data: item.data, mimeType: item.mimeType });
+          } else unsupported += 1;
         }
         if (result.structuredContent !== undefined) parts.push(JSON.stringify(result.structuredContent));
         if (unsupported) parts.unshift(`[${unsupported} unsupported MCP content item(s) omitted. The operation may have taken effect, but its full result cannot be represented; inspect its state before retrying.]`);
-        return { text: boundedText(parts.join("\n") || "(empty result)"), ok: result.isError !== true && unsupported === 0 };
+        return { text: boundedText(parts.join("\n") || "(empty result)"), ok: result.isError !== true && unsupported === 0, ...(images.length ? { images } : {}) };
       } catch (error) {
         await close();
         throw new ChatToolSessionError(error instanceof Error ? error.message : "MCP transport failed; execution outcome may be uncertain");

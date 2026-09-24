@@ -3,7 +3,7 @@ import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-pr
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
-import { CONNECTORS_ENABLED, removedConnectorPath } from "./connector-policy.ts";
+import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 import { publicResponse } from "./public-response.ts";
 import { publicError } from "../shared/public-error.ts";
 import { loadLocalEnv } from "./load-local-env.ts";
@@ -4391,7 +4391,6 @@ function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string
 }
 
 function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): RemoteComputerProvider | null {
-  if (creditsEnforced() && bot.modelSelection.instanceId === "nationApi") return turnSurfacePlan(bot, runOn, threadId).computer === "off" ? null : "vps";
   if (runOn === "cloud" || inheritedTeamComputer(bot)) return "box";
   const wants = turnSurfacePlan(bot, runOn, threadId).computer;
   if (wants !== undefined && wants !== "cloud") return null;
@@ -4408,10 +4407,12 @@ function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string): B
   if (!creditsEnforced()) return bot;
   // Operator exemption changes settlement, not the hosted model route.
   sponsorCreditThread(threadId);
-  return { ...bot, modelSelection: { instanceId: "nationApi", model: nationOpenRouterStatus().model }, cloudBackend: "vps" };
+  return { ...bot, modelSelection: { instanceId: "nationApi", model: nationOpenRouterStatus().model } };
 }
 
 function turnInstance(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): ReturnType<typeof registry.get> {
+  // A desktop backend never changes the billed NATION model provider.
+  if (creditsEnforced()) return registry.get("nationApi");
   const onBox = turnProvider(bot, runOn, threadId) === "box";
   return onBox
     ? registry.instances().find((candidate) => candidate.driverKind === "boxAgent") ?? null
@@ -6726,7 +6727,7 @@ async function startTurn(
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       // Box's native runner owns its computer tools. Local drivers mount
       // Local VM/VPS tools, but have no Box relay to execute this descriptor.
-      const mountsCloudComputer = instance.driverKind === "boxAgent";
+      const mountsCloudComputer = instance.driverKind === "boxAgent" || instance.driverKind === "nation-openrouter";
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
       // Where this turn's hands may land. The bot's "Works on" choice is
       // strict; a browser-only bot gets no computer at all, and a bot whose
@@ -8779,7 +8780,7 @@ async function runGroupMemberTurn(
 
   if (roomTeamComputer) {
     const attached = await attachTeamBox(roomTeamComputer, readyBot.id, resourceOwner,
-      instance.driverKind === "boxAgent", instance.driverKind === "boxAgent");
+      instance.driverKind === "boxAgent" || instance.driverKind === "nation-openrouter", instance.driverKind === "boxAgent");
     if (isCancelled?.() || groupSpeakers.get(threadId) !== roomSpeaker ||
         activeInternalGenerationByThread.get(threadId) !== internalGeneration) return false;
     integrations.computer = attached.integration;
@@ -8820,7 +8821,7 @@ async function runGroupMemberTurn(
     } else {
       if (!box.boxConfigured(cfg)) throw new Error("Cloud box is not configured Ã¢â‚¬â€ add a Box API key or choose Local VM");
       const remoteAgent = instance.driverKind === "boxAgent";
-      const attached = await attachBotBox(readyBot, resourceOwner, { explicitCloud: true, canMount: remoteAgent, remoteAgent });
+      const attached = await attachBotBox(readyBot, resourceOwner, { explicitCloud: true, canMount: remoteAgent || instance.driverKind === "nation-openrouter", remoteAgent });
       if (!roomSetupIsCurrent()) return false;
       if (!attached?.integration) throw new Error("the cloud computer could not be created or reached");
       integrations.computer = attached.integration;
@@ -11331,7 +11332,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return json(res, 400, { error: "invalid request URL" });
   }
   const path = url.pathname;
-  if (removedConnectorPath(path)) return json(res, 404, { error: "Not found" });
   const method = req.method ?? "GET";
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;

@@ -1,3 +1,4 @@
+import { NationIntegrationAdmin } from "./NationIntegrationAdmin";
 import { NationCreditAdmin } from "./NationCreditAdmin";
 /**
  * Nation Admin Page — accessible only to the account owner (product admin).
@@ -11,7 +12,7 @@ import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, XCircle } from
 import { api } from "@/lib/api-client";
 import type { ConfigStatus } from "@/state/store";
 
-export type NationAdminConfig = Pick<ConfigStatus, "isProductOwner" | "adminGate" | "nationOpenrouter">;
+export type NationAdminConfig = Pick<ConfigStatus, "isProductOwner" | "adminGate" | "nationOpenrouter" | "composio" | "box" | "vps">;
 import { isProductAdmin } from "@/lib/admin-gate";
 import { Card } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
@@ -124,11 +125,12 @@ function OpenRouterSection({ config }: { config: NationAdminConfig }) {
 const TABS = [
   { id: "openrouter", label: "NATION API", icon: Server },
   { id: "credits", label: "Credits", icon: ShieldCheck },
+  { id: "integrations", label: "Apps & computers", icon: Server },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 export function NationAdminPage({ config }: { config: NationAdminConfig | null }) {
-  const [tab, setTab] = useState<TabId>("openrouter");
+  const [tab, setTab] = useState<TabId>(() => window.location.hash === "#integrations" ? "integrations" : "openrouter");
 
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
@@ -167,11 +169,11 @@ export function NationAdminPage({ config }: { config: NationAdminConfig | null }
           <ShieldCheck size={20} className="text-accent" />
           <div>
             <h1 className="text-[16px] font-semibold text-ink">Nation Admin</h1>
-            <p className="text-[12px] text-ink-secondary">Owner controls for NATION API</p>
+            <p className="text-[12px] text-ink-secondary">Owner controls for NATION API, apps, and computers</p>
           </div>
         </div>
         {/* Tab bar */}
-        <div className="mt-4 flex gap-1">
+        <div className="mt-4 flex flex-wrap gap-1">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -197,6 +199,7 @@ export function NationAdminPage({ config }: { config: NationAdminConfig | null }
         <div className="mx-auto max-w-[700px]">
           {tab === "openrouter" && <OpenRouterSection config={config!} />}
           {tab === "credits" && <NationCreditAdmin />}
+          {tab === "integrations" && <NationIntegrationAdmin config={config!} />}
         </div>
       </div>
     </main>

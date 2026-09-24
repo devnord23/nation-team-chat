@@ -14,6 +14,7 @@ import { GroupView } from "@/components/GroupView";
 import { BotSettingsDialog } from "@/components/BotSettingsDialog";
 import { RemoteAgentSettingsPanel } from "@/components/RemoteAgentSettingsPanel";
 import { NewBotDialog } from "@/components/NewBotDialog";
+import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import { ComputerPanel } from "@/components/ComputerPanel";
 import { RemoteDesktopPanel } from "@/components/remote-desktop-panel";
 import { InspectorPanel } from "@/components/InspectorPanel";
@@ -132,6 +133,20 @@ function Shell() {
   useEffect(() => {
     window.ogb?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
+
+  useEffect(() => {
+    if (state.config?.isProductOwner && /^\/swarm\/(?:connectors|plugins|integrations|marketplace)\/?$/.test(window.location.pathname)) {
+      dispatch({ type: "togglePlugins", open: true, surface: "apps" });
+    }
+  }, [state.config?.isProductOwner, dispatch]);
+
+  // Warm connected-account state as soon as the local server is available.
+  // The modal then opens with the correct Connect/Add account buttons and
+  // quietly revalidates instead of rediscovering every account from scratch.
+  useEffect(() => {
+    if (!state.connected || !state.config?.isProductOwner) return;
+    void preloadConnectedApps().catch(() => {});
+  }, [state.connected, state.config?.isProductOwner]);
 
   // Picking a conversation closes the drawer: on a phone the chat is what you
   // asked for, and leaving the list up would hide it. Watching activeView too
@@ -328,6 +343,7 @@ function Shell() {
       )}
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
+      {state.pluginsOpen && state.config?.isProductOwner && <PluginsPanel />}
       {state.newBotOpen && <NewBotDialog />}
       {state.shortcutsOpen && (
         <KeyboardShortcutsModal

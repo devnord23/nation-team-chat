@@ -6,10 +6,6 @@ const withDone = (ids: string[]) => ({ ...EMPTY_ONBOARDING, hintsSeen: ids });
 const step = (id: string) => TOUR_STEPS.find((s) => s.id === id)!;
 
 describe("guided tour", () => {
-  it("contains no connector steps", () => {
-    expect(TOUR_STEPS.some(step => step.id.includes("apps"))).toBe(false);
-  });
-
   it("starts at the composer and ends back on the chat", () => {
     expect(currentStep(undefined)?.id).toBe("tour.composer");
     expect(TOUR_STEPS.at(-1)?.id).toBe("tour.done");
@@ -38,6 +34,7 @@ describe("guided tour", () => {
 
   it("goes through the Tools menu rather than straight to the pages", () => {
     expect(step("tour.tools").onExit).toBe("openTools");
+    expect(step("tour.apps").onExit).toBe("openApps");
     expect(step("tour.automations").onEnter).toBe("openTools");
     expect(step("tour.automations").onExit).toBe("openAutomations");
     for (const s of TOUR_STEPS.filter((x) => x.anchor?.startsWith("nav-"))) expect(s.skipIfMissing).toBe(true);
@@ -46,12 +43,15 @@ describe("guided tour", () => {
   it("rebuilds the scene on enter so a reload mid-tour resumes cleanly", () => {
     expect(step("tour.computer-browser").onEnter).toBe("openComputer");
     expect(step("tour.computer-browser").fallbackAnchor).toBe("computer-tabs");
+    expect(step("tour.apps").onEnter).toBe("openTools");
+    expect(step("tour.apps-panel").onEnter).toBe("openApps");
     expect(step("tour.automations-page").onEnter).toBe("openAutomations");
   });
 
   it("closes everything it opened and returns to the chat", () => {
     expect(step("tour.computer").onExit).toBe("openComputer");
     expect(step("tour.computer-browser").onExit).toBe("closeComputer");
+    expect(step("tour.apps-panel").onExit).toBe("closeApps");
     expect(step("tour.automations-page").onExit).toBe("backToChat");
   });
 

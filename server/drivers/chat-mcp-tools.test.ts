@@ -295,3 +295,19 @@ describe("Chat MCP schema validation", () => {
     expect(alive(f.read().pid)).toBe(false);
   });
 });
+
+it("mounts desktop and browser descriptors and preserves screenshot images", async () => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=";
+  const f = fixture(`
+    if (message.method === "tools/call") {
+      reply(message, {content:[{type:"text",text:"desktop observed"},{type:"image",mimeType:"image/png",data:"${png}"}]});
+      continue;
+    }
+  `);
+  const session = await mountChatTools({ localComputer: f.server, browser: f.server }, f.controller.signal);
+  sessions.push(session);
+  expect(session.definitions.map(item => item.function.name)).toEqual(["computer_write", "browser_write"]);
+  expect(await session.execute("computer_write", { value: "observe" }, f.controller.signal)).toEqual({
+    text: "desktop observed", ok: true, images: [{ data: png, mimeType: "image/png" }],
+  });
+});
