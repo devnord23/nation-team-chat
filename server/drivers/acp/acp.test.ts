@@ -1112,6 +1112,52 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
+  it("transparently retries with session/new when session/load is followed immediately by a refusal (stale resume, Hermes v0.21 pattern)", async () => {
+    // The fake CLI's 'stale-resume' mode simulates Hermes v0.21.3:
+    //   session/load → {} (truthy, so loaded = true in the driver)
+    //   first session/prompt → { stopReason: "refusal" } (instant, no content)
+    //   session/new + second session/prompt → { stopReason: "end_turn" } (normal)
+    await create(GrokAgentDriver, "stale-resume");
+    await instance.adapter.sendTurn({
+      threadId: "t-stale-resume",
+      text: "hello",
+      resumeCursor: "stale-cursor-id",
+    });
+
+    // The turn must complete successfully — the stale-load refusal is
+    // absorbed by the retry and the user sees only the final success.
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+
+    // The final session.started must carry the fresh session ID, not the
+    // stale cursor — so the next turn doesn't try to resume a dead session.
+    const allStarted = recorder.events.filter((e) => e.type === "session.started");
+    const lastStarted = allStarted[allStarted.length - 1];
+    expect(lastStarted).toMatchObject({ sessionId: "fake-acp-session" });
+
+    // No user-visible error: the retry is transparent.
+    const errors = recorder.events.filter((e) => e.type === "runtime.error");
+    expect(errors).toHaveLength(0);
+  });
+
+  it("does not retry a refusal on a fresh session (genuine refusal, not a stale load)", async () => {
+    // Without a resume cursor the driver calls session/new, which succeeds.
+    // With mode='stale-resume', lastEstablishedByLoad = false after session/new,
+    // so session/prompt returns normal end_turn. This test verifies that the
+    // stale-load guard does not fire on a genuinely new session.
+    await create(GrokAgentDriver, "stale-resume");
+    await instance.adapter.sendTurn({
+      threadId: "t-stale-resume-no-cursor",
+      text: "hello",
+      // no resumeCursor: force session/new from the start
+    });
+
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true });
+    const errors = recorder.events.filter((e) => e.type === "runtime.error");
+    expect(errors).toHaveLength(0);
+  });
+
   it("applyTurnEnv sees the picker model after resolveTurnModel", async () => {
     const dump = join(scratch, "turn-env.json");
     process.env.FAKE_ACP_DUMP = dump;

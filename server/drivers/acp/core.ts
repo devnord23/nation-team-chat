@@ -1299,8 +1299,38 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         emit({ ...base(threadId, turnId), type: "turn.started" });
         session.current = current;
 
+        // How long a `session/prompt` result may take before it is no longer
+        // considered an "immediate" failure — used to distinguish a stale
+        // resume (Hermes v0.21 returns `{}` from session/load but serves a
+        // refusal within ~200 ms) from a genuine LLM refusal that just
+        // happens to be fast.
+        const STALE_LOAD_FAST_MS = 2_000;
+
+        // Whether a transparent stale-load retry has already been used for
+        // this turn; we only retry once regardless of what the second pass
+        // returns.
+        let hadStaleLoadRetry = false;
+
         (async () => {
-          try {
+          // Outer loop: runs at most twice. The second pass only runs when
+          // the first pass detects the stale-resume refusal pattern.
+          for (let stalePass = 0; stalePass <= 1; stalePass++) {
+            if (stalePass === 1 && !hadStaleLoadRetry) break;
+
+            try {
+              // Reset progress fields for the retry pass so a subsequent
+              // successful reply is treated as a complete answer.
+              if (stalePass === 1) {
+                state.text = "";
+                state.producedItem = false;
+                state.promptSent = false;
+              }
+
+              // Track whether this pass established the session via
+              // session/load (as opposed to a pooled re-use or session/new).
+              let didSessionLoad = false;
+              let sessionLoadAt = 0;
+
             // The handshake is paid once per process, not once per turn. It
             // is a function so the establishment retry below can pay it
             // again on a replacement child.
@@ -1356,7 +1386,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             let runtimeAcceptsImages = await handshake();
             let init = session.initResult;
 
-            const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+            // On a stale-load retry pass, force session/new by not providing
+            // the resume cursor — the loaded session is known-broken.
+            const cursor = (stalePass === 0 && typeof turn.resumeCursor === "string")
+              ? turn.resumeCursor
+              : null;
             let sessionResult: any = null;
             for (;;) {
               const liveSessionId = session.sessionId;
@@ -1382,6 +1416,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                     (result) => {
                       if (result) {
                         loaded = true;
+                        didSessionLoad = true;
+                        sessionLoadAt = Date.now();
                         session.sessionId = cursor;
                         session.sessionKey = sessionKey;
                         receiveModelVariants(result);
@@ -1532,6 +1568,43 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               });
             }
             const reason = result?.stopReason;
+
+            // Stale-resume detection: Hermes (and potentially other ACP
+            // agents) may return `result: {}` from session/load even when
+            // the idle-closed session cannot actually be restored. The next
+            // session/prompt then immediately returns refusal or error with
+            // no content because there is no real session to continue.
+            //
+            // Guard conditions (all must hold to retry):
+            //   1. First pass only — never retry twice.
+            //   2. The session was established via session/load (not pooled
+            //      re-use or a fresh session/new).
+            //   3. The prompt completed with a refusal/error stop-reason.
+            //   4. The elapsed time from session/load to prompt result was
+            //      short (< STALE_LOAD_FAST_MS) — a genuine LLM refusal
+            //      takes long enough to distinguish from an agent that
+            //      merely echoed an error from a non-existent session.
+            //   5. No content was produced — if the agent sent anything it
+            //      was making real progress, not bouncing off a null session.
+            if (
+              stalePass === 0
+              && didSessionLoad
+              && !state.producedItem
+              && (reason === "refusal" || reason === "error")
+              && Date.now() - sessionLoadAt < STALE_LOAD_FAST_MS
+            ) {
+              // Discard the stale cursor from the live session record so
+              // the next iteration calls session/new, which starts clean.
+              session.sessionId = null;
+              hadStaleLoadRetry = true;
+              appendNative(threadId, {
+                dir: "out",
+                source: SOURCE,
+                msg: { staleLoadRetry: true, reason, elapsed: Date.now() - sessionLoadAt },
+              });
+              continue; // retry with session/new (stalePass === 1)
+            }
+
             if (reason === "end_turn") settle(threadId, session, true, null);
             else if (reason === "cancelled") settle(threadId, session, true, "cancelled");
             else {
@@ -1571,6 +1644,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               settle(threadId, session, false, needsAuth ? "auth_required" : "rpc_error");
             }
           }
+          break; // normal completion — exit the stale-load retry loop
+          } // end for (stalePass)
         })();
 
         return { turnId };
