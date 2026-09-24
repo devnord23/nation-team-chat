@@ -17,9 +17,8 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import { updateMcpServers } from "@/lib/mcp-servers";
-import { api, useStore } from "@/state/store";
+import { api } from "@/state/store";
 
-import { Switch } from "./SettingsPrimitives";
 
 /** A server this computer starts (a command) or one reached at a URL —
  * the two shapes the server stores. Secrets arrive as names only. */
