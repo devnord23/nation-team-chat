@@ -4406,8 +4406,8 @@ function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): 
 function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string): BotRecord | null {
   if (!bot) return null;
   if (!creditsEnforced()) return bot;
-  const payer = sponsorCreditThread(threadId);
-  if (payer?.exempt) return bot;
+  // Operator exemption changes settlement, not the hosted model route.
+  sponsorCreditThread(threadId);
   return { ...bot, modelSelection: { instanceId: "nationApi", model: nationOpenRouterStatus().model }, cloudBackend: "vps" };
 }
 

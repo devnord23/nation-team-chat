@@ -85,7 +85,21 @@ it("verified starter credit pays for chat and images and zero prevents provider 
     db.close();
     expect(ledger.map(row => row.amount_micros)).toEqual([3_000_000, -600_000, -100_000, -2_300_000]);
     expect(ledger.filter(row => row.type === "usage").map(row => row.cost_micros)).toEqual([600_000, 100_000, 2_300_000]);
-    writeFileSync(`${fixture.info.logPath}.credits.json`, JSON.stringify({ evidence, ledger, providerCalls: requests.length }, null, 2));
+    // A pre-existing bot still names the fixture's legacy default engine.
+    // Owner exemption must not bypass NATION routing or cost accounting.
+    expect((await call("/api/credits/status", "GET", undefined, true)).body).toMatchObject({ exempt: true });
+    const ownerSent = await call(`/api/bots/${bot.id}/messages`, "POST", {
+      threadId: bot.threadId, text: "Owner verification must use NATION API.",
+    }, true);
+    expect(ownerSent.status, JSON.stringify(ownerSent.body)).toBe(202);
+    await runControlOmb(["wait", "--bot", bot.id, "--timeout", "30"], { env: { OPENMAUSBOT_URL: fixture.info.url } });
+    expect(requests.length).toBe(count + 1);
+    expect((await call("/api/credits/status")).body.balanceUsd).toBe(0);
+    const ownerDb = new DatabaseSync(join(fixture.info.dataDir, "nation-credits.db"), { readOnly: true });
+    const ownerLedger = ownerDb.prepare("SELECT amount_micros,cost_micros FROM credit_ledger WHERE user_id='nation-operator' AND type='usage'").all();
+    ownerDb.close();
+    expect(ownerLedger).toEqual([{ amount_micros: 0, cost_micros: 2_300_000 }]);
+    writeFileSync(`${fixture.info.logPath}.credits.json`, JSON.stringify({ evidence, ledger, ownerLedger, providerCalls: requests.length }, null, 2));
   } finally {
     if (process.env.NATION_BRAND_CAPTURE_PATH) writeFileSync(process.env.NATION_BRAND_CAPTURE_PATH, JSON.stringify(memberCaptures));
     await fixture.close();
