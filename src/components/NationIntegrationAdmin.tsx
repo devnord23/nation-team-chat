@@ -9,6 +9,8 @@ export function NationIntegrationAdmin({ config }: { config: NationAdminConfig }
   const [status, setStatus] = useState(config);
   const [composio, setComposio] = useState("");
   const [box, setBox] = useState("");
+  const [searchProvider, setSearchProvider] = useState<"openrouter" | "brave" | "tavily">(config.webTools?.search.provider ?? "openrouter");
+  const [searchKey, setSearchKey] = useState("");
   const [alias, setAlias] = useState(config.vps?.sshAlias ?? "");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -36,6 +38,31 @@ export function NationIntegrationAdmin({ config }: { config: NationAdminConfig }
         <button disabled={busy || !composio.trim()} className="ui-button disabled:opacity-50">Save Composio key</button>
       </form>
       <p className="mt-3 text-xs text-ink-secondary">Keys stay on the server. Each app still needs its own account connection. Agent access is controlled in the agent's Access settings.</p>
+    </Card>
+    <Card title="Web search & reader" subtitle="Agents search the web and read pages on NATION's account. Members never set anything up.">
+      <p className="mb-3 text-sm text-ink">
+        {status.webTools?.enabled === false ? "Turned off for all agents"
+          : status.webTools?.search.configured ? `Search on (${status.webTools.search.provider === "openrouter" ? "NATION API web search" : status.webTools.search.provider}); reader on`
+            : "Search not configured; reader on"}
+      </p>
+      {status.webTools && <p className="mb-3 text-xs text-ink-secondary">Charged to each member's credit per use: search ${status.webTools.prices.searchUsd.toFixed(4)} (or the provider's reported cost), page read ${status.webTools.prices.readUsd.toFixed(4)}, before markup.</p>}
+      <button type="button" disabled={busy} className="ui-button mb-4 disabled:opacity-50"
+        onClick={() => void save({ features: { webTools: status.webTools?.enabled === false } }, () => {})}>
+        {status.webTools?.enabled === false ? "Turn web tools on" : "Turn web tools off"}
+      </button>
+      <form className="space-y-2" onSubmit={event => { event.preventDefault(); void save(searchProvider === "openrouter" ? { webSearch: { provider: "openrouter", apiKey: "" } } : { webSearch: { provider: searchProvider, apiKey: searchKey.trim() } }, () => setSearchKey("")); }}>
+        <label className="block text-sm text-ink" htmlFor="search-provider">Search provider</label>
+        <select id="search-provider" value={searchProvider} onChange={event => setSearchProvider(event.target.value as typeof searchProvider)} className={inputClass}>
+          <option value="openrouter">NATION API web search (uses the NATION API key)</option>
+          <option value="brave">Brave Search API</option>
+          <option value="tavily">Tavily</option>
+        </select>
+        {searchProvider !== "openrouter" && <>
+          <label className="block text-sm text-ink" htmlFor="search-key">Provider API key</label>
+          <input id="search-key" type="password" autoComplete="new-password" value={searchKey} onChange={event => setSearchKey(event.target.value)} placeholder={status.webTools?.search.source === "admin" ? "Existing key saved · enter only to replace" : "Enter API key"} className={inputClass} />
+        </>}
+        <button disabled={busy || (searchProvider !== "openrouter" && !searchKey.trim())} className="ui-button disabled:opacity-50">Save search provider</button>
+      </form>
     </Card>
     <Card title="Cloud computers · Box" subtitle="Hosted Linux computers for agent work.">
       <p className="mb-3 text-sm text-ink">{status.box?.configured ? "Box configured" : "Box not configured"}</p>

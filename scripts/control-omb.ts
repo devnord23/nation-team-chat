@@ -393,7 +393,9 @@ export async function launchVerificationServer(
   /** Hosted multi-member fixture: a loopback stand-in for the backend
    * connected-apps project (per-account Sessions) and for the NATION
    * account service that signs members in with an emailed code. */
-  hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string } },
+  hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string };
+    /** Loopback stand-in search provider, and a reader allowed to fetch the fixture's own pages. */
+    webTools?: boolean },
   /** Programmatic tests only: enables the secret-gated test capability route. */
   testCapabilityKey?: string,
 ): Promise<VerificationServer> {
@@ -484,6 +486,10 @@ export async function launchVerificationServer(
     ...(hostedMembers.modelRoutes?.fast ? { NATION_MODEL_FAST: hostedMembers.modelRoutes.fast } : {}),
     ...(hostedMembers.modelRoutes?.standard ? { NATION_MODEL_STANDARD: hostedMembers.modelRoutes.standard } : {}),
     ...(hostedMembers.modelRoutes?.strong ? { NATION_MODEL_STRONG: hostedMembers.modelRoutes.strong } : {}),
+    ...(hostedMembers.webTools ? {
+      NATION_SEARCH_PROVIDER: "brave", NATION_SEARCH_API_KEY: "search_fixture_key_only",
+      NATION_SEARCH_API_URL: hostedMembers.providerApi + "/search-api", NATION_WEB_READER_ALLOW_LOOPBACK: "1",
+    } : {}),
   });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {

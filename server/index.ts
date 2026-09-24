@@ -1,6 +1,7 @@
 import { publicRoutineInput } from "./public-routine-input.ts";
 import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
-import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId } from "./nation-credit-context.ts";
+import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId, threadSponsorAccount } from "./nation-credit-context.ts";
+import { searchProvider, webRead, webSearch, webToolPrices, webToolsStatus, WebToolError } from "./nation-web-tools.ts";
 import type { CreditAccount } from "./nation-credits.ts";
 import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
 import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
@@ -157,6 +158,7 @@ import {
   skillAuthoringEnabled,
   sharedComputersEnabled,
   builtInBrowserEnabled,
+  webToolsEnabled,
   llmThreadTitlesEnabled,
   browserProfileReplacementConflict,
   browserProfilePartitionTarget,
@@ -357,6 +359,7 @@ import {
   buildSystemPrompt,
   computerPrompt,
   connectedAppsPrompt,
+  WEB_TOOLS_PROMPT,
   customMcpPrompt,
   CREDENTIAL_PROMPT,
   mentionPrompt,
@@ -780,7 +783,7 @@ type InternalCapability = {
   threadId: string;
   generation: string;
   depth: number;
-  kind: "agents" | "connectors" | "computer" | "browser" | "hooks";
+  kind: "agents" | "connectors" | "computer" | "browser" | "hooks" | "web";
   skillAuthoring: boolean;
   createdBots: number;
   createdRooms?: number;
@@ -1640,6 +1643,20 @@ function projectForViewer(viewer: ThreadViewer, value: unknown): unknown {
 /** Connected apps are usable for this identity (backend healthy and scoped). */
 function connectorsUsable(identity: ConnectorIdentity): identity is composio.ConnectorPrincipal | null {
   return identity !== "denied" && CONNECTORS_ENABLED && composio.configured(cfg, identity);
+}
+
+/** NATION-managed web search/reader for one turn: the stdio server holds
+ * only this turn's capability; credential, address checks and metering
+ * stay in the harness (/api/internal/web/*). */
+function webToolsIntegration(botId: string, threadId: string, generation: string) {
+  const token = mintInternalCapability({
+    botId, threadId, generation, depth: 0, kind: "web", skillAuthoring: false, createdBots: 0, openedThreads: 0,
+  });
+  return {
+    command: process.execPath,
+    args: [SPAWNED_PROXIES.web],
+    env: { ...AGENTS_NODE_FLAG, OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`, OMB_WEB_TOKEN: token },
+  };
 }
 
 function connectedAppsIntegration(botId: string, threadId: string, generation: string) {
@@ -6943,6 +6960,10 @@ async function startTurn(
         const connection = await connectedAppsIntegration(bot.id, threadId, dispatchClaimId);
         if (connection) integrations.composio = connection;
       }
+      // NATION-managed web search and reader, for engines that mount them.
+      if (webToolsEnabled(cfg) && instance.adapter.capabilities.webMcp === true) {
+        integrations.web = webToolsIntegration(bot.id, threadId, dispatchClaimId);
+      }
       // user-configured MCP servers (config.json mcpServers): same rule as
       // composio Ã¢â‚¬â€ only to a driver that can mount them. Their tools are
       // never pre-allowed, so every call rides the normal permission flow.
@@ -7478,6 +7499,7 @@ async function startTurn(
         { id: "composio", label: "Connected apps", text: integrations.composio ? connectedAppsPrompt(instance.driverKind) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
+        { id: "web", label: "Web", text: integrations.web ? WEB_TOOLS_PROMPT : "" },
         { id: "coordination", label: "Team", text: coordinationPrompt ? ` ${coordinationPrompt}` : "" },
         { id: "assignment", label: "Teammate task", text: coordinationNode ? `\n${coordinationSystemInstructions()}` : "" },
         { id: "outstanding", label: "Outstanding teammate work", text: outstandingAssignmentsPrompt(threadId) },
@@ -8884,6 +8906,9 @@ async function runGroupMemberTurn(
       const connection = await connectedAppsIntegration(bot.id, threadId, internalGeneration);
       if (connection) integrations.composio = connection;
     }
+    if (webToolsEnabled(cfg) && instance.adapter.capabilities.webMcp === true) {
+      integrations.web = webToolsIntegration(bot.id, threadId, internalGeneration);
+    }
   } catch (error) {
     const message = `connected apps are unavailable Ã¢â‚¬â€ ${error instanceof Error ? error.message : String(error)}`;
     store.appendMessage(threadId, {
@@ -9242,6 +9267,7 @@ async function runGroupMemberTurn(
     { id: "team-computer", label: "Team computer", text: teamComputerPrompt(roomTeamComputer) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomTeamComputer ? "cloud" : roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note }) },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
+    { id: "web", label: "Web", text: integrations.web ? WEB_TOOLS_PROMPT : "" },
     { id: "recall", label: "Recall", text: integrations.agents ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
@@ -11206,6 +11232,8 @@ function configStatus() {
       mode: composio.connectionMode(cfg),
     },
     box: { configured: Boolean(cfg.box?.token) },
+    // NATION-managed web search/reader: owner-only status, never the key
+    webTools: { enabled: webToolsEnabled(cfg), ...webToolsStatus(cfg) },
     vps: {
       configured: Boolean(vpsSshAlias(cfg)) || cloudVpsPublicStatus().configured,
       sshAlias: vpsSshAlias(cfg) ?? "",
@@ -12060,6 +12088,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? "browser"
         : path.startsWith("/api/internal/connectors/")
         ? "connectors"
+        : path.startsWith("/api/internal/web/")
+        ? "web"
         : path === "/api/internal/computer-control"
           ? "computer"
           : "agents";
@@ -12166,6 +12196,45 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const result = toolResults.read(internalCapability, id, offset);
         return result ? json(res, 200, result) : json(res, 404, { error: "Saved result unavailable in this bot's conversation, expired, or offset out of range. Do not repeat an action to retrieve its output." });
+      }
+      // NATION-managed web search and reader, metered to the turn's account.
+      if (method === "POST" && (path === "/api/internal/web/search" || path === "/api/internal/web/read")) {
+        const body = await readInternalBody();
+        if (!store.bot(internalCapability.botId) || !webToolsEnabled(cfg)) {
+          return json(res, 403, { error: "Web tools are turned off in this workspace." });
+        }
+        const searching = path.endsWith("/search");
+        const account = creditsEnforced() ? threadSponsorAccount(internalCapability.threadId) : undefined;
+        if (creditsEnforced() && !account) return json(res, 403, { error: "Open this conversation to use your NATION credit." });
+        const ledger = account ? nationLedger() : undefined;
+        let call: string | undefined;
+        try {
+          if (ledger && account) call = ledger.beginCall(account);
+        } catch (error) {
+          const status = (error as { status?: number }).status ?? 402;
+          return json(res, status, { error: error instanceof Error ? error.message : "Your NATION credit is unavailable." });
+        }
+        const prices = webToolPrices();
+        try {
+          let result: unknown;
+          let costUsd: number;
+          if (searching) {
+            const provider = searchProvider(cfg);
+            if (!provider) throw new WebToolError("Web search isn't available in this workspace right now. Use web_read or the browser.", 503);
+            const outcome = await webSearch(provider, String(body.query ?? ""), Number(body.count ?? 8));
+            result = { results: outcome.results, ...(outcome.summary ? { summary: outcome.summary } : {}) };
+            costUsd = outcome.costUsd ?? prices.searchUsd;
+          } else {
+            result = await webRead(String(body.url ?? ""), { allowLoopback: process.env.NATION_WEB_READER_ALLOW_LOOPBACK === "1" });
+            costUsd = prices.readUsd;
+          }
+          if (call && ledger) ledger.settle(call, costUsd, searching ? "NATION web search" : "NATION web reader");
+          return json(res, 200, { result });
+        } catch (error) {
+          if (call && ledger) ledger.cancelUnsent(call);
+          const status = error instanceof WebToolError ? error.status : 502;
+          return json(res, status, { error: error instanceof WebToolError ? error.message : "Web tools are temporarily unavailable." });
+        }
       }
       if (method === "POST" && path === "/api/internal/memory") {
         const body = await readInternalBody();
@@ -18182,6 +18251,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { ok: true, adminGate: adminGatePublicStatus() });
     }
 
+    // Admin-only: web search/reader backing, availability and prices (no key).
+    if (method === "GET" && path === "/api/admin/web-tools") {
+      if (!auth.scopes.includes("admin")) return json(res, 403, { error: "forbidden: admin scope required" });
+      return json(res, 200, { enabled: webToolsEnabled(cfg), ...webToolsStatus(cfg) });
+    }
     // Admin-only: the allowed model per tier and recent routing receipts.
     // Not in CLIENT_ALLOW, and checked again here like the endpoints below.
     if (method === "GET" && path === "/api/admin/model-routing") {

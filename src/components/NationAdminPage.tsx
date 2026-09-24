@@ -12,7 +12,7 @@ import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, XCircle } from
 import { api } from "@/lib/api-client";
 import type { ConfigStatus } from "@/state/store";
 
-export type NationAdminConfig = Pick<ConfigStatus, "isProductOwner" | "adminGate" | "nationOpenrouter"> & Partial<Pick<ConfigStatus, "composio" | "box" | "vps">>;
+export type NationAdminConfig = Pick<ConfigStatus, "isProductOwner" | "adminGate" | "nationOpenrouter"> & Partial<Pick<ConfigStatus, "composio" | "box" | "vps" | "webTools">>;
 import { isProductAdmin } from "@/lib/admin-gate";
 import { Card } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
