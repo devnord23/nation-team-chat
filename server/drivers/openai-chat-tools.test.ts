@@ -20,6 +20,7 @@ import { MinimaxDriver } from "./minimax.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";
 
 interface ChatRequest {
+  model?: string;
   messages: Array<{
     role: string;
     content: string | null;
@@ -646,4 +647,42 @@ it("bounds the screenshots one NATION turn retains", async () => {
   expect(first.parts).toHaveLength(2);
   const second = retainTurnImages(first.used, [shot], 100);
   expect(second).toMatchObject({ used: 80, withheld: true, parts: [] });
+});
+
+it("falls back once to the cheaper allowed NATION model when the routed one is unavailable", async () => {
+  const ledger = new CreditLedger(":memory:", creditSettings({}));
+  const account = { id: "route-account", verified: true };
+  ledger.grant(account, "route-ip", "route-device");
+  setCreditLedgerForTests(ledger);
+  try {
+    const f = await fixture((body, response) => {
+      if (body.model === "openai/strong-fixture") {
+        response.statusCode = 404;
+        response.end(JSON.stringify({ error: { message: "No endpoints found for model openai/strong-fixture" } }));
+        return;
+      }
+      sse(response, [chunk({ content: "Answered on the fallback." }, "stop"), { choices: [], usage: { prompt_tokens: 2, completion_tokens: 2, cost: 0.01 } }]);
+    }, "nation-openrouter");
+    await creditContext.run(account, () => f.start({ integrations: undefined, model: "openai/strong-fixture", modelFallback: "openai/fast-fixture" }));
+    expect(await f.completed()).toMatchObject({ ok: true });
+    expect(f.requests.map((request) => request.model)).toEqual(["openai/strong-fixture", "openai/fast-fixture"]);
+    // the rejected call is not charged; only the answered one is
+    expect(ledger.admin().ledger.filter((row) => row.type === "usage")).toHaveLength(1);
+  } finally { setCreditLedgerForTests(); ledger.close(); }
+});
+
+it("never uses the model fallback to get around a billing or context refusal", async () => {
+  const ledger = new CreditLedger(":memory:", creditSettings({}));
+  const account = { id: "route-refusal", verified: true };
+  ledger.grant(account, "refusal-ip", "refusal-device");
+  setCreditLedgerForTests(ledger);
+  try {
+    const f = await fixture((_body, response) => {
+      response.statusCode = 400;
+      response.end(JSON.stringify({ error: { message: "This model's maximum context length is exceeded" } }));
+    }, "nation-openrouter");
+    await creditContext.run(account, () => f.start({ integrations: undefined, model: "openai/strong-fixture", modelFallback: "openai/fast-fixture" }));
+    expect(await f.completed()).toMatchObject({ ok: false });
+    expect(f.requests.map((request) => request.model)).toEqual(["openai/strong-fixture"]);
+  } finally { setCreditLedgerForTests(); ledger.close(); }
 });

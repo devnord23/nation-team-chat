@@ -2,6 +2,7 @@ import { publicRoutineInput } from "./public-routine-input.ts";
 import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
 import type { CreditAccount } from "./nation-credits.ts";
+import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
@@ -541,6 +542,8 @@ const sessions = new SessionRegistry({
 const sharedComputers = new SharedComputers(id => sessions.isLive(id));
 // Non-secret map of each NATION account's connected-apps Session id.
 composio.setPrincipalSessionFile(join(DATA_DIR, "connector-accounts.json"));
+// Model routing receipts: tier, model and reasons per turn, by thread id.
+setRouteReceiptFile(join(DATA_DIR, "model-routes.jsonl"));
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
 let workspaceAccess: WorkspaceAccess | null = null;
@@ -1454,6 +1457,13 @@ function connectorIdentityFor(account: CreditAccount | null | undefined): Connec
   if (account.exempt) return null;
   if (!account.verified) return "denied";
   return { accountId: account.id };
+}
+/** Who a connector ROUTE acts for. Off a hosted workspace there are no
+ * separate accounts: a paired client device is not the install's owner and
+ * may not read or change the install's connections. */
+function requestConnectorIdentity(auth: RequestAuth): ConnectorIdentity {
+  if (!connectorsMultiUser() && !auth.scopes.includes("admin")) return "denied";
+  return connectorIdentityFor(creditContext.getStore());
 }
 /** The identity a turn was dispatched under, fixed at mount so a second
  * member posting mid-turn cannot redirect the running turn's tool calls. */
@@ -4470,12 +4480,30 @@ function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): 
  * bot's own harness there with the computer tools built in, so nothing on this
  * machine relays clicks and screenshots. Every start/interrupt of a turn asks
  * here which engine owns it. */
-function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string): BotRecord | null {
+/** The cheaper allowed model a routed turn may fall back to, per thread. */
+const routedModelFallbacks = new Map<string, string>();
+function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string, text?: string): BotRecord | null {
   if (!bot) return null;
   if (!creditsEnforced()) return bot;
   // Operator exemption changes settlement, not the hosted model route.
-  sponsorCreditThread(threadId);
-  return { ...bot, modelSelection: { instanceId: "nationApi", model: nationOpenRouterStatus().model } };
+  const sponsor = sponsorCreditThread(threadId);
+  // Which allowed NATION API model: an explicit, deterministic policy over
+  // the request and the tools this bot will have. Never the provider.
+  const history = store.activePath(threadId).reduce((total, message) => total + (message.text?.length ?? 0), 0);
+  const decision = routeModel({
+    text: text ?? "",
+    attachments: (text?.match(/<attached-(?:image|file) /g) ?? []).length,
+    historyChars: history,
+    tools: {
+      computer: bot.computer === "cloud" || bot.computer === "vm" || bot.computer === "local",
+      browser: bot.computer === "browser" || (bot.browser !== false && builtInBrowserEnabled(cfg)),
+      connectors: bot.composio !== false && connectorsMultiUser() && composio.configured(cfg, { accountId: "member" }),
+    },
+  }, modelRouteCatalog());
+  if (decision.fallback) routedModelFallbacks.set(threadId, decision.fallback);
+  else routedModelFallbacks.delete(threadId);
+  recordRoute({ ...decision, at: Date.now(), threadId, ...(sponsor ? { account: sponsor.id } : {}) });
+  return { ...bot, modelSelection: { instanceId: "nationApi", model: decision.model } };
 }
 
 function turnInstance(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): ReturnType<typeof registry.get> {
@@ -6365,7 +6393,7 @@ async function startTurn(
       },
     };
   }
-  const bot = creditRoutedBot(store.projectBotForTask(botId, threadId), threadId);
+  const bot = creditRoutedBot(store.projectBotForTask(botId, threadId), threadId, text);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   // Routines and legacy peer delivery already have their own completion
   // owners. Only ordinary chats opt into this scheduler; its child turns
@@ -7325,6 +7353,7 @@ async function startTurn(
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0),
         model,
+        ...(creditsEnforced() && routedModelFallbacks.has(threadId) ? { modelFallback: routedModelFallbacks.get(threadId) } : {}),
         effort,
         variant,
         // a rewound thread never resumes the abandoned branch's session
@@ -8543,7 +8572,8 @@ async function runGroupMemberTurn(
     return false;
   }
   const group = store.group(groupId);
-  const bot = creditRoutedBot(store.bot(botId), threadId);
+  const bot = creditRoutedBot(store.bot(botId), threadId,
+    store.activePath(threadId).filter((message) => message.role === "user" && message.kind === "text").at(-1)?.text);
   const ownsThread = group?.dm
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
@@ -9155,6 +9185,7 @@ async function runGroupMemberTurn(
         ...(instance.instanceId === readyBot.modelSelection.instanceId
           ? memberTurnSelection(readyBot.modelSelection)
           : { model: instance.models.default }),
+        ...(creditsEnforced() && routedModelFallbacks.has(threadId) ? { modelFallback: routedModelFallbacks.get(threadId) } : {}),
       }), () => abandoned || Boolean(isCancelled?.()), async () => {
         // Stop may have landed while the adapter was authenticating, before
         // it had an active process for the first interrupt to reach. Now that
@@ -17913,6 +17944,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { ok: true, adminGate: adminGatePublicStatus() });
     }
 
+    // Admin-only: the allowed model per tier and recent routing receipts.
+    // Not in CLIENT_ALLOW, and checked again here like the endpoints below.
+    if (method === "GET" && path === "/api/admin/model-routing") {
+      if (!auth.scopes.includes("admin")) return json(res, 403, { error: "forbidden: admin scope required" });
+      return json(res, 200, { catalog: modelRouteCatalog(), recent: recentRoutes().slice(-50) });
+    }
+
     // ── Nation admin-only OpenRouter endpoints ──
     // These paths are not in CLIENT_ALLOW so they already require the admin
     // scope. The additional check below makes the intent explicit and adds an
@@ -18467,7 +18505,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // here — so a healthy backend with nothing connected yet is not
     // reported as unconfigured, and a member never sees the owner's list.
     if (path === "/api/connectors" || path.startsWith("/api/connectors/")) {
-      const identity = connectorIdentityFor(creditContext.getStore());
+      const identity = requestConnectorIdentity(auth);
       if (identity === "denied") return json(res, 403, { error: "Sign in with your NATION account to connect apps." });
       const usable = connectorsUsable(identity);
       const member = identity !== null;
@@ -18610,7 +18648,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const message = connectorMessage(m[1], threadId, m[2]);
       if (!message?.connector) return json(res, 404, { error: "no such connection request" });
       const connector = message.connector;
-      const cardIdentity = connectorIdentityFor(creditContext.getStore());
+      // A paired device on a single-user install could always poll a card's
+      // status (upstream behaviour); authorizing stays the owner's.
+      const cardIdentity = m[3] === "status" && !connectorsMultiUser() ? connectorIdentityFor(creditContext.getStore()) : requestConnectorIdentity(auth);
       if ((m[3] === "authorize" || m[3] === "status") && !connectorsUsable(cardIdentity)) {
         return json(res, cardIdentity === "denied" ? 403 : 503, { error: cardIdentity === "denied"
           ? "Sign in with your NATION account to connect apps."

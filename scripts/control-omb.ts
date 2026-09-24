@@ -393,7 +393,7 @@ export async function launchVerificationServer(
   /** Hosted multi-member fixture: a loopback stand-in for the backend
    * connected-apps project (per-account Sessions) and for the NATION
    * account service that signs members in with an emailed code. */
-  hostedMembers?: { providerApi: string; memberEmails: string[] },
+  hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string } },
 ): Promise<VerificationServer> {
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
@@ -478,6 +478,9 @@ export async function launchVerificationServer(
     OMB_COMPOSIO_TOOLKITS_API: hostedMembers.providerApi + "/api/v3",
     NATION_ACCOUNT_SERVICE_URL: hostedMembers.providerApi,
     OMB_SIGNIN_MEMBER_EMAILS: hostedMembers.memberEmails.join(","),
+    ...(hostedMembers.modelRoutes?.fast ? { NATION_MODEL_FAST: hostedMembers.modelRoutes.fast } : {}),
+    ...(hostedMembers.modelRoutes?.standard ? { NATION_MODEL_STANDARD: hostedMembers.modelRoutes.standard } : {}),
+    ...(hostedMembers.modelRoutes?.strong ? { NATION_MODEL_STRONG: hostedMembers.modelRoutes.strong } : {}),
   });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {

@@ -17,6 +17,12 @@ import { ChatProtocolError, ChatReasoningDetails, ChatToolCalls, MAX_CHAT_TOOL_C
 import { appendNative } from "./native.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 
+/** The provider refused the model itself (unknown, removed, not allowed). */
+export function modelUnavailable(error: Error): boolean {
+  return /HTTP (?:400|404|422)\b/.test(error.message) && /model/i.test(error.message)
+    && !/context|token|too long|credit|quota|rate/i.test(error.message);
+}
+
 /** Encoded screenshot bytes one turn may carry (upstream's chat image budget). */
 export const TURN_IMAGE_BUDGET = 32 * 1024 * 1024;
 export const IMAGE_BUDGET_NOTE = " [Screenshot withheld: this turn's image budget is used up. The operation itself completed; finish with what you have or ask the person to continue in a new message.]";
@@ -342,7 +348,8 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     const abort = new AbortController();
     const messages = messagesFor(turn);
     let imageBytes = 0;
-    const model = turn.model || options.models().default;
+    let model = turn.model || options.models().default;
+    let fellBack = false;
     const secrets = [options.apiKey, turn.integrations?.computer?.token ?? "", turn.integrations?.computer?.control?.token ?? ""];
     for (const integration of Object.values(turn.integrations ?? {})) {
       const entries = object(integration);
@@ -429,6 +436,16 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
               break;
             } catch (value) {
               const error = asError(value);
+              // The routed model is unavailable upstream (not a transient or
+              // billing failure): use the cheaper allowed model once. Nothing
+              // has streamed or executed, and a rejected call is not charged.
+              if (turn.modelFallback && !fellBack && turn.modelFallback !== model && !streamed && !seenCalls.size &&
+                  !abort.signal.aborted && modelUnavailable(error)) {
+                fellBack = true;
+                model = turn.modelFallback;
+                emit({ ...base(turn.threadId, turnId), type: "turn.retrying", attempt, delayMs: 0, reason: "model unavailable; using the fallback model" });
+                continue;
+              }
               const verdict = classifyError(error);
               // Once a call has been handled, never replay it through a turn retry.
               if (options.retryScale === undefined || abort.signal.aborted || streamed || seenCalls.size ||

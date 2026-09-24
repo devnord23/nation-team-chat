@@ -109,6 +109,8 @@ export interface SendTurnInput {
    * context, while a fresh replay retains the visible attachment marker. */
   images?: TurnImageInput[];
   model?: string;
+  /** A cheaper allowed model to use once if `model` is unavailable upstream. */
+  modelFallback?: string;
   effort?: EffortLevel;
   variant?: string;
   resumeCursor?: unknown;

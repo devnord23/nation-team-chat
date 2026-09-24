@@ -33,7 +33,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
   const accounts = new Map<string, Account[]>(); // composio user id -> accounts
   const sessions = new Map<string, string>(); // session id -> composio user id
   const mcpCalls: Array<{ user: string; tool: string }> = [];
-  const modelRequests: Array<{ auth: string; tools: string[]; body: any }> = [];
+  const modelRequests: Array<{ auth: string; model: string; tools: string[]; body: any }> = [];
   let origin = "";
   let accountSeq = 0;
   let callSeq = 0;
@@ -64,12 +64,14 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     // NATION API model
     if (path.endsWith("/chat/completions")) {
       const tools: string[] = (body.tools ?? []).map((item: any) => item.function.name);
-      modelRequests.push({ auth: String(req.headers.authorization), tools, body });
+      modelRequests.push({ auth: String(req.headers.authorization), model: body.model, tools, body });
       const lastUser = [...body.messages].reverse().find((item: any) => item.role === "user");
       const text = typeof lastUser?.content === "string" ? lastUser.content : JSON.stringify(lastUser?.content ?? "");
       const afterUser = body.messages.slice(body.messages.lastIndexOf(lastUser) + 1);
       const toolReply = afterUser.find((item: any) => item.role === "tool");
-      const wanted = /emails/i.test(text) ? "composio_gmail_fetch_emails" : /github issues/i.test(text) ? "composio_github_list_issues" : "";
+      // the request is the prompt's last line; earlier lines replay context
+      const ask = text.trim().split(/\\n|\n/).at(-1) ?? "";
+      const wanted = /emails/i.test(ask) ? "composio_gmail_fetch_emails" : /github issues/i.test(ask) ? "composio_github_list_issues" : "";
       const delta = wanted && tools.includes(wanted) && !toolReply
         ? { tool_calls: [{ index: 0, id: `call-${++callSeq}`, type: "function", function: { name: wanted, arguments: "{}" } }] }
         : { content: toolReply ? `From your connected app: ${JSON.parse(toolReply.content).result}` : "I don't have a connected app for that." };
@@ -131,7 +133,8 @@ it("hosted members connect and use only their own apps through NATION API", asyn
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
   origin = "http://127.0.0.1:" + (provider.address() as { port: number }).port;
   const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, [], undefined,
-    origin, undefined, { providerApi: origin, memberEmails: [ALICE, BOB] });
+    origin, undefined, { providerApi: origin, memberEmails: [ALICE, BOB],
+      modelRoutes: { fast: "openai/fast-fixture", standard: "openai/standard-fixture", strong: "openai/strong-fixture" } });
   const memberResponses: string[] = [];
   const request = async (path: string, init: { method?: string; body?: unknown; cookie?: string } = {}) => {
     const response = await fetch(fixture.info.url + path, {
@@ -275,6 +278,21 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect((await messages(bobThread, bob)).filter((item) => item.role === "bot" && item.kind === "text").at(-1)?.text).toContain("Bob fixture bug");
     expect(await balance(bob)).toBeLessThan(bobBefore);
 
+    // Dynamic routing stays on NATION API: a plain request takes the fast
+    // model, a hard one the strong model, both from the operator's catalog.
+    expect(aliceTurn.model).toBe("openai/fast-fixture");
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Debug the race condition in our job queue and find the root cause", threadId: bobThread }, cookie: bob });
+    const routedTurn = await wait(bot.id, bobThread);
+    expect(routedTurn.status, JSON.stringify(routedTurn.messages?.slice(-3))).toBe("settled");
+    expect(modelRequests.at(-1)!.model).toBe("openai/strong-fixture");
+    expect(modelRequests.at(-1)!.auth).toBe(`Bearer ${MODEL_KEY}`);
+    const routing = await owner("/api/admin/model-routing");
+    expect(routing.catalog).toMatchObject({ fast: "openai/fast-fixture", strong: "openai/strong-fixture" });
+    const strongReceipt = routing.recent.find((item: any) => item.threadId === bobThread && item.tier === "strong");
+    expect(strongReceipt).toMatchObject({ model: "openai/strong-fixture", fallback: "openai/standard-fixture", account: accountId(BOB) });
+    expect(strongReceipt.reasons).toContain("hard-task keywords");
+    expect((await request("/api/admin/model-routing", { cookie: bob })).status).toBe(403);
+
     // Bob asking for "his" email gets no Gmail tool: he never connected one.
     const callsBefore = mcpCalls.length;
     await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Check my latest emails", threadId: bobThread }, cookie: bob });
@@ -303,6 +321,8 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     }
     expect(JSON.stringify(modelRequests.map((item) => item.body))).not.toContain(PROJECT_KEY);
     expect(memberResponses.join("\n")).not.toMatch(/composio\.dev|ak_[a-z]/i);
+    // routed model slugs are operator detail, not member-facing
+    expect(memberResponses.join("\n")).not.toMatch(/(?:fast|standard|strong)-fixture/);
     writeFileSync(`${fixture.info.logPath}.members.json`, JSON.stringify({ mcpCalls, modelTools: modelRequests.map((item) => item.tools) }, null, 2));
     console.log(`NATION member connector evidence: ${fixture.info.logPath}.members.json`);
   } finally {
