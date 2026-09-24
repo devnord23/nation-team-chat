@@ -13,7 +13,7 @@ it("previews and imports canonical teams and accepts both scheduler destination 
   try {
     await call("/api/config", "PUT", { defaultModelSelection: { instanceId: "hermes", model: "openrouter/auto" } });
     const before = (await call("/api/bots")).body;
-    const manifest = { format: "nation.team", version: 2, team: { name: "Preview team", members: [{ name: "Scout", title: "Research" }] } };
+    const manifest = { format: "nation.team", version: 2, team: { name: "Preview team", members: [{ key: "scout", name: "Scout", title: "Research", appearance: { color: "cyan" } }] } };
     const preview = await call("/api/teams/import-preview", "POST", { manifest });
     expect(preview.status, JSON.stringify(preview.body)).toBe(200);
     expect(preview.body).toMatchObject({ kind: "team", name: "Preview team", manifest: { format: "nation.team" } });
