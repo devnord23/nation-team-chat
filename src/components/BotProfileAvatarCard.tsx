@@ -5,19 +5,17 @@ import { api, useStore, type Bot } from "@/state/store";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import {
-  PICKABLE_STATES,
-  MAUS_COLORS,
-  MAUS_COLOR_NAMES,
-  type MausMotion,
-  type MausState,
+  NATION_COLORS,
+  NATION_COLOR_NAMES,
+  type NationMotion,
+  type NationState,
 } from "@/lib/mascot";
 import {
   BOT_AVATAR_CROPS,
   botAvatarUrlFromStoredPath,
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
-import { MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
-import { BotAvatar, MausAvatar } from "./Avatar";
+import { BotAvatar } from "./Avatar";
 import { AvatarImageGenerator } from "./AvatarImageGenerator";
 import { useOrganizationBranding } from "@/lib/use-organization-branding";
 
@@ -25,22 +23,47 @@ type AvatarPatch = Partial<
   Pick<Bot, "avatarCrop" | "avatarUrl" | "color" | "mascotExpression" | "mascotBody">
 >;
 
-const CROP_LABEL = {
-  mascot: "Mascot",
+/** The six soft-tower face names in order, matching Avatar.tsx. */
+const SOFT_TOWER_FACES = [
+  "coordinator",
+  "researcher",
+  "builder",
+  "analyst",
+  "creator",
+  "operator",
+] as const;
+
+/** Which color produces each soft-tower face (first matching color per face). */
+const FACE_COLOR: Record<(typeof SOFT_TOWER_FACES)[number], (typeof NATION_COLOR_NAMES)[number]> = {
+  coordinator: "green",
+  researcher: "blue",
+  builder: "red",
+  analyst: "orange",
+  creator: "purple",
+  operator: "cyan",
+};
+
+function softTowerFace(color: (typeof NATION_COLOR_NAMES)[number]): (typeof SOFT_TOWER_FACES)[number] {
+  const idx = NATION_COLOR_NAMES.indexOf(color);
+  return SOFT_TOWER_FACES[(idx < 0 ? 0 : idx) % SOFT_TOWER_FACES.length]!;
+}
+
+const CROP_LABEL: Record<BotAvatarCrop, string> = {
+  mascot: "Default",
   circle: "Circle",
   rounded: "Rounded",
   square: "Square",
-} satisfies Record<BotAvatarCrop, string>;
+};
 
 export function BotProfileAvatarCard({
   bot,
-  activeState,
+  activeState: _activeState,
   mascotMotion,
   onPatch,
 }: {
   bot: Bot;
-  activeState: MausState;
-  mascotMotion: { kind: Exclude<MausMotion, "none">; nonce: number } | null;
+  activeState: NationState;
+  mascotMotion: { kind: Exclude<NationMotion, "none">; nonce: number } | null;
   onPatch: (patch: AvatarPatch) => void;
 }) {
   const { flushBotPatches } = useStore();
@@ -84,9 +107,6 @@ export function BotProfileAvatarCard({
     setGenerating(true);
     setError(null);
     try {
-      // Generation reads the bot's identity and crop server-side. Commit any
-      // debounced profile edits first, then feed the generated avatar back
-      // through the same serialized mutation lane as upload/remove.
       const cropAtStart = cropRef.current;
       await flushBotPatches(bot.id);
       const result: { avatarUrl: string; bot: Bot } = await api(`/api/bots/${bot.id}/avatar/generate`, {
@@ -96,10 +116,6 @@ export function BotProfileAvatarCard({
       const latestCrop = cropRef.current;
       onPatch({
         avatarUrl: result.avatarUrl,
-        // The server owns this crop for generate (server/index.ts picks
-        // "circle" for a mascot bot). The fallback below is never actually
-        // reached, since the server always assigns a crop; "circle" is kept
-        // only as the truthful default if it ever were.
         avatarCrop:
           latestCrop === cropAtStart
             ? (result.bot.avatarCrop ?? "circle")
@@ -112,6 +128,8 @@ export function BotProfileAvatarCard({
     }
   };
 
+  const currentFace = softTowerFace(bot.color);
+
   return (
     <div className="overflow-hidden rounded-xl border border-hairline/40 bg-card">
       <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2.5">
@@ -121,7 +139,7 @@ export function BotProfileAvatarCard({
           onClick={() => onPatch({ avatarCrop: "mascot", color: "green", mascotExpression: null, mascotBody: "cursor" })}
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50"
         >
-          Reset mascot
+          Reset to default
         </button>
       </div>
 
@@ -129,8 +147,6 @@ export function BotProfileAvatarCard({
         {Boolean(organization?.icons.length) && <div className="mb-3 border-b border-hairline/40 pb-3">
           <div className="mb-2 text-[13px] font-medium text-ink-secondary">{organization!.name} icons</div>
           <div className="flex flex-wrap gap-2">{organization!.icons.map(icon => <button key={icon.id} type="button" disabled={busy} title={icon.name} aria-label={`Use ${icon.name} icon`} className="flex size-12 items-center justify-center rounded-lg border border-hairline/40 hover:bg-control disabled:opacity-50" onClick={() => {
-            // Use the normal attachment path, so chosen icons survive removal
-            // from Admin and travel with the user's own workspace backups.
             const bytes = Uint8Array.from(atob(icon.image.slice(22)), byte => byte.charCodeAt(0));
             void upload(new File([bytes], `${icon.id}.png`, { type: "image/png" }));
           }}><img src={icon.image} alt="" className="size-10 rounded-md object-contain" /></button>)}</div>
@@ -138,7 +154,6 @@ export function BotProfileAvatarCard({
         <div className="flex justify-center py-3">
           <BotAvatar
             bot={bot}
-            state={activeState}
             size={112}
             motion={mascotMotion?.kind ?? "none"}
             motionKey={mascotMotion?.nonce ?? 0}
@@ -202,33 +217,43 @@ export function BotProfileAvatarCard({
         {crop === "mascot" && (
           <>
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Expression
+              Face
             </div>
-            <div className="grid grid-cols-5 gap-2">
-              {PICKABLE_STATES.map((expression) => (
-                <button
-                  key={expression}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={activeState === expression}
-                  onClick={() => onPatch({ mascotExpression: expression })}
-                  className={cn(
-                    "flex h-[58px] items-center justify-center rounded-xl bg-inset transition-colors hover:bg-control disabled:opacity-50",
-                    activeState === expression && "ring-2 ring-accent-border",
-                  )}
-                  title={expression}
-                  aria-label={`Use ${expression} expression`}
-                >
-                  <MausAvatar color={bot.color} bodyId={bot.mascotBody ?? undefined} state={expression} size={42} animated={false} />
-                </button>
-              ))}
+            <div className="grid grid-cols-6 gap-2">
+              {SOFT_TOWER_FACES.map((face) => {
+                const faceColor = FACE_COLOR[face];
+                const selected = currentFace === face;
+                return (
+                  <button
+                    key={face}
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={selected}
+                    onClick={() => onPatch({ color: faceColor })}
+                    className={cn(
+                      "flex items-center justify-center rounded-xl p-1 disabled:opacity-50 transition-colors",
+                      selected ? "ring-2 ring-accent-border bg-control" : "hover:bg-control/60",
+                    )}
+                    title={face}
+                    aria-label={`Use ${face} face`}
+                  >
+                    <img
+                      src={`${import.meta.env.BASE_URL}bot-faces/${face}.svg`}
+                      alt={face}
+                      width={36}
+                      height={36}
+                      className="block"
+                    />
+                  </button>
+                );
+              })}
             </div>
 
             <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Color
+              Accent color
             </div>
             <div className="flex flex-wrap gap-2.5">
-              {MAUS_COLOR_NAMES.map((color) => (
+              {NATION_COLOR_NAMES.map((color) => (
                 <button
                   key={color}
                   type="button"
@@ -236,37 +261,13 @@ export function BotProfileAvatarCard({
                   aria-pressed={bot.color === color}
                   onClick={() => onPatch({ color })}
                   className={cn(
-                    "size-10 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50",
+                    "size-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50",
                     bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
                   )}
-                  style={{ backgroundColor: MAUS_COLORS[color] }}
+                  style={{ backgroundColor: NATION_COLORS[color] }}
                   title={color}
-                  aria-label={`Use ${color} mascot color`}
+                  aria-label={`Use ${color} color`}
                 />
-              ))}
-            </div>
-
-            <div className="mb-2 mt-4 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-              Body
-            </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {MASCOT_BODY_IDS.map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  disabled={busy}
-                  aria-pressed={(bot.mascotBody ?? "cursor") === id}
-                  aria-label={`Use the ${MASCOT_BODIES[id].name} body`}
-                  onClick={() => onPatch({ mascotBody: id })}
-                  className={cn(
-                    "flex items-center justify-center rounded-lg py-1.5 disabled:opacity-50",
-                    (bot.mascotBody ?? "cursor") === id
-                      ? "bg-control text-ink"
-                      : "text-ink-secondary hover:bg-control/60",
-                  )}
-                >
-                  <MausAvatar color={bot.color} bodyId={id} size={34} animated={false} trackPointer={false} />
-                </button>
               ))}
             </div>
           </>

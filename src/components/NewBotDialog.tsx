@@ -13,7 +13,7 @@ import { useStore } from "@/state/store";
 
 const APP_LABELS: Record<string, string> = {
   gmail: "Gmail",
-  github: "GitHub",
+  github: "Code hosting",
   discord: "Discord",
   slack: "Slack",
   googlecalendar: "Calendar",

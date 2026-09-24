@@ -1,5 +1,8 @@
 {
-  "title": "Security",
+  "title": "Permissions and access",
   "icon": "ShieldCheck",
-  "pages": ["index", "permissions-and-secrets"]
+  "pages": [
+    "index",
+    "permissions-and-secrets"
+  ]
 }

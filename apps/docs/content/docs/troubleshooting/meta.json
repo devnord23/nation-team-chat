@@ -1,5 +1,10 @@
 {
-  "title": "Troubleshooting",
+  "title": "Get help",
   "icon": "Wrench",
-  "pages": ["index", "startup-and-ports", "updates", "connected-apps"]
+  "pages": [
+    "index",
+    "startup-and-ports",
+    "updates",
+    "connected-apps"
+  ]
 }

@@ -12,6 +12,9 @@ import { ensureDirs, NATIVE_DIR } from "../config.ts";
 import type { ProviderInstance, SendTurnInput } from "../contracts.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { recordEvents } from "../testing/events.ts";
+import { NationOpenRouterDriver } from "./nation-openrouter.ts";
+import { CreditLedger, creditSettings } from "../nation-credits.ts";
+import { creditContext, setCreditLedgerForTests } from "../nation-credit-context.ts";
 import { GrokDriver } from "./grok.ts";
 import { MinimaxDriver } from "./minimax.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";
@@ -29,7 +32,7 @@ interface ChatRequest {
 }
 
 type Script = (body: ChatRequest, response: ServerResponse, round: number) => void;
-type Provider = "openai-compat" | "grok" | "minimax";
+type Provider = "openai-compat" | "grok" | "minimax" | "nation-openrouter";
 const API_KEY_CANARY = "fixture-credential-cda00ee8d8384f54";
 
 function deferred<T = void>() {
@@ -116,7 +119,9 @@ async function fixture(script: Script, provider: Provider = "openai-compat", api
   const helper = join(directory, "mcp.mjs");
   writeFileSync(helper, MCP_SCRIPT);
   const common = { instanceId: randomUUID(), displayName: "Tool contract fixture", enabled: true };
-  const instance: ProviderInstance = provider === "minimax"
+  const instance: ProviderInstance = provider === "nation-openrouter"
+    ? await NationOpenRouterDriver.create({ ...common, config: {}, environment: { OPENROUTER_API_KEY: apiKey, OPENROUTER_API_URL: `${origin}/v1` } })
+    : provider === "minimax"
     ? await MinimaxDriver.create({ ...common, config: { url: `${origin}/v1` }, environment: { MINIMAX_API_KEY: apiKey } })
     : await (provider === "grok" ? GrokDriver : OpenAICompatDriver).create({
       ...common,
@@ -583,4 +588,31 @@ describe("structured tool execution boundaries", () => {
     if (pending) expect(await f.instance.adapter.respondToRequest(f.threadId, pending.requestId!, { behavior: "allow" })).toBe("unavailable");
     expect(f.recorder.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
   });
+});
+
+
+it("charges every managed tool round and non-streaming helper from actual returned cost", async () => {
+  const ledger = new CreditLedger(":memory:", creditSettings({}));
+  const account = { id: "tool-round-account", verified: true };
+  ledger.grant(account, "fixture-ip", "fixture-device");
+  setCreditLedgerForTests(ledger);
+  try {
+    const f = await fixture((_body, response, round) => {
+      if (round === 3) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ id: "helper", choices: [{ message: { content: "Short title" }, finish_reason: "stop" }], usage: { cost: .05 } }));
+      } else sse(response, [
+        { id: `round-${round}`, ...chunk(round === 1 ? { tool_calls: [toolCall()] } : { content: "Stored." }, round === 1 ? "tool_calls" : "stop") },
+        { choices: [], usage: { cost: round === 1 ? .1 : .2 } },
+      ]);
+    }, "nation-openrouter");
+    await creditContext.run(account, () => f.start());
+    await f.decide();
+    const completion = await f.completed();
+    expect(completion).toMatchObject({ ok: true });
+    expect(ledger.balance(account.id)).toBe(2_700_000);
+    expect(await creditContext.run(account, () => f.instance.generateText!("Title the fixture"))).toBe("Short title");
+    expect(ledger.balance(account.id)).toBe(2_650_000);
+    expect(ledger.admin().ledger.filter(row => row.type === "usage")).toHaveLength(3);
+  } finally { setCreditLedgerForTests(); ledger.close(); }
 });

@@ -1,0 +1,11 @@
+Final combined working tree, 2026-09-24
+
+FAIL source search: 13502 matching lines in 1252 files outside LICENSE/NOTICE
+FAIL brand-guard frontend: 383 files, 911 matches
+PASS brand-guard captured member API: 1 file, 0 matches
+
+The requested zero-hit result was NOT achieved. Do not merge or deploy as a complete brand scrub.
+
+Search terms (case-insensitive): openmuse|open muse|open-muse|open_muse|openmaus|openmausbot|maus|open source|opensource|github|star us|contribute|anthropic|claude|hermes|nous|venice|grok|xai|cua
+
+Source scan examined tracked and newly created UTF-8 files, excluding filenames beginning LICENSE or NOTICE. Built asset scan: node scripts/brand-guard.mjs. Remaining source includes providers, protocols, documentation, dependency metadata, readable compatibility fallbacks and the guard itself. Remaining asset matches include admin/provider implementation and dependency grammars. No encoded substitutions or broad exceptions were used to manufacture a pass.

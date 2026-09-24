@@ -1,28 +1,12 @@
 ---
-title: Give a bot a computer
-description: Choose the right desktop or isolated environment for a task.
-icon: Monitor
+title: NATION Isolated PC
+description: Help for your Nation Team Chat workspace.
 ---
 
-A bot can work without a computer, use the computer running OpenMausBot, or work inside an isolated desktop.
+An Isolated PC gives your agent a place to browse, work with files, and use tools. Availability is managed by your workspace owner.
 
-<ProductScreenshot name="docs-computer-panel" alt="OpenMausBot computer panel offering cloud, local VM, host computer, and off modes" caption="Computer placement is explicit per bot and can be changed without changing its model." />
+Open the Computer panel to follow the available desktop and connection status. If it is unavailable, retry or contact NATION support.
 
-| Backend | Isolation | Best for |
-|---|---|---|
-| This computer | None | Working with local apps and files you explicitly approve |
-| Local VM | Containerized desktop | Repeatable browser and desktop work on your machine |
-| Box cloud computer | Hosted remote desktop | Always-available isolated Linux work |
-| Self-hosted VPS | Hardened container over SSH | Using infrastructure you own |
+A desktop connection and an agent reply are separate states: review the conversation and work record to confirm what completed.
 
-## Auto, local, and cloud selection
-
-Computer selection is explicit per bot. Auto may reuse a ready, verified backend, but it does not silently provision every backend or turn on host control.
-
-## Preview and takeover
-
-The Computer panel can show live frames while an agent works. Supported cloud desktops also provide an interactive viewer. OpenMausBot opens that viewer in the app when possible, with a browser fallback for external join flows.
-
-<Callout type="warn" title="Preview is not permission">
-  Starting a screen preview does not grant the bot control. Local input requires a separate opt-in and remains subject to the computer-use safety boundary.
-</Callout>
+[Contact NATION support](https://t.me/thenation_city).

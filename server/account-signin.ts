@@ -1,12 +1,12 @@
 // Sign in with your email on a hosted server. The emailed code comes from the
-// OpenMausBot control plane (the account service the desktop companion and
-// `openmausbot login` already use), and this server decides who is welcome
+// Nation control plane (the account service the desktop companion and
+// `nation login` already use), and this server decides who is welcome
 // with an allow-list its owner controls. The result is an ordinary local
 // session, the same thing a pairing code produces, so every gate applies.
 //
 // Why through the control plane rather than a mail provider per server: a
-// self-hoster then needs no email credentials at all; the code arrives from
-// accounts.openmausbot.com. The exchange happens server-side, so a browser
+// operator configures the account service explicitly. The exchange happens
+// server-side, so a browser
 // only ever talks to this server, and a server with an empty allow-list does
 // not expose the routes.
 import { resolveCompanionControlPlaneURL } from "../electron/companion-account-service.mjs";
@@ -64,13 +64,15 @@ export function createEmailSignIn(options: {
   let client: ControlPlaneClient | null = options.client ?? null;
   const controlPlane = (): ControlPlaneClient => {
     if (client) return client;
-    const url = resolveCompanionControlPlaneURL({ isPackaged: true, environment: env });
+    const configured = env.NATION_ACCOUNT_SERVICE_URL || env.OMB_CONTROL_PLANE_URL;
+    if (!configured) throw new Error("NATION account sign-in is not configured");
+    const url = resolveCompanionControlPlaneURL({ isPackaged: true, environment: { ...env, OMB_CONTROL_PLANE_URL: configured } });
     if (!url) throw new Error("OMB_CONTROL_PLANE_URL is set but is not an https address");
     client = createControlPlaneClient({ baseURL: url, fetchImpl: options.fetchImpl });
     return client;
   };
   return {
-    enabled: () => signInEnabled(allow()),
+    enabled: () => signInEnabled(allow()) && Boolean(options.client || env.NATION_ACCOUNT_SERVICE_URL || env.OMB_CONTROL_PLANE_URL),
     async start(rawEmail) {
       const email = normalizeAccountEmail(rawEmail);
       if (!email) return { ok: false, status: 400, error: "enter a valid email address" };

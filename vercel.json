@@ -5,17 +5,57 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "vite",
   "redirects": [
-    { "source": "/", "destination": "/swarm/", "permanent": true },
-    { "source": "/index.html", "destination": "/swarm/", "permanent": true }
+    {
+      "source": "/",
+      "destination": "/swarm/",
+      "permanent": true
+    },
+    {
+      "source": "/index.html",
+      "destination": "/swarm/",
+      "permanent": true
+    }
   ],
   "rewrites": [
-    { "source": "/swarm/api/:path*", "destination": "https://server.aurk.org/nation-team-chat/api/:path*" },
-    { "source": "/swarm/.well-known/openmausbot/:path*", "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*" },
-    { "source": "/api/:path*", "destination": "https://server.aurk.org/nation-team-chat/api/:path*" },
-    { "source": "/.well-known/openmausbot/:path*", "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*" },
-    { "source": "/swarm", "destination": "/swarm/index.html" },
-    { "source": "/swarm/ledger", "destination": "/swarm/ledger/index.html" },
-    { "source": "/swarm/ledger/", "destination": "/swarm/ledger/index.html" },
-    { "source": "/swarm/:path*", "destination": "/swarm/index.html" }
-  ]
+    {
+      "source": "/swarm/api/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/:path*"
+    },
+    {
+      "source": "/swarm/.well-known/nationteamchat/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/.well-known/nationteamchat/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/:path*"
+    },
+    {
+      "source": "/.well-known/nationteamchat/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/.well-known/nationteamchat/:path*"
+    },
+    {
+      "source": "/swarm",
+      "destination": "/swarm/index.html"
+    },
+    {
+      "source": "/swarm/ledger",
+      "destination": "/swarm/ledger/index.html"
+    },
+    {
+      "source": "/swarm/ledger/",
+      "destination": "/swarm/ledger/index.html"
+    },
+    {
+      "source": "/swarm/:path*",
+      "destination": "/swarm/index.html"
+    }
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "cursor/nation-rebrand-zero-fingerprints-9a8c": false,
+      "nation-scrub-openmuse": false,
+      "nation-remove-connectors": false,
+      "nation-crypto-credits": false
+    }
+  }
 }

@@ -1,3 +1,5 @@
+import { beginModelSpend } from "./spend.ts";
+import { creditsEnforced } from "./nation-credit-context.ts";
 import type { ReadableStreamReadResult } from "node:stream/web";
 import { z } from "zod";
 
@@ -26,6 +28,7 @@ interface AvatarImageConfig {
 
 /** Public settings describe availability without returning provider secrets. */
 export function avatarImageStatus(cfg: AvatarImageConfig) {
+  if (creditsEnforced()) return { provider: "custom" as const, configured: true, model: "NATION API", customUrl: "", customModel: "", openaiConfigured: false, xaiConfigured: false, customKeyConfigured: false };
   const provider = cfg.imageGen?.provider ?? "openai";
   const openaiConfigured = Boolean(cfg.imageGen?.key?.trim());
   const xaiConfigured = Boolean(cfg.xai?.key?.trim());
@@ -134,6 +137,7 @@ export async function generateAvatarImage(
   fetchImpl: typeof fetch = fetch,
   timeoutMs = AVATAR_IMAGE_TIMEOUT_MS,
 ): Promise<GeneratedAvatarImage> {
+  if (creditsEnforced()) return generateNationAvatar(bot, direction, fetchImpl, timeoutMs);
   const settings = avatarImageStatus(cfg);
   const { provider, model } = settings;
   if (!settings.configured) {
@@ -221,5 +225,35 @@ export async function generateAvatarImage(
     return { bytes: image.bytes, mime: image.mime };
   } catch {
     throw Object.assign(new Error(`${providerName} returned invalid or oversized image data; expected PNG, JPEG, or WebP`), { status: 502 });
+  }
+}
+
+/** Managed avatars use the same verified balance and actual-cost ledger as chat. */
+async function generateNationAvatar(bot: AvatarIdentity, direction: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<GeneratedAvatarImage> {
+  const charge = beginModelSpend();
+  let cost: number | undefined;
+  try {
+    const base = (process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+    const response = await fetchImpl(`${base}/images`, {
+      method: "POST", headers: { authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: process.env.NATION_IMAGE_MODEL || "openai/gpt-image-2", prompt: avatarGenerationPrompt(bot, direction), aspect_ratio: "1:1", quality: "low", n: 1, usage: { include: true } }),
+      redirect: "error", signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      if ([400,401,402,403,404,422,429].includes(response.status)) charge.reject();
+      throw Object.assign(new Error("NATION could not generate the avatar. Please try again."), { status: 502 });
+    }
+    const value = JSON.parse(await boundedResponseText(response)) as { id?: string; usage?: { cost?: number }; data?: { b64_json?: string }[] };
+    if (value.id) charge.providerId(value.id);
+    if (typeof value.usage?.cost === "number" && Number.isFinite(value.usage.cost) && value.usage.cost >= 0) cost = value.usage.cost;
+    if (cost === undefined) throw Object.assign(new Error("NATION is confirming the image cost. Please contact support if this continues."), { status: 502 });
+    const encoded = value.data?.[0]?.b64_json;
+    if (!encoded) throw Object.assign(new Error("NATION returned no avatar image."), { status: 502 });
+    const image = decodeGeneratedImage(encoded);
+    if (image.mime === "image/gif") throw new Error("Unsupported avatar image format");
+    return { bytes: image.bytes, mime: image.mime };
+  } finally {
+    if (cost !== undefined) charge.settle(cost);
+    else charge.unconfirmed();
   }
 }

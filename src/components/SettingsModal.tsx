@@ -670,11 +670,6 @@ export function SettingsModal() {
                 subtitle={t("settings.connections.subtitle")}
               >
                 <div className="flex flex-col gap-4">
-                  {state.config?.composio.mode === "managed" ? (
-                    <div className="rounded-lg border border-success/25 bg-success/10 px-3 py-2 text-[13px] text-success">
-                      {t("settings.connections.ready")}
-                    </div>
-                  ) : null}
                   <div className="text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">{t("keys.providers.title")}</div>
                   <p className="-mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("keys.providers.subtitle")}</p>
                   <ApiKeyRow section="anthropic" testProvider="anthropic" />
@@ -685,12 +680,6 @@ export function SettingsModal() {
                   <ApiKeyRow section="box" />
                   <VpsConnection />
                   <ApiKeyRow section="opencodeGo" />
-                  <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
-                    <summary className="cursor-pointer text-[13px] text-ink-secondary">{t("settings.connections.selfHost")}</summary>
-                    <div className="mt-3">
-                      <ApiKeyRow section="composio" />
-                    </div>
-                  </details>
                 </div>
               </Card>
             )}

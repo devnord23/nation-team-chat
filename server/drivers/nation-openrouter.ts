@@ -89,6 +89,7 @@ export const NationOpenRouterDriver: ProviderDriver<Record<string, never>> = {
       requestBody: (model, messages, stream) => ({
         model,
         messages,
+        usage: { include: true },
         stream,
         stream_options: stream ? { include_usage: true } : undefined,
       }),

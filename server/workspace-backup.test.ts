@@ -37,6 +37,7 @@ function fixture(root: string): DatabaseSync {
   json(join(root, "delegations.json"), { thread: [{ id: "pending" }] });
   json(join(root, "delegation-receipts.json"), [{ id: "receipt" }]);
   json(join(root, "sessions.json"), { identity: "source-session" });
+  writeFileSync(join(root, "nation-credits.db"), "source financial ledger must not transfer");
   writeFileSync(join(root, "environment-id"), "source-environment");
   mkdirSync(join(root, "tools"));
   writeFileSync(join(root, "tools", "downloaded"), "reinstallable");
@@ -100,6 +101,7 @@ describe("encrypted full workspace backups", () => {
       json(join(target, "config.json"), { ...connections, language: "en" });
       json(join(target, "bots.json"), [{ id: "old" }]);
       json(join(target, "sessions.json"), { identity: "target-session" });
+      writeFileSync(join(target, "nation-credits.db"), "current financial ledger");
       const targetComputers = { version: 1, environmentId: "target-environment", computers: [{ id: "target-computer", name: "Destination desktop", section: null }] };
       json(join(target, "team-computers.json"), targetComputers);
       writeFileSync(join(target, "environment-id"), "target-environment");
@@ -126,6 +128,7 @@ describe("encrypted full workspace backups", () => {
       expect(readJson(join(target, "config.json"))).toEqual({ ...connections, language: "ja" });
       expect(readFileSync(join(target, "task-workspaces", "bot", "thread", "binary.bin"))).toEqual(Buffer.alloc(2 * 1024 * 1024, 0xa5));
       expect(readJson(join(target, "sessions.json"))).toEqual({ identity: "target-session" });
+      expect(readFileSync(join(target, "nation-credits.db"), "utf8")).toBe("current financial ledger");
       expect(readJson(join(target, "team-computers.json"))).toEqual(targetComputers);
       expect(readFileSync(join(target, "environment-id"), "utf8")).toBe("target-environment");
       expect(readFileSync(join(target, "openmausbot-server.lease"), "utf8")).toBe("live-lease");

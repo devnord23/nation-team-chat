@@ -58,7 +58,7 @@ import {
   intakeFiles,
   type Attachment,
 } from "@/lib/composer-attachments";
-import { MAUS_COLORS, type MausState } from "@/lib/mascot";
+import { NATION_COLORS, type NationState } from "@/lib/mascot";
 import {
   addDays,
   atLocalTime,
@@ -101,8 +101,8 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const INTERVAL_PRESETS = [5, 10, 15, 30, 60];
 const EVENT_DURATION_OPTIONS = Array.from({ length: 240 / CALENDAR_SLOT_MINUTES }, (_, index) => (index + 1) * CALENDAR_SLOT_MINUTES);
-const BOT_DRAG_TYPE = "application/x-openmaus-bot";
-const EVENT_DRAG_TYPE = "application/x-openmaus-calendar-event";
+const BOT_DRAG_TYPE = "application/x-nation-bot";
+const EVENT_DRAG_TYPE = "application/x-nation-calendar-event";
 
 type EventKind = "routine" | "call";
 type CalendarRecurrenceChoice = "none" | "daily" | "weekdays" | "weekly" | "custom";
@@ -241,7 +241,7 @@ function projectCalls(calls: CalendarCall[], from: number, to: number): CallOccu
   return items.sort((left, right) => left.at - right.at);
 }
 
-function statusState(status: RoutineRunStatus): MausState {
+function statusState(status: RoutineRunStatus): NationState {
   if (status === "running") return "working";
   if (status === "waiting") return "curious";
   if (status === "completed") return "proud";
@@ -1165,7 +1165,7 @@ function CalendarEventCard({
   const ownerBots = ownerIds.flatMap((id) => bots.find((bot) => bot.id === id) ?? []);
   const primary = ownerBots[0];
   const name = isCall ? item.call.name : run?.routineName ?? routine?.name ?? "Routine";
-  const color = isCall ? "#6d7cff" : primary ? MAUS_COLORS[primary.color] : "#666";
+  const color = isCall ? "#6d7cff" : primary ? NATION_COLORS[primary.color] : "#666";
   const [previewDuration, setPreviewDuration] = useState(item.durationMinutes);
   useEffect(() => setPreviewDuration(item.durationMinutes), [item.durationMinutes]);
   const status = run?.status;

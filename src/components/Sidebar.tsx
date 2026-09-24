@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ClipboardCopy,
   Copy,
-  CreditCard,
   Crown,
   FolderMinus,
   FolderPlus,
@@ -27,7 +26,6 @@ import {
   PinOff,
   Plus,
   Search,
-  Puzzle,
   ShieldCheck,
   Trash2,
   Users,
@@ -1768,7 +1766,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
     event.preventDefault();
     const from =
-      event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
+      event.dataTransfer.getData("application/x-nation-sidebar-section") ||
       event.dataTransfer.getData("text/plain") ||
       sectionDragRef.current.from;
     const over = sectionDragRef.current.over;
@@ -2096,7 +2094,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     dragging={draggingSectionId === id}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("application/x-openmausbot-sidebar-section", id);
+                      event.dataTransfer.setData("application/x-nation-sidebar-section", id);
                       event.dataTransfer.setData("text/plain", id);
                       sectionDragRef.current = { from: id, over: null };
                       setDraggingSectionId(id);
@@ -2192,30 +2190,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-2 rounded-full bg-danger" />
             )}
           </button>
-          <button
-            onClick={() => dispatch({ type: "togglePlugins", open: true })}
-            className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}
-            aria-label={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-            title={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-          >
-            <Puzzle size={20} className="text-ink-secondary" />
-            <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span>
-          </button>
-          {state.config?.nationBilling?.enabled && (
-            <button
-              onClick={() => dispatch({ type: "showSubscribe" })}
-              aria-label="Plans"
-              title="Plans"
-              className={cn(
-                "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-                density === "icons" ? "justify-center px-2" : "gap-3 px-3",
-                state.activeView === "subscribe" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
-              )}
-            >
-              <CreditCard size={20} className={state.activeView === "subscribe" ? "text-accent" : "text-ink-secondary"} />
-              <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Plans</span>
-            </button>
-          )}
           {admin && (
             <button
               onClick={() => dispatch({ type: "showAdmin" })}
@@ -2261,20 +2235,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 ),
                 onSelect: () => dispatch({ type: "showRoutines" }),
               },
-              {
-                key: "plugins",
-                tourId: "nav-apps",
-                label: t("sidebar.nav.connectedApps"),
-                icon: <Puzzle size={18} />,
-                onSelect: () => dispatch({ type: "togglePlugins", open: true }),
-              },
-              ...(state.config?.nationBilling?.enabled ? [{
-                key: "subscribe",
-                label: "Plans",
-                icon: <CreditCard size={18} />,
-                active: state.activeView === "subscribe",
-                onSelect: () => dispatch({ type: "showSubscribe" }),
-              }] : []),
               ...(admin ? [{
                 key: "admin",
                 label: "Admin",

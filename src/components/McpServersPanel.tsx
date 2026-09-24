@@ -465,7 +465,7 @@ export function McpServersPanel() {
                   value={draft.name}
                   maxLength={32}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value.toLowerCase() }))}
-                  placeholder="github"
+                  placeholder="workspace"
                   className="mt-1.5 w-full rounded-lg border border-hairline/60 bg-raised px-3 py-2.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60"
                 />
               </label>
@@ -521,7 +521,7 @@ export function McpServersPanel() {
                 <textarea
                   value={draft.args}
                   onChange={(event) => setDraft((current) => ({ ...current, args: event.target.value }))}
-                  placeholder={"-y\n@modelcontextprotocol/server-github"}
+                  placeholder={"-y\n@modelcontextprotocol/server-filesystem"}
                   rows={5}
                   className="mt-1.5 w-full resize-y rounded-lg border border-hairline/60 bg-raised px-3 py-2.5 font-mono text-[12px] text-ink outline-none focus:border-accent"
                 />
@@ -531,7 +531,7 @@ export function McpServersPanel() {
                 <textarea
                   value={draft.env}
                   onChange={(event) => setDraft((current) => ({ ...current, env: event.target.value }))}
-                  placeholder="GITHUB_TOKEN=…"
+                  placeholder="SERVICE_TOKEN=…"
                   rows={5}
                   className="mt-1.5 w-full resize-y rounded-lg border border-hairline/60 bg-raised px-3 py-2.5 font-mono text-[12px] text-ink outline-none focus:border-accent"
                 />

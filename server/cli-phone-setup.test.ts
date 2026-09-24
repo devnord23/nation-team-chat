@@ -76,7 +76,7 @@ describe("optional phone setup", () => {
     const result = await runPhoneSetup(options, ui.io, deps);
     expect(result).toEqual({ options });
     expect(result.options).toBe(options);
-    expect(ui.io.choose).toHaveBeenCalledWith("Use OpenMausBot on your phone?", expect.any(Array), 0);
+    expect(ui.io.choose).toHaveBeenCalledWith("Use NATION on your phone?", expect.any(Array), 0);
     expect(deps.accountReady).not.toHaveBeenCalled();
     expect(deps.login).not.toHaveBeenCalled();
     ui.consumed();
@@ -113,7 +113,7 @@ describe("optional phone setup", () => {
     const ui = prompts({ choices: [2, 0], confirms: [true] });
     expect((await runPhoneSetup(options, ui.io, deps)).phone).toBe("android");
     expect(deps.login).not.toHaveBeenCalled();
-    expect(ui.lines.join("\n")).toContain("saved OpenMausBot account");
+    expect(ui.lines.join("\n")).toContain("saved NATION account");
     ui.consumed();
   });
 
@@ -228,8 +228,8 @@ describe("phone pairing instructions", () => {
 
   it("describes iOS browser/native options without claiming an app-store release", () => {
     const text = phonePairingInstructions("ios", { origin: "https://maus.example", ready: true }).join("\n");
-    expect(text).toContain("Safari");
-    expect(text).toContain("already have");
+    expect(text).toContain("scan the QR with Camera");
+    expect(text).toContain("Nation Team Chat in your browser");
     expect(text).toContain("https://maus.example/pair");
     expect(text).toContain("does not mean the phone is paired");
     expect(text).toContain("not settings or pairing administration");
@@ -240,10 +240,10 @@ describe("phone pairing instructions", () => {
     const text = phonePairingInstructions("android", { origin: "https://maus.example", ready: true }).join("\n");
     // The QR beside these lines is the openmausbot:// invite, so the app's
     // own scanner is now the primary route rather than a dead end.
-    expect(text).toContain("open the OpenMausBot app and scan the QR with its pairing scanner");
+    expect(text).toContain("scan the QR with Camera");
     // The QR beside these lines is the app-scheme invite, so telling people to
     // scan it with Camera for the browser would send them nowhere.
-    expect(text).toContain("Camera will not open it in a browser");
+    expect(text).toContain("Nation Team Chat in your browser");
     expect(text).toContain("https://maus.example/pair");
     // The line that told people the link was useless to the native scanner
     // described a limitation that no longer exists.

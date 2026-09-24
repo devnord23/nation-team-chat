@@ -101,12 +101,12 @@ describe("scopes", () => {
       ["GET", "/api/attachments/a.png"], ["POST", "/api/routines"], ["POST", "/api/routines/r/run"],
       ["POST", "/api/routine-runs/seen-all"],
       ["GET", "/api/bots"], ["GET", "/api/threads/t/messages"], ["GET", "/api/search"], ["GET", "/api/events"],
-      ["GET", "/api/config"], ["GET", "/api/webhooks"], ["POST", "/api/tts/speak"],
+      ["GET", "/api/config"], ["GET", "/api/instances"], ["POST", "/api/bots"], ["GET", "/api/webhooks"], ["POST", "/api/tts/speak"],
       ["GET", "/api/auth/session"], ["POST", "/api/auth/stream-ticket"], ["POST", "/api/auth/logout"],
       ["GET", "/api/bots/x/slack-management"], // a link to Admin, read-only
     ] as const) expect(requiredScope(method, path), `${method} ${path}`).toBe("client");
     for (const [method, path] of [
-      ["POST", "/api/cli-test"], ["GET", "/api/cli-candidates"], ["GET", "/api/instances"], ["PATCH", "/api/instances/claude"],
+      ["POST", "/api/cli-test"], ["GET", "/api/cli-candidates"], ["GET", "/api/edition"], ["PATCH", "/api/instances/claude"],
       ["POST", "/api/bots/x/computer/exec"], ["POST", "/api/bots/x/computer/join"], ["POST", "/api/local-computer/run"],
       ["GET", "/api/computers/boxes"], ["POST", "/api/computers/boxes/bx_23456789/delete"],
       ["POST", "/api/webhooks"], ["POST", "/api/webhooks/w/rotate"], ["POST", "/api/bots/x/skills"], ["PATCH", "/api/bots/x/skills/s"],
@@ -228,7 +228,7 @@ describe("resolveRequestAuth", () => {
     const csrf = resolve({ host: "bots.example.com", cookie: `${cookieName}=${token}`, origin: "https://evil.example" }, "/api/bots", "POST");
     expect(csrf.error).toBe("forbidden: cross-origin request");
     expect(sessions.list()[0]?.expiresAt).toBe(session.expiresAt); // a rejected request is not use
-    const overScope = resolve({ authorization: `Bearer ${token}` }, "/api/bots", "POST");
+    const overScope = resolve({ authorization: `Bearer ${token}` }, "/api/instances", "POST");
     expect(overScope.status).toBe(403);
     expect(sessions.list()[0]?.expiresAt).toBe(session.expiresAt);
     const { ticket } = sessions.issueStreamTicket(session.id);

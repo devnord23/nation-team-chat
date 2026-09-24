@@ -12,13 +12,13 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { ServiceIcon, type ToolkitCard } from "@/components/PluginsPanel";
 import { cn } from "@/lib/cn";
-import type { MausState } from "@/lib/mascot";
+import type { NationState } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
 import { api } from "@/state/store";
 
 export interface SceneProps {
   playing: boolean;
-  onCue?: (state: MausState) => void;
+  onCue?: (state: NationState) => void;
   onEnded?: () => void;
   label: string;
 }
@@ -32,7 +32,7 @@ const RINGS: Array<Array<{ slug: string; label: string; domain: string }>> = [
   [
     { slug: "gmail", label: "Gmail", domain: "gmail.com" },
     { slug: "slack", label: "Slack", domain: "slack.com" },
-    { slug: "github", label: "GitHub", domain: "github.com" },
+    { slug: "workspace", label: "Workspace", domain: "thenation.city" },
   ],
   [
     { slug: "notion", label: "Notion", domain: "notion.so" },

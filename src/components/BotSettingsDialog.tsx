@@ -13,8 +13,6 @@ import { BOT_SECTIONS } from "./bot-settings/sections";
 import { useBotSettingsDerived } from "./bot-settings/useBotSettingsDerived";
 import { OverviewSection } from "./bot-settings/OverviewSection";
 import { IdentitySection } from "./bot-settings/IdentitySection";
-import { SlackSection } from "./bot-settings/SlackSection";
-import { useSlackManagementUrl } from "./bot-settings/useSlackManagement";
 import { SoulSection } from "./bot-settings/SoulSection";
 import { SkillsSection } from "./bot-settings/SkillsSection";
 import { MemorySection } from "./bot-settings/MemorySection";
@@ -44,8 +42,7 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
   const q = query.trim().toLowerCase();
   // Slack is offered only where the server has an Admin page to link to
   // (a hosted organisation workspace); otherwise its row does not exist.
-  const slackUrl = useSlackManagementUrl(bot.id);
-  const sections = BOT_SECTIONS.filter((entry) => entry.id !== "slack" || slackUrl !== null);
+  const sections = BOT_SECTIONS.filter((entry) => entry.id !== "slack");
   const visibleSections = sections.filter((entry) => sectionMatches(entry, q));
 
   const [overview, setOverview] = useState<BotOverview | null>(null);
@@ -260,7 +257,7 @@ export function BotSettingsDialog({ bot }: { bot: Bot }) {
       case "soul":
         return <SoulSection bot={bot} patch={derived.patch} />;
       case "slack":
-        return slackUrl ? <SlackSection managementUrl={slackUrl} /> : null;
+        return null;
       case "skills":
         return <SkillsSection bot={bot} />;
       case "memory":

@@ -56,7 +56,7 @@ export function isHarnessOwnedMcpEnvName(name: string): boolean {
 function environmentNameError(name: string): string | null {
   if (!ENV_NAME.test(name)) return `Environment variable “${name}” is not valid.`;
   if (isHarnessOwnedMcpEnvName(name)) {
-    return `Environment variable “${name}” is reserved by OpenMausBot.`;
+    return `Environment variable “${name}” is reserved by NATION.`;
   }
   return null;
 }
@@ -130,7 +130,7 @@ export function mcpServerNameError(name: string): string | null {
   if (!MCP_NAME.test(name)) {
     return "Use 1–32 lowercase letters, numbers, underscores, or hyphens, starting with a letter.";
   }
-  if (RESERVED_MCP_NAMES.has(name)) return "That name is reserved by OpenMausBot.";
+  if (RESERVED_MCP_NAMES.has(name)) return "That name is reserved by NATION.";
   return null;
 }
 

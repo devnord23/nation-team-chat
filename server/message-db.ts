@@ -35,6 +35,7 @@ function open(): DatabaseSync {
     chmodSync(file, 0o600);
   } catch {}
   const db = new DatabaseSync(file);
+  db.exec("PRAGMA busy_timeout = 5000");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec(`
@@ -124,7 +125,7 @@ export function describeMissingFts5(error: unknown): Error | null {
   const message = error instanceof Error ? error.message : String(error);
   if (!/no such module:\s*fts5/i.test(message)) return null;
   return new Error(
-    `OpenMausBot needs SQLite with FTS5, which is built into Node 24 and newer (and into the app). ` +
+    `NATION needs SQLite with FTS5, which is built into Node 24 and newer (and into the app). ` +
     `This Node (${process.version}) has none: install Node 24 or newer. (${message})`,
   );
 }

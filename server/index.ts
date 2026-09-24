@@ -1,28 +1,14 @@
+import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
+import { createNationCreditRoutes } from "./routes/nation-credits.ts";
+import { startCreditWatcher } from "./nation-payments.ts";
+import { CONNECTORS_ENABLED, removedConnectorPath } from "./connector-policy.ts";
+import { publicResponse } from "./public-response.ts";
+import { publicError } from "../shared/public-error.ts";
 import { loadLocalEnv } from "./load-local-env.ts";
 loadLocalEnv();
 import { cloudVpsPublicStatus } from "./cloud-vps-from-env.ts";
 import { adminGatePublicStatus, adminPinMatches } from "./admin-gate.ts";
 import { nationOpenRouterStatus, testOpenRouterConnection } from "./nation-openrouter.ts";
-import {
-  billingAdminStatus,
-  billingPublicStatus,
-  createQuote,
-} from "./nation-billing.ts";
-import {
-  confirmByTxHash,
-  startChainWatcher,
-  watcherHealth,
-} from "./nation-chain-watcher.ts";
-import {
-  expireEntitlements,
-  listEntitlements,
-  listPayments,
-  listQuotes,
-  loadEntitlement,
-  grantEntitlement,
-  saveEntitlement,
-} from "./nation-billing-store.ts";
-import { planById } from "./nation-plans.ts";
 
 // OpenMausBot server Ã¢â‚¬â€ the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
@@ -187,7 +173,7 @@ import { registerEnginesBinDir } from "./engine-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageTrigger } from "./usage-ledger.ts";
 import type { RequestAuth } from "./request-auth.ts";
 import { checkProviderKey, PROVIDER_KEY_KINDS, type ProviderKeyKind } from "./provider-key-check.ts";
-import { assertWithinBudget, noteSpend, spendState } from "./spend.ts";
+import { assertWithinBudget, noteSpend, spendState, reconcileModelSpend } from "./spend.ts";
 import { fleetAvailable, fleetRequest, fleetSocketPath } from "./fleet-client.ts";
 import { entitled } from "./enterprise.ts";
 import { HOSTED_CONTRACT_HEADER, HOSTED_CONTRACT_METADATA, HOSTED_CONTRACT_VERSION } from "./hosted-contract.ts";
@@ -470,7 +456,7 @@ import {
   sessionCookieName,
 } from "./request-auth.ts";
 import { cookieMaxAgeSeconds, formatPairingCode, SessionRegistry, type Scope } from "./sessions.ts";
-import { describeBrand, loadBrand } from "./brand.ts";
+import { describeBrand, loadBrand, publicBrand } from "./brand.ts";
 import { PRODUCT_IDENTITY_LOCK } from "./product-identity.ts";
 import { deliverSseFrame } from "./sse-fanout.ts";
 import {
@@ -484,7 +470,7 @@ import {
 } from "./phone-secret.ts";
 // Keep these two last: a route module may import any server module, and
 // loading the table after everything above leaves module start-up order as is.
-import { json, readBody } from "./harness/http.ts";
+import { json, readBody, setResponseOwner } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 
@@ -1583,7 +1569,7 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
   });
 }
 
-// New bots honor setup's saved choice; unconfigured workspaces prefer Claude.
+// New bots honor the configured NATION route, including lazy ACP catalogs.
 async function defaultSelection() {
   if (hostedModels) return hostedModels.select(cfg.defaultModelSelection);
   return selectDefaultModelSelection(await registry.describe(), cfg.defaultModelSelection);
@@ -1592,7 +1578,7 @@ async function defaultSelection() {
 function checkedModelSelection(
   raw: unknown,
   current?: { selection: ModelSelection; busy: boolean },
-  requireAvailableModel = false,
+  requireAvailableModel = true,
 ): { ok: true; selection: ModelSelection } | { ok: false; status: number; error: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, status: 400, error: "modelSelection must be an object" };
@@ -1637,22 +1623,19 @@ function checkedModelSelection(
   if (providerInstancesChanging.has(selection.instanceId)) {
     return { ok: false, status: 409, error: "this provider account is being updated Ã¢â‚¬â€ try again shortly" };
   }
-  // Model IDs remain free-form at the app's general API boundary. Custom
-  // engines can accept IDs that are not in their discovery catalog, and
-  // several drivers only learn the final catalog when a turn starts. The
-  // MCP tool applies a stricter discovered-model policy for its own calls.
+  // An operator-configured default is valid during lazy discovery. Other
+  // choices must appear in the selected engine's advertised catalog.
+  if (!target) return { ok: false, status: 400, error: "NATION: the selected engine is unavailable. Choose a configured engine in Admin." };
   if (requireAvailableModel) {
-    if (!target) {
-      return { ok: false, status: 400, error: `model instance "${selection.instanceId}" is unavailable` };
-    }
     const offered =
+      (selection.instanceId === cfg.defaultModelSelection?.instanceId && selection.model === cfg.defaultModelSelection.model) ||
       selection.model === target.models.default ||
       target.models.options.some((option) => option.id === selection.model);
     if (!offered) {
       return {
         ok: false,
         status: 400,
-        error: `model "${selection.model}" is not offered by instance "${selection.instanceId}"`,
+        error: "NATION: the selected model is unavailable. Choose a configured model in Admin.",
       };
     }
   }
@@ -1667,7 +1650,7 @@ function checkedModelSelection(
 }
 
 function checkedTaskModelSwitch(current: BotRecord, raw: unknown, updateBotDefault: boolean,
-  resetApprovalToAsk: boolean, requireAvailableModel = false, trusted = false) {
+  resetApprovalToAsk: boolean, requireAvailableModel = true, trusted = false) {
   if (current.approvalGrant) return { ok: false as const, status: 409, error: "Wait for the approval change to finish before switching models" };
   const checked = checkedModelSelection(raw, {
     selection: current.modelSelection, busy: threadBusy(current.id, current.threadId),
@@ -1906,7 +1889,7 @@ function previewSystemPrompt(bot: BotRecord) {
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note }) },
-    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? COMPOSIO_PROMPT : "" },
+    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) ? COMPOSIO_PROMPT : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(customMcpServers(cfg, bot.mcpServers))) : "" },
     { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "coordination", label: "Team", text: agentsMounted && coordination ? ` ${coordination}` : "" },
@@ -1934,7 +1917,7 @@ function previewSystemPrompt(bot: BotRecord) {
  * read this same route, so they can never disagree about what a bot does. */
 async function botOverview(bot: BotRecord): Promise<BotOverview> {
   const connectedApps = await connectedAppsFacts(
-    composio.configured(cfg),
+    (CONNECTORS_ENABLED && composio.configured(cfg)),
     composio.connectorAvailability(cfg),
     () => composio.connectedServices(cfg),
   );
@@ -3488,12 +3471,11 @@ function broadcast(payload: Record<string, unknown>) {
   sessions.revalidateEmailSessions();
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
-  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...payload, seq })}\n\n`;
+  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...payload, seq }, true))}\n\n`;
   // Store both projections as immutable frames: live and reconnecting clients
   // must receive the same filtered config without changing the admin event.
-  const clientFrame = kind === "config"
-    ? `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...configForAccess(payload as ReturnType<typeof configStatus>, false), seq })}\n\n`
-    : frame;
+  const clientPayload = kind === "config" ? configForAccess(payload as ReturnType<typeof configStatus>, false) : payload;
+  const clientFrame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...clientPayload, kind, seq }))}\n\n`;
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
   // detection stays honest, but never retain their base64 payloads.
@@ -4407,6 +4389,7 @@ function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string
 }
 
 function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): RemoteComputerProvider | null {
+  if (creditsEnforced() && bot.modelSelection.instanceId === "nationApi") return turnSurfacePlan(bot, runOn, threadId).computer === "off" ? null : "vps";
   if (runOn === "cloud" || inheritedTeamComputer(bot)) return "box";
   const wants = turnSurfacePlan(bot, runOn, threadId).computer;
   if (wants !== undefined && wants !== "cloud") return null;
@@ -4418,6 +4401,14 @@ function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): 
  * bot's own harness there with the computer tools built in, so nothing on this
  * machine relays clicks and screenshots. Every start/interrupt of a turn asks
  * here which engine owns it. */
+function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string): BotRecord | null {
+  if (!bot) return null;
+  if (!creditsEnforced()) return bot;
+  const payer = sponsorCreditThread(threadId);
+  if (payer?.exempt) return bot;
+  return { ...bot, modelSelection: { instanceId: "nationApi", model: nationOpenRouterStatus().model }, cloudBackend: "vps" };
+}
+
 function turnInstance(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): ReturnType<typeof registry.get> {
   const onBox = turnProvider(bot, runOn, threadId) === "box";
   return onBox
@@ -5059,10 +5050,11 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
+      console.error("[NATION runtime]", event.message);
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `error: ${event.message.slice(0, 160)}`, ok: false, setup: event.setup, ...(event.terminal ? { terminal: true } : {}) },
+        tool: { name: `error: ${publicError(event.message)}`, ok: false, setup: event.setup, ...(event.terminal ? { terminal: true } : {}) },
       });
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful
@@ -6300,7 +6292,7 @@ async function startTurn(
       },
     };
   }
-  const bot = store.projectBotForTask(botId, threadId);
+  const bot = creditRoutedBot(store.projectBotForTask(botId, threadId), threadId);
   if (!bot) throw Object.assign(new Error("no such task"), { status: 404 });
   // Routines and legacy peer delivery already have their own completion
   // owners. Only ordinary chats opt into this scheduler; its child turns
@@ -6674,14 +6666,14 @@ async function startTurn(
       // them Ã¢â‚¬â€ a key in the config says the connections exist, not that
       // this engine can reach them Ã¢â‚¬â€ and only to a bot the user has not
       // switched off: the key is workspace-wide, the grant is per bot.
-      if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+      if (bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) && instance.adapter.capabilities.composioMcp === true) {
         const connection = await connectedAppsIntegration(bot.id, threadId, dispatchClaimId);
         if (connection) integrations.composio = connection;
       }
       // user-configured MCP servers (config.json mcpServers): same rule as
       // composio Ã¢â‚¬â€ only to a driver that can mount them. Their tools are
       // never pre-allowed, so every call rides the normal permission flow.
-      if (instance.adapter.capabilities.customMcp === true) {
+      if (CONNECTORS_ENABLED && instance.adapter.capabilities.customMcp === true) {
         const custom = customMcpServers(cfg, bot.mcpServers);
         if (Object.keys(custom).length) integrations.custom = custom;
       }
@@ -6728,7 +6720,7 @@ async function startTurn(
       // Cloud routines always use Box/BoxAgent. The per-bot backend applies
       // only to ordinary turns that mount a computer into the local agent.
       const teamComputer = inheritedTeamComputer(bot);
-      const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
+      const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend === "box" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       // Box's native runner owns its computer tools. Local drivers mount
       // Local VM/VPS tools, but have no Box relay to execute this descriptor.
@@ -8328,7 +8320,7 @@ try {
     claimRequest: () => workspaceMaintenance.request(),
   });
   const advertised = WEBHOOK_PUBLIC_URL ? ` (advertised as ${webhookIngress.baseUrl})` : "";
-  console.log(`openmausbot webhook receiver on http://${webhookIngress.host}:${webhookIngress.port}${advertised}`);
+  console.log(`NATION webhook receiver on http://${webhookIngress.host}:${webhookIngress.port}${advertised}`);
 } catch (error) {
   webhookIngressError = error instanceof Error ? error.message : String(error);
   console.error(`openmausbot webhook receiver unavailable: ${webhookIngressError}`);
@@ -8478,7 +8470,7 @@ async function runGroupMemberTurn(
     return false;
   }
   const group = store.group(groupId);
-  const bot = store.bot(botId);
+  const bot = creditRoutedBot(store.bot(botId), threadId);
   const ownsThread = group?.dm
     ? group.threadId === threadId
     : Boolean(group && store.groupTaskByThread(group.id, threadId));
@@ -8613,7 +8605,7 @@ async function runGroupMemberTurn(
     integrations.phone = phoneIntegration();
   }
   try {
-    if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+    if (bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) && instance.adapter.capabilities.composioMcp === true) {
       const connection = await connectedAppsIntegration(bot.id, threadId, internalGeneration);
       if (connection) integrations.composio = connection;
     }
@@ -8629,7 +8621,7 @@ async function runGroupMemberTurn(
     return true;
   }
   // user-configured MCP servers: same gating as the 1:1 site above.
-  if (instance.adapter.capabilities.customMcp === true) {
+  if (CONNECTORS_ENABLED && instance.adapter.capabilities.customMcp === true) {
     const custom = customMcpServers(cfg, bot.mcpServers);
     if (Object.keys(custom).length) integrations.custom = custom;
   }
@@ -9683,7 +9675,8 @@ function startGroupTurn(
   const group = store.group(groupId);
   if (!group) throw Object.assign(new Error("no such group"), { status: 404 });
   if (roomSetupPending(group)) {
-    throw Object.assign(new Error("finish room setup before sending the first message"), { status: 409 });
+    // A human send accepts the room defaults; optional setup must not block chat.
+    store.patchGroup(group.id, { setupSkippedAt: Date.now() });
   }
   // Capture the chosen thread once. Manual sends use the active task; a
   // scheduled team goal supplies its detached background task explicitly.
@@ -10929,7 +10922,7 @@ function configStatus() {
     // the base URL is a setting, not a secret; the key stays write-only
     openaiCompat: { configured: Boolean(cfg.openaiCompat?.key), url: cfg.openaiCompat?.url ?? "" },
     composio: {
-      configured: composio.configured(cfg),
+      configured: (CONNECTORS_ENABLED && composio.configured(cfg)),
       mode: composio.connectionMode(cfg),
     },
     box: { configured: Boolean(cfg.box?.token) },
@@ -10940,7 +10933,6 @@ function configStatus() {
     },
     adminGate: adminGatePublicStatus(),
     nationOpenrouter: nationOpenRouterStatus(),
-    nationBilling: { enabled: billingPublicStatus().enabled },
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
     // the chosen voice is a setting, not a secret; the key is reported the
     // same configured-or-not way as every other credential
@@ -11000,12 +10992,18 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
   // id, and the sign-in list are not a client's business. Preserve the
   // source objects.
   return {
-    ...status,
     isProductOwner: false,
-    signIn: { admins: [], members: [] },
-    vps: { configured: status.vps.configured, sshAlias: "" },
+    adminGate: status.adminGate,
     profile: { name: status.profile.name, email: "" },
-    browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
+    language: status.language,
+    onboarding: status.onboarding,
+    rooms: status.rooms,
+    threads: { maxConcurrentPerBot: status.threads.maxConcurrentPerBot },
+    vps: { configured: status.vps.configured },
+    tts: { configured: status.tts.configured },
+    features: { browser: status.features.browser, showToolCalls: status.features.showToolCalls,
+      skillAuthoring: status.features.skillAuthoring, sharedComputers: status.features.sharedComputers },
+    browserProfiles: status.browserProfiles.map(({ id, name }) => ({ id, name })),
   };
 }
 
@@ -11314,8 +11312,16 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
 // boot, after this line, so the dependency reads it per request.
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 
+ROUTES.push(createNationCreditRoutes());
+// No payments are enabled without a configured treasury. Scans only read chain data.
+const stopCreditWatcher = startCreditWatcher(nationLedger());
+process.once("exit", stopCreditWatcher);
+const creditReconciliation = setInterval(() => { void reconcileModelSpend(); }, 30_000);
+creditReconciliation.unref();
+
 const toolResults = new ToolResults();
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
+  creditContext.enterWith(null);
   let url: URL;
   try {
     url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -11323,6 +11329,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return json(res, 400, { error: "invalid request URL" });
   }
   const path = url.pathname;
+  if (removedConnectorPath(path)) return json(res, 404, { error: "Not found" });
   const method = req.method ?? "GET";
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;
@@ -11338,7 +11345,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       res.setHeader(HOSTED_CONTRACT_HEADER, String(HOSTED_CONTRACT_VERSION));
       if (hostedModels) res.setHeader(HOSTED_MODEL_POLICY_HEADER, "1");
-      return json(res, 200, { ok: true, service: "openmausbot", membershipAuthority: "portal", workspace: hosted.workspace, ...HOSTED_CONTRACT_METADATA });
+      return json(res, 200, { ok: true, service: "nation-team-chat", membershipAuthority: "portal", workspace: hosted.workspace, ...HOSTED_CONTRACT_METADATA });
     }
     // Hosted workspaces have one sign-in authority. A missing optional layer
     // must not accidentally reactivate legacy email/QR credential minting.
@@ -11357,7 +11364,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // code into a session. Everything else needs the loopback owner or a
     // paired session with the right scope.
     if (method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && serveStatic(res, path)) return;
-    if (method === "GET" && path === "/.well-known/openmausbot/environment") {
+    if (method === "GET" && ["/.well-known/nationteamchat/environment", "/.well-known/openmausbot/environment"].includes(path)) {
       return json(res, 200, environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED, emailSignIn: !HOSTED_WORKSPACE && emailSignIn.enabled(), sharedComputers: sharedComputersEnabled(cfg) }));
     }
     const domainCheck = /^\/\.well-known\/openmausbot\/domain-check\/([a-f0-9]{64})$/.exec(path);
@@ -11491,15 +11498,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // A stranger learns only the app name; pid (the desktop boot probe keys
     // on it) and the static flag stay behind the gate below.
     if (method === "GET" && path === "/api/health" && !gate.auth) {
-      return json(res, 200, { app: "openmausbot" });
+      return json(res, 200, { app: "nation-team-chat" });
     }
     // The brand is public too: the sign-in page must carry the deployment's
-    // name and icon before anyone has a session, and it holds nothing secret.
+    // name and icon before anyone has a session. Strip server filesystem paths.
     if (method === "GET" && path === "/api/brand" && !gate.auth) {
-      return json(res, 200, loadBrand());
+      return json(res, 200, publicBrand(loadBrand()));
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
+    creditContext.enterWith(creditAccount(auth));
+    setResponseOwner(res, auth.scopes.includes("admin"));
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -11570,7 +11579,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // credential encoding because those scanners cannot take a typed code.
       const serverName = environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED }).label;
       const invite = base
-        ? `openmausbot://pair?address=${encodeURIComponent(base)}&token=${encodeURIComponent(opened.credential)}&name=${encodeURIComponent(serverName)}`
+        ? `${base.replace(/\/$/, "")}/pair#code=${encodeURIComponent(code)}`
         : null;
       return json(res, 200, {
         id: opened.id,
@@ -13320,7 +13329,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // Re-read the live bot immediately before relay so turning Connected
         // Apps off wins over a request that authenticated under the old value.
         const currentSender = store.bot(internalCapability.botId);
-        if (!currentSender || currentSender.composio === false || !composio.configured(cfg)) {
+        if (!currentSender || currentSender.composio === false || !(CONNECTORS_ENABLED && composio.configured(cfg))) {
           return json(res, 403, { error: "connected apps are not enabled for this bot" });
         }
         const upstream = await composio.relayMcp(
@@ -13449,7 +13458,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!owner) return json(res, 403, { error: "conversation does not belong to this bot" });
         if (!/^[\w-]{8,100}$/.test(resumeKey)) return json(res, 400, { error: "invalid resume key" });
         if (!items.length || items.length > 12) return json(res, 400, { error: "one to twelve valid connection requests are required" });
-        if (!composio.configured(cfg) || owner.bot.composio === false) {
+        if (!(CONNECTORS_ENABLED && composio.configured(cfg)) || owner.bot.composio === false) {
           return json(res, 409, { error: "connected apps are not enabled for this bot" });
         }
         const connectionState: Record<string, { connected?: boolean }> = await composio.connectionStatus(cfg, slugs).catch(() => ({}));
@@ -14192,7 +14201,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ? body.name.trim()
           : profileName
             ? `${profileName}'s Team`
-            : "My OpenMaus Team";
+            : "My Nation Team";
       const memberIds = store.bots.filter((bot) => !bot.hidden).map((bot) => bot.id);
       if ((body.format === "backup" ? store.bots.length : memberIds.length) === 0) return json(res, 400, { error: "Create a bot before exporting your team" });
       try {
@@ -14251,13 +14260,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "POST" && path === "/api/team-library/github") {
       const body = await readBody(req);
       if (typeof body.url !== "string" || !body.url.trim()) {
-        return json(res, 400, { error: "A GitHub URL is required" });
+        return json(res, 400, { error: "A team file link is required" });
       }
       try {
         return json(res, 200, await fetchGithubTeam(body.url));
       } catch (error) {
         const status = (error as { status?: number }).status === 404 ? 404 : 400;
-        return json(res, status, { error: error instanceof Error ? error.message : "The GitHub team could not be loaded" });
+        return json(res, status, { error: error instanceof Error ? error.message : "The team could not be loaded" });
       }
     }
     if (method === "GET" && path === "/api/teams/scout") {
@@ -14745,7 +14754,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         assertWithinBudget(cfg, DATA_DIR);
       } catch (error) {
-        return json(res, 409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
+        return json(res, (error as { status?: number }).status ?? 409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
       }
       const ownsThread = group.dm
         ? group.threadId === threadId
@@ -15059,6 +15068,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.requireAvailableModel === true && body.modelSelection === undefined) {
         return json(res, 400, { error: "requireAvailableModel requires modelSelection" });
       }
+      if (!auth.scopes.includes("admin") && body.modelSelection !== undefined) {
+        return json(res, 403, { error: "NATION: model settings are available only in Admin." });
+      }
       const profileInput = Object.fromEntries(
         ["name", "title", "description"]
           .filter((key) => body[key] !== undefined)
@@ -15078,7 +15090,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.modelSelection === undefined) {
         selection = await defaultSelection();
       } else {
-        const checked = checkedModelSelection(body.modelSelection, undefined, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, undefined, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         selection = checked.selection;
       }
@@ -15088,7 +15100,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection });
+      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection,
+        ...(vpsSshAlias(cfg) ? { computer: "cloud" as const, cloudBackend: "vps" as const } : {}),
+      });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
@@ -15274,7 +15288,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const checked = checkedModelSelection(
           rawSelection,
           selectedTask ? { selection: selectedTask.modelSelection, busy: threadBusy(selectedTask.id, selectedTask.threadId) } : undefined,
-          body.requireAvailableModel === true,
+          true,
         );
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         normalizedSelection = checked.selection;
@@ -15746,7 +15760,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
       const parsed = z.object({ source: z.string().min(1).max(2000) }).safeParse(await readBody(req));
-      if (!parsed.success) return json(res, 400, { error: "source must be a GitHub URL or owner/repo" });
+      if (!parsed.success) return json(res, 400, { error: "Enter a supported skill file link" });
       const fetched = await fetchSkillFromSource(parsed.data.source);
       if ("error" in fetched) return json(res, 422, { error: fetched.error });
       const results = fetched.skills.map((skill) => installSkill(m![1]!, skill.source, skill.files));
@@ -16210,7 +16224,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       try {
         assertWithinBudget(cfg, DATA_DIR);
       } catch (error) {
-        return json(res, 409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
+        return json(res, (error as { status?: number }).status ?? 409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
       }
       if (!store.taskByThread(bot.id, threadId)) {
         return json(res, 409, { error: "the bot switched tasks before it could receive the message" });
@@ -16822,6 +16836,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "body must be a JSON object" });
       const current = store.projectBotForTask(m[1], m[2]);
       if (!current) return json(res, 404, { error: "no such task" });
+      if (!auth.scopes.includes("admin") && (body.modelSelection !== undefined || body.updateBotDefault !== undefined)) return json(res, 403, { error: "NATION: model settings are available only in Admin." });
       const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "surface"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       for (const key of ["requireAvailableModel", "acknowledgeLocalAuto", "updateBotDefault", "resetApprovalToAsk"] as const) {
@@ -16867,7 +16882,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (body.modelSelection !== undefined) {
         if (current.approvalGrant) return json(res, 409, { error: "the bot's approval mode is still being confirmed" });
-        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         patch.modelSelection = checked.selection;
       }
@@ -16895,7 +16910,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (patch.modelSelection) {
         const checked = checkedTaskModelSwitch({ ...current,
           ...(patch.approvalMode ? { approvalMode: patch.approvalMode, autoApprove: patch.autoApprove } : {}),
-        }, patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true, body.requireAvailableModel === true);
+        }, patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
       }
       const task = patch.modelSelection
@@ -17247,7 +17262,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // child proves it is OURS by echoing its pid (a stray dev server has
     // the same API shape but a different pid)
     if (method === "GET" && path === "/api/health") {
-      return json(res, 200, { app: "openmausbot", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
+      return json(res, 200, { app: "nation-team-chat", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
         guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1,
         ...(sharedWorkspaceFullAccessEnabled() ? { sharedWorkspaceFullAccess: 1 } : {}),
       } });
@@ -17281,7 +17296,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (fleetRoute) {
       if (!entitled("admin")) return json(res, 403, { error: "Workspaces need an enterprise licence with the admin feature." });
       const socket = fleetSocketPath();
-      if (!fleetAvailable(socket)) return json(res, 404, { error: "No fleet agent on this server. Run `openmausbot fleet init --domain Ã¢â‚¬Â¦ --operator <this user>` as root." });
+      if (!fleetAvailable(socket)) return json(res, 404, { error: "No fleet agent on this server. Run `nation fleet init --domain … --operator <this user>` as root." });
       const [, resource, slug, sub] = fleetRoute;
       let forward: { method: string; path: string; body?: unknown } | null = null;
       if (method === "GET" && !resource) forward = { method: "GET", path: "/workspaces" };
@@ -17305,7 +17320,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     // The brand for this deployment (server/brand.ts): read per request so edits show on reload.
     if (method === "GET" && path === "/api/brand") {
-      return json(res, 200, loadBrand());
+      return json(res, 200, auth.scopes.includes("admin") ? loadBrand() : publicBrand(loadBrand()));
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ inspector: a thread's runtime events + native protocol tee Ã¢â€â‚¬Ã¢â€â‚¬
@@ -17399,6 +17414,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ provider instances (model picker) Ã¢â€â‚¬Ã¢â€â‚¬
     if (method === "GET" && path === "/api/instances") {
+      if (!auth.scopes.includes("admin")) {
+        const selection = await defaultSelection();
+        const selected = registry.get(selection.instanceId);
+        const available = selected ? (await selected.snapshot()).state === "available" : false;
+        return json(res, 200, { instances: [{ instanceId: "nation", displayName: "NATION API",
+          enabled: true, snapshot: { state: available ? "available" : "unavailable" },
+          models: { default: "NATION API", options: [{ id: "NATION API", label: "NATION API" }] }, capabilities: {} }] });
+      }
       // Rescan PATH first: this endpoint is how the app answers "what can I
       // run?", and the interesting case is a CLI installed since launch.
       // Windows never pushes PATH changes into a live process, so without
@@ -17822,103 +17845,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       return json(res, 404, { error: "not found" });
     }
-
-    // ── Nation Billing (crypto plan payments) ──────────────────────────────
-    // Public user-facing endpoints: quote creation, confirmation, entitlement
-    // read. Admin-only endpoints: payment list, quote list, watcher health,
-    // manual grant/revoke.
-
-    // GET /api/billing/status — public; tells the client which chains/plans
-    // are available. Clients use this to decide whether to show the pay UI.
-    if (method === "GET" && path === "/api/billing/status") {
-      return json(res, 200, billingPublicStatus());
-    }
-
-    // GET /api/billing/entitlement — client reads its own active plan+credits
-    if (method === "GET" && path === "/api/billing/entitlement") {
-      // userId = session email or "owner" for loopback
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const ent = loadEntitlement(userId);
-      if (!ent) return json(res, 200, { entitlement: null });
-      const now = new Date();
-      const active = new Date(ent.expiresAt) > now;
-      return json(res, 200, { entitlement: { ...ent, active } });
-    }
-
-    // POST /api/billing/quotes — create a payment quote
-    if (method === "POST" && path === "/api/billing/quotes") {
-      const body = await readBody(req);
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const planId = typeof body?.planId === "string" ? body.planId : "";
-      const chainId = typeof body?.chainId === "number" ? body.chainId : 0;
-      const result = createQuote({ userId, planId, chainId });
-      if (!result.ok) return json(res, 400, { error: result.error, code: result.code });
-      return json(res, 201, { quote: result.quote });
-    }
-
-    // POST /api/billing/confirm — fast path: client submits tx hash
-    if (method === "POST" && path === "/api/billing/confirm") {
-      const body = await readBody(req);
-      const txHash = typeof body?.txHash === "string" ? body.txHash.trim() : "";
-      const quoteId = typeof body?.quoteId === "string" ? body.quoteId.trim() : "";
-      if (!txHash || !quoteId) return json(res, 400, { error: "txHash and quoteId required" });
-      const result = await confirmByTxHash(txHash, quoteId);
-      if (!result.ok) return json(res, 400, { error: result.error, code: result.code });
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const ent = loadEntitlement(userId);
-      return json(res, 200, { ok: true, entitlement: ent ?? null });
-    }
-
-    // ── Admin-only billing endpoints ──────────────────────────────────────
-    if (path.startsWith("/api/admin/billing")) {
-      if (!auth.scopes.includes("admin")) {
-        return json(res, 403, { error: "forbidden: admin scope required" });
-      }
-      if (method === "GET" && path === "/api/admin/billing/status") {
-        return json(res, 200, billingAdminStatus());
-      }
-      if (method === "GET" && path === "/api/admin/billing/quotes") {
-        return json(res, 200, { quotes: listQuotes() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/payments") {
-        return json(res, 200, { payments: listPayments() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/entitlements") {
-        return json(res, 200, { entitlements: listEntitlements() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/watcher") {
-        return json(res, 200, watcherHealth());
-      }
-      // POST /api/admin/billing/grant — manually grant a plan
-      if (method === "POST" && path === "/api/admin/billing/grant") {
-        const body = await readBody(req);
-        const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
-        const planId = typeof body?.planId === "string" ? body.planId.trim() : "";
-        if (!userId || !planId) return json(res, 400, { error: "userId and planId required" });
-        const plan = planById(planId);
-        if (!plan) return json(res, 400, { error: `unknown plan: ${planId}` });
-        const ent = grantEntitlement(userId, plan.id, plan.label, plan.credits, plan.intervalSeconds);
-        return json(res, 200, { ok: true, entitlement: ent });
-      }
-      // POST /api/admin/billing/revoke — revoke a user's entitlement
-      if (method === "POST" && path === "/api/admin/billing/revoke") {
-        const body = await readBody(req);
-        const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
-        if (!userId) return json(res, 400, { error: "userId required" });
-        const ent = loadEntitlement(userId);
-        if (!ent) return json(res, 404, { error: "no entitlement found" });
-        saveEntitlement({ ...ent, creditsBalance: 0, expiresAt: new Date(0).toISOString() });
-        return json(res, 200, { ok: true });
-      }
-      return json(res, 404, { error: "not found" });
-    }
-
     if (method === "GET" && path === "/api/config") {
       return json(res, 200, configForAccess(configStatus(), auth.scopes.includes("admin")));
     }
@@ -18416,7 +18342,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "GET" && path === "/api/tts/voices") {
       try {
-        return json(res, 200, { voices: await tts.listVoices(cfg) });
+        const voices = await tts.listVoices(cfg);
+        return json(res, 200, { voices: auth.scopes.includes("admin") ? voices : voices.map((voice, index) => ({ id: voice.id, label: `Voice ${index + 1}` })) });
       } catch (e) {
         return json(res, 200, { voices: [], error: e instanceof Error ? e.message : String(e) });
       }
@@ -18449,7 +18376,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/connectors/catalog") {
       const { cards, source, pagination } = await composio.listToolkits(cfg);
       return json(res, 200, {
-        configured: composio.configured(cfg),
+        configured: (CONNECTORS_ENABLED && composio.configured(cfg)),
         mode: composio.connectionMode(cfg),
         source,
         cards,
@@ -18941,7 +18868,7 @@ restoreChannelMessages();
 
 server.listen(PORT, "127.0.0.1", () => {
   companyRuntimeReady();
-  console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+  console.log(`NATION server on http://127.0.0.1:${PORT}`);
   followupsReady = true;
   drainQueuedSends();
   drainQueuedChannelSends();
@@ -18964,13 +18891,6 @@ server.listen(PORT, "127.0.0.1", () => {
   // leftovers, and a sweep ahead of it would wake delegators of stopped
   // routine runs whose handoffs the loop above discards instead.
   setInterval(expireDelegationsNow, DELEGATION_SWEEP_MS).unref();
-  // Nation billing: start chain watcher and daily entitlement expiry.
-  startChainWatcher();
-  const ENTITLEMENT_EXPIRY_SWEEP_MS = 24 * 60 * 60 * 1000;
-  setInterval(() => {
-    const expired = expireEntitlements();
-    if (expired > 0) console.log(`[nation-billing] expired ${expired} entitlement(s)`);
-  }, ENTITLEMENT_EXPIRY_SWEEP_MS).unref();
 });
 
 // A second listener for `openmausbot serve --tunnel` (server/tunnel.ts): the

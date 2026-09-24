@@ -34,7 +34,7 @@ export function AboutDialog({ open, onClose }: { open: boolean; onClose: () => v
         aria-labelledby="about-dialog-title"
         className="w-full max-w-[360px] rounded-2xl border border-hairline/50 bg-panel p-6 text-center shadow-2xl"
       >
-        <img src="/nation-logo.svg" alt="Nation" width={56} height={56} className="mx-auto size-14" onError={(e) => { const img = e.currentTarget; if (img.src.includes("nation-logo")) img.src = "/app-icon.svg"; }} />
+        <img src={`${import.meta.env.BASE_URL}nation-logo.svg`} alt="NATION" width={56} height={56} className="mx-auto size-14" />
         <h2 id="about-dialog-title" className="mt-3 text-[17px] font-semibold text-ink">
           {APP_NAME}
         </h2>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
-  <title id="title">NATION Team</title>
-  <desc id="desc">A bold white N on a dark rounded tile, the NATION Team mark.</desc>
+  <title id="title">Nation Team Chat</title>
+  <desc id="desc">A bold white N on a dark rounded tile, the Nation Team Chat mark.</desc>
   <defs>
     <clipPath id="tile"><rect width="1024" height="1024" rx="224" /></clipPath>
   </defs>

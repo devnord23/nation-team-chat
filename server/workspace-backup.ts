@@ -31,9 +31,11 @@ const EXCLUDED = new Set([
   ".backups", "tools", "cache", ".cache", "tmp", ".tmp", "dist-native", "tunnel-runtime",
   ".openmausbot-server-child", "environment-id", "sessions.json", "tunnel-account.json",
   "team-computers.json",
+  "nation-credits.db", "nation-credits.db-wal", "nation-credits.db-shm",
   "openmausbot-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
 ]);
 const EXCLUSION_NOTES = [
+  "The financial credit ledger is preserved in place and must be backed up separately. Workspace restores cannot roll back balances or payment replay protection.",
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",
   "Saved credentials, provider and MCP connections, managed provider login homes and browser login profiles are not transferred. Destination connections are preserved; reconnect on a new device.",
   "Downloaded tools and caches; these can be installed again.",
@@ -530,7 +532,7 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
     const versions = [manifest.summary.appVersion, options.currentAppVersion ?? ""].map((version) => /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)?.slice(1).map(Number));
     if (versions[0] && versions[1]) {
       for (let i = 0; i < 3; i++) {
-        if (versions[0][i] > versions[1][i]) throw new Error("This backup was made by a newer OpenMausBot version. Update the app before restoring it.");
+        if (versions[0][i] > versions[1][i]) throw new Error("This backup was made by a newer NATION version. Update the app before restoring it.");
         if (versions[0][i] < versions[1][i]) break;
       }
     }

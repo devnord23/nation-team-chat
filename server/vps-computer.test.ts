@@ -25,6 +25,7 @@ import {
 } from "./container-computer.ts";
 import type { AppConfig } from "./config.ts";
 import {
+  isLocalVpsTarget,
   VPS_CONTAINER_LABEL,
   VPS_ENVIRONMENT_LABEL,
   VPS_IMAGE,
@@ -272,6 +273,7 @@ describe("VPS computer", () => {
     expect(args).toContain("127.0.0.1:45678:172.17.0.5:6901");
     expect(args.at(-1)).toBe("production-vps");
     expect(args).toContain("ExitOnForwardFailure=yes");
+    for (const option of ["ControlMaster=no", "ControlPath=none", "ControlPersist=no"]) expect(args).toContain(option);
     // the app's shared-connection config rides along when the platform has one
     expect(vpsSshTunnelArgs("production-vps", 45678, "172.17.0.5", "/data/ssh/config").slice(0, 3)).toEqual(["-F", "/data/ssh/config", "-N"]);
     expect(vpsSshTunnelArgs("production-vps", 45678, "172.17.0.5", null)[0]).toBe("-N");
@@ -855,4 +857,11 @@ describe("VPS computer", () => {
     expect(vpsStartsForTurn({ wants: "vm", automationSource: "schedule" })).toBe(false);
     expect(vpsStartsForTurn({ wants: "off", autoStartVps: true })).toBe(false);
   });
+});
+
+
+it("recognizes literal local SSH targets without classifying unresolved aliases as local", () => {
+  for (const target of ["localhost", "root@127.0.0.1", "[::1]", "root@nation-host", "192.0.2.10"])
+    expect(isLocalVpsTarget(target, "nation-host", ["192.0.2.10"])).toBe(true);
+  expect(isLocalVpsTarget("remote-alias", "nation-host", [])).toBe(false);
 });

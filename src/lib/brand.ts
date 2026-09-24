@@ -1,6 +1,6 @@
 // The deployment's brand (name, tagline, accent, logo, support link) — served
 // by GET /api/brand from a brand.json on the server, applied once before the
-// first paint so the window never shows "OpenMausBot" and then renames itself.
+// first paint so the window consistently uses the deployment brand.
 // Pure helpers live here so they can be unit-tested without a DOM.
 
 export interface Brand {
@@ -15,13 +15,14 @@ export interface Brand {
 export interface BrandStatus {
   brand: Brand;
   source: "default" | "file";
-  file: string;
+  /** Server filesystem path — only present in authenticated responses; omitted from public /api/brand. */
+  file?: string;
   notice?: string;
 }
 
 export const DEFAULT_BRAND: Brand = { name: "Nation Team Chat", tagline: "Nation · thenation.city · @visitnation", supportUrl: "https://t.me/thenation_city" };
 
-let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default", file: "" };
+let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default" };
 
 /** The brand in effect. Stable after bootstrap; a changed brand.json needs a reload. */
 export function brand(): Brand {
@@ -95,11 +96,11 @@ function applyIcon(favicon: string | undefined): void {
   } else touch?.remove();
 }
 
-/** Stamp the brand on the document: title, icon and accent variables. */
+/** Apply the brand icon and accent variables without changing SEO metadata. */
 export function applyBrand(status: BrandStatus): void {
   current = status;
   if (typeof document === "undefined") return;
-  document.title = status.brand.name;
+  // The published Swarm Desk SEO title belongs to index.html.
   applyIcon(status.brand.favicon);
   const root = document.documentElement;
   for (const name of ["--color-accent", "--color-accent-border", "--color-focus", "--color-accent-text", "--color-accent-ink"]) {
@@ -120,7 +121,7 @@ export async function bootstrapBrand(fetchImpl: typeof fetch = fetch, timeoutMs 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl("/api/brand", { signal: controller.signal });
+    const res = await fetchImpl(`${import.meta.env.BASE_URL}api/brand`, { signal: controller.signal });
     if (!res.ok) return current;
     const body: unknown = await res.json();
     if (isBrandStatus(body)) applyBrand(body);
