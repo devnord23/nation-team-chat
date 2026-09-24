@@ -323,7 +323,7 @@ export function OwnerAccessSection({
                 : !canUseConnectedApps
                   ? "This bot's current engine cannot use connected apps."
                   : connectedAppsEnabled
-                    ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
+                    ? "Let this bot use the connected apps of the person it is working for: each member's own Gmail, GitHub, Notion and other apps, never anyone else's."
                     : "Keep your connected apps unavailable to this bot."}
             </div>
           </div>
