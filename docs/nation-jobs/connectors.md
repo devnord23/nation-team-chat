@@ -1,23 +1,21 @@
-# Connector removal
+# Connected apps and agent computers
 
-No connector/integration/marketplace navigation, app connection cards or Slack
-management links are available. The removed HTTP namespaces return 404 for all
-callers before authorization. Configured credentials cannot enable managed
-connectors, custom MCP servers or user-inherited connector settings. Built-in
-agent coordination, browser and desktop MCP tools remain available.
+The workspace Plugins panel and trusted connection cards are restored. Composio
+project credentials, Box tokens and the VPS SSH alias are managed at /admin,
+under Apps & computers. Credentials remain write-only and owner-only.
 
-No production settings or secrets were read or deleted. After reviewing other
-services that may share them, the founder may remove these unused settings from
-the API process: COMPOSIO_API_KEY, OMB_COMPOSIO_BROKER_URL,
-OMB_COMPOSIO_BROKER_TOKEN, OMB_COMPOSIO_API, OMB_COMPOSIO_TOOLKITS_API,
-OMB_CONNECTOR_UPSTREAM_URL, OMB_CONNECTOR_UPSTREAM_HEADERS,
-OMB_CONNECTOR_TOKEN, OMB_CLAUDE_INHERIT_USER_CONFIG. Check process configuration for any additional
-connector-prefixed overrides before deleting them; never remove model keys or
-desk credentials as part of this cleanup.
+The existing Composio key must be paired with an OAuth connection for each app.
+An API key alone does not connect Gmail. Bot Access settings grant or revoke
+connected-app access; the MCP bridge validates the bot and turn capability
+before each relay. Workspace account management and arbitrary MCP configuration
+remain owner-only. Other members do not receive the owner's account inventory.
 
-No new environment variables. There is no enable switch. Existing configuration
-and secrets are retained on disk for safe founder-controlled recovery.
+NATION API keeps billing authority when the selected computer is Box or VPS.
+VPS and browser stdio tools are mounted by the chat runtime. Box uses the existing
+Box command and screenshot APIs with a required per-turn control lease. All tools
+retain the normal approval flow. Screenshots are forwarded to the model in a
+bounded image message after the tool replies.
 
-Checks: connector 404 fixture, guided tour checks, and the NATION isolated server
-fixture for bot creation, member privacy and team chat. No full-suite rerun or
-live VPS changes. The inherited strict branding guard remains a release blocker.
+Verification: connector authorization fixture, mock Gmail conversation including
+approval and per-bot opt-out, Box command isolation/human control, desktop
+screenshot transport, existing Composio tests, and the billing regression fixture.

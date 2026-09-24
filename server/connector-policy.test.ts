@@ -13,8 +13,8 @@ describe("connected-app access", () => {
         expect((await call(path)).status).toBe(200);
         expect((await call(path, "GET", undefined, "invalid")).status).toBe(401);
       }
-      const pairing = await (await call("/api/auth/pairing", "POST", { scopes: ["client"], label: "Connector fixture" })).json();
-      const member = await (await call("/api/pair", "POST", { code: pairing.code, deviceName: "Connector fixture" })).json();
+      const pairing: any = await (await call("/api/auth/pairing", "POST", { scopes: ["client"], label: "Connector fixture" })).json();
+      const member: any = await (await call("/api/pair", "POST", { code: pairing.code, deviceName: "Connector fixture" })).json();
       for (const [path, method, body] of [
         ["/api/connectors/catalog", "GET", undefined],
         ["/api/connectors/connected", "GET", undefined],
