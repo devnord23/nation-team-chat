@@ -394,6 +394,8 @@ export async function launchVerificationServer(
    * connected-apps project (per-account Sessions) and for the NATION
    * account service that signs members in with an emailed code. */
   hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string } },
+  /** Programmatic tests only: enables the secret-gated test capability route. */
+  testCapabilityKey?: string,
 ): Promise<VerificationServer> {
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
@@ -471,6 +473,7 @@ export async function launchVerificationServer(
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
   if (composioFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_BROKER_URL: composioFixtureApi + "/broker", OMB_COMPOSIO_BROKER_TOKEN: "a".repeat(64) });
+  if (testCapabilityKey) childEnv.OMB_TEST_INTERNAL_CAPABILITY_KEY = testCapabilityKey;
   if (hostedMembers) Object.assign(childEnv, {
     // A fixture-only project key: the server must never echo it to anyone.
     COMPOSIO_API_KEY: "ak_hosted_fixture_only",

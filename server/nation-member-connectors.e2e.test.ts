@@ -71,7 +71,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       const toolReply = afterUser.find((item: any) => item.role === "tool");
       // the request is the prompt's last line; earlier lines replay context
       const ask = text.trim().split(/\\n|\n/).at(-1) ?? "";
-      const wanted = /emails/i.test(ask) ? "composio_gmail_fetch_emails" : /github issues/i.test(ask) ? "composio_github_list_issues" : "";
+      const wanted = /emails/i.test(ask) ? "apps_gmail_fetch_emails" : /github issues/i.test(ask) ? "apps_github_list_issues" : "";
       const delta = wanted && tools.includes(wanted) && !toolReply
         ? { tool_calls: [{ index: 0, id: `call-${++callSeq}`, type: "function", function: { name: wanted, arguments: "{}" } }] }
         : { content: toolReply ? `From your connected app: ${JSON.parse(toolReply.content).result}` : "I don't have a connected app for that." };
@@ -208,6 +208,33 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     // Bob cannot disconnect Alice's account by id
     expect((await request(`/api/connectors/gmail/accounts/${aliceGmail}`, { method: "DELETE", cookie: bob })).body).toEqual({ removed: 0 });
     expect(Object.keys((await request("/api/connectors/connected", { cookie: alice })).body.services)).toContain("gmail");
+    // ...nor by service: Bob's "disconnect Gmail" touches only his own scope
+    expect((await request("/api/connectors/gmail", { method: "DELETE", cookie: bob })).body).toEqual({ removed: 0 });
+    expect(Object.keys((await request("/api/connectors/connected", { cookie: alice })).body.services)).toContain("gmail");
+
+    // Admin keeps install-level management, in its own scope members never see.
+    const ownerLink = await owner("/api/connectors/slack/authorize", "POST", {});
+    await fetch(ownerLink.url);
+    expect((await owner("/api/connectors?services=slack")).services.slack).toMatchObject({ connected: true });
+    for (const cookie of [alice, bob]) {
+      expect((await request("/api/connectors/connected", { cookie })).body.services.slack).toBeUndefined();
+      expect((await request("/api/connectors?services=slack", { cookie })).body.services.slack).toMatchObject({ connected: false });
+    }
+    const ownerSlack = (await owner("/api/connectors?services=slack")).services.slack.accounts[0].id;
+    expect((await request(`/api/connectors/slack/accounts/${ownerSlack}`, { method: "DELETE", cookie: alice })).body).toEqual({ removed: 0 });
+    expect((await owner("/api/connectors?services=slack")).services.slack).toMatchObject({ connected: true });
+    expect(await owner(`/api/connectors/slack/accounts/${ownerSlack}`, "DELETE")).toEqual({ removed: 1 });
+
+    // Members never get global/provider configuration or workspace MCP servers.
+    for (const [path, method, body] of [
+      ["/api/config", "PUT", { composio: { apiKey: "ak_member_attempt" } }],
+      ["/api/config", "PATCH", { composio: { apiKey: "ak_member_attempt" } }],
+      ["/api/mcp/servers", "GET", undefined],
+      ["/api/mcp/servers", "POST", { name: "member-attempt" }],
+      ["/api/admin/model-routing", "GET", undefined],
+      ["/api/admin/openrouter/status", "GET", undefined],
+    ] as const) expect((await request(path, { method, body, cookie: bob })).status, `${method} ${path}`).toBe(403);
+
     // disconnect works for the owner of the account
     expect((await request(`/api/connectors/notion/accounts/${aliceNotion}`, { method: "DELETE", cookie: alice })).body).toEqual({ removed: 1 });
     expect(Object.keys((await request("/api/connectors/connected", { cookie: alice })).body.services)).toEqual(["gmail"]);
@@ -231,7 +258,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect(pending.status, JSON.stringify(pending)).toBe("needs-user");
     expect(mcpCalls).toEqual([]); // G: nothing executed before approval
     const aliceTurn = modelRequests.at(-1)!;
-    expect(aliceTurn.tools).toContain("composio_gmail_fetch_emails"); // E
+    expect(aliceTurn.tools).toContain("apps_gmail_fetch_emails"); // E
     expect(aliceTurn.tools.some((name) => name.includes("github"))).toBe(false); // not Bob's
     const card = (await messages(aliceThread, alice)).find((item) => item.card?.requestId && !item.card.answered)?.card;
     expect(card?.requestId).toBeTruthy();
@@ -269,7 +296,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "List my GitHub issues", threadId: bobThread }, cookie: bob });
     expect((await wait(bot.id, bobThread)).status).toBe("needs-user");
     const bobTurn = modelRequests.at(-1)!;
-    expect(bobTurn.tools).toContain("composio_github_list_issues");
+    expect(bobTurn.tools).toContain("apps_github_list_issues");
     expect(bobTurn.tools.some((name) => name.includes("gmail"))).toBe(false);
     const bobCard = (await messages(bobThread, bob)).find((item) => item.card?.requestId && !item.card.answered)?.card;
     await request(`/api/bots/${bot.id}/respond`, { method: "POST", body: { threadId: bobThread, requestId: bobCard.requestId, behavior: "allow" }, cookie: bob });
@@ -305,7 +332,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Check my latest emails", threadId: aliceThread }, cookie: alice });
     expect((await wait(bot.id, aliceThread)).status).toBe("settled");
     const offTurn = modelRequests.at(-1)!;
-    expect(offTurn.tools.some((name) => name.startsWith("composio_"))).toBe(false);
+    expect(offTurn.tools.some((name) => name.startsWith("apps_"))).toBe(false);
     expect(mcpCalls.length).toBe(callsBefore);
     const offReply = (await messages(aliceThread, alice)).filter((item) => item.role === "bot" && item.kind === "text").at(-1)?.text;
     expect(offReply).not.toContain("Alice fixture invoice");
@@ -320,7 +347,13 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       expect(log).not.toContain(secret);
     }
     expect(JSON.stringify(modelRequests.map((item) => item.body))).not.toContain(PROJECT_KEY);
-    expect(memberResponses.join("\n")).not.toMatch(/composio\.dev|ak_[a-z]/i);
+    // nor the backend vendor's name, anywhere a member can read (catalog,
+    // inventory, transcripts, tool receipts, approval cards, config)
+    // The only allowed occurrence is the internal wire field name ("composio":
+    // true on a bot, "composio":{configured} in config); never a value or text.
+    const vendorHits = memberResponses.join("\n").match(/.{0,120}(?:(?<!")composio|composio(?!":)|ak_[a-z]).{0,60}/gi) ?? [];
+    expect(vendorHits, vendorHits.slice(0, 5).join("\n---\n")).toEqual([]);
+    expect(JSON.stringify(await messages(aliceThread, alice))).toMatch(/apps_gmail_fetch_emails/);
     // routed model slugs are operator detail, not member-facing
     expect(memberResponses.join("\n")).not.toMatch(/(?:fast|standard|strong)-fixture/);
     writeFileSync(`${fixture.info.logPath}.members.json`, JSON.stringify({ mcpCalls, modelTools: modelRequests.map((item) => item.tools) }, null, 2));

@@ -718,15 +718,9 @@ export function PluginsPanel() {
         {owner && configured && !remoteClient && source === "curated" && mode === "self-hosted" && (
           <div className="mx-6 mb-1 text-[12px] text-ink-secondary sm:mx-8">
             {t("connectors.featuredBefore")}{" "}
-            <button
-              className="underline underline-offset-2 hover:text-ink"
-              onClick={() => {
-                close();
-                dispatch({ type: "toggleAppSettings", open: true });
-              }}
-            >
+            <a href="/admin#integrations" className="underline underline-offset-2 hover:text-ink">
               {t("connectors.updateKey")}
-            </button>{" "}
+            </a>{" "}
             {t("connectors.featuredAfter")}
           </div>
         )}

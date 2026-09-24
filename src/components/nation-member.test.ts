@@ -22,5 +22,7 @@ it("renders only NATION controls for a server-confirmed member, even with a forg
   expect(html).toContain("NATION API");
   expect(html).toContain("NATION Isolated PC");
   expect(html).not.toMatch(/OpenMaus|openrouter|Claude|Anthropic|Grok|xAI|Venice|Hermes|Box|Your engines|github|source code|open source/i);
+  // no connector vendor, key entry or per-bot connector configuration for members
+  expect(html).not.toMatch(/Composio|API key|project key|Connected apps|Allow this bot to use connected apps/i);
   expect(isProductAdmin({ isProductOwner: false, unlocked: true })).toBe(false);
 });

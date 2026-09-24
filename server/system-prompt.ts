@@ -74,6 +74,15 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
 
 export const COMPOSIO_PROMPT =
   " The user's connected apps (Gmail, Calendar, Slack, Notion, and the rest) are reachable through the composio tools — find the right one with COMPOSIO_SEARCH_TOOLS, read its arguments with COMPOSIO_GET_TOOL_SCHEMAS, then run it with COMPOSIO_MULTI_EXECUTE_TOOL. Reach for them before telling the user you have no access to a service.";
+/** The same guidance for the chat runtime (NATION API and other chat
+ * engines), whose connected-app tools are named apps_*. */
+export const APPS_PROMPT =
+  " The person's own connected apps (Gmail, Calendar, Notion, GitHub and the rest) are reachable through the apps_ tools: find the right one with apps_search_tools, read its arguments with apps_get_tool_schemas, then run it with apps_multi_execute_tool or a direct apps_ tool. Call them the person's connected apps. Reach for them before saying you have no access to a service, and never claim an app action happened unless its tool result says so.";
+/** Chat-runtime drivers name connected-app tools apps_*; CLI engines keep
+ * the MCP server's own names. */
+export function connectedAppsPrompt(driverKind: string | undefined): string {
+  return driverKind && ["nation-openrouter", "openai-compat", "grok", "minimax"].includes(driverKind) ? APPS_PROMPT : COMPOSIO_PROMPT;
+}
 /** Names the user-added MCP servers a turn actually mounted, so the bot
  * reaches for them instead of saying it has no such tool. Empty when none. */
 export function customMcpPrompt(names: string[]): string {

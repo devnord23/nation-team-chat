@@ -354,7 +354,7 @@ import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-
 import {
   buildSystemPrompt,
   computerPrompt,
-  COMPOSIO_PROMPT,
+  connectedAppsPrompt,
   customMcpPrompt,
   CREDENTIAL_PROMPT,
   mentionPrompt,
@@ -1966,7 +1966,7 @@ function previewSystemPrompt(bot: BotRecord) {
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note }) },
-    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) ? COMPOSIO_PROMPT : "" },
+    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) ? connectedAppsPrompt(registry.get(bot.modelSelection.instanceId)?.driverKind) : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(customMcpServers(cfg, bot.mcpServers))) : "" },
     { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "coordination", label: "Team", text: agentsMounted && coordination ? ` ${coordination}` : "" },
@@ -7303,7 +7303,7 @@ async function startTurn(
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note, canSelect: computerSelectionTurns.has(threadId) }) },
         // gated on the integration, not the key: the hint only goes to a
         // bot whose driver actually mounted the tools
-        { id: "composio", label: "Connected apps", text: integrations.composio ? COMPOSIO_PROMPT : "" },
+        { id: "composio", label: "Connected apps", text: integrations.composio ? connectedAppsPrompt(instance.driverKind) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
         { id: "coordination", label: "Team", text: coordinationPrompt ? ` ${coordinationPrompt}` : "" },
@@ -11820,6 +11820,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         createdBots: 0,
         openedThreads: 0,
       });
+      // As a real turn would at mount, so connection requests can be filed.
+      bindTurnConnectorIdentity(parsed.data.threadId, generation);
       return json(res, 201, { token });
     }
     // Ã¢â€â‚¬Ã¢â€â‚¬ internal peer-agent comms (localhost + bot capability only) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
