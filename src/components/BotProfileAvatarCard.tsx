@@ -16,7 +16,7 @@ import {
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
 import { BotAvatar } from "./Avatar";
-import { AvatarImageGenerator } from "./AvatarImageGenerator";
+import { AvatarImageGenerator } from "./web/AvatarImageGenerator";
 import { useOrganizationBranding } from "@/lib/use-organization-branding";
 
 type AvatarPatch = Partial<

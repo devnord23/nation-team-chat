@@ -10,20 +10,13 @@ export function engineReady(instance: InstanceInfo): boolean {
     (instance.access === "custom" || instance.snapshot.authenticated !== false);
 }
 
-const providers: Record<string, string> = {
-  claudeAgent: "Nation API", codex: "Nation API", grok: "xAI", grokAgent: "xAI",
-  kimiAgent: "Moonshot AI", droidAgent: "Factory", cursorAgent: "Cursor",
-  antigravityAgent: "Google", opencodeGo: "OpenCode", qwenAgent: "Qwen",
-  hermesAgent: "Nous Research", piAgent: "pi.dev",
-};
-
 /** One disclosure, not a second settings dialog. Keep its children mounted so
  * closing a card does not abandon an in-progress sign-in or a CLI path draft. */
 export function EngineCard({ instance, children }: { instance: InstanceInfo; children: ReactNode }) {
   const ready = engineReady(instance);
   const subtitle = instance.access === "custom"
     ? t("engines.library.custom")
-    : providers[instance.driverKind] ?? instance.driverKind;
+    : "NATION engine";
   // Some CLIs return their executable name rather than a version. Do not show
   // duplicated labels such as “Grok · grok”; retain the raw value in details.
   const version = instance.snapshot.version?.match(/\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?/)?.[0];

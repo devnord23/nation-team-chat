@@ -644,13 +644,13 @@ function ClaudeMcpSwitch() {
   return (
     <div className="mt-4 flex items-start justify-between gap-4 rounded-2xl border border-hairline/50 bg-card px-4 py-4 sm:px-5">
       <div className="min-w-0">
-        <div className="text-[14px] font-medium text-ink">{t("mcp.claude.title")}</div>
-        <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("mcp.claude.desc")}</p>
-        {failed && <p role="alert" className="mt-1 text-[12px] text-danger">{t("mcp.claude.error")}</p>}
+        <div className="text-[14px] font-medium text-ink">{t("mcp.personal.title")}</div>
+        <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("mcp.personal.desc")}</p>
+        {failed && <p role="alert" className="mt-1 text-[12px] text-danger">{t("mcp.personal.error")}</p>}
       </div>
       <Switch
         checked={enabled}
-        aria-label={t("mcp.claude.aria")}
+        aria-label={t("mcp.personal.aria")}
         disabled={saving}
         onClick={() => void toggle()}
         className="mt-0.5 shrink-0 disabled:cursor-wait disabled:opacity-50"

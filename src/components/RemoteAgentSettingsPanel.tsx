@@ -4,7 +4,7 @@ import { Bell, ChevronLeft, ImagePlus, Loader2, Trash2, X } from "lucide-react";
 import { api, useStore, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
-import { VoiceSettings } from "./VoiceSettings";
+import { VoiceSettings } from "./web/VoiceSettings";
 import { Switch } from "./SettingsPrimitives";
 import { BotAvatar } from "./Avatar";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";

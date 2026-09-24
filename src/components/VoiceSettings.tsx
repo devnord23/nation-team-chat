@@ -87,7 +87,7 @@ export function VoiceSettings({
       ? "Host · ElevenLabs"
       : provider === "chatterbox"
         ? "Host · Chatterbox"
-        : provider === "xai" ? t("voice.grok.host") : "Host voice";
+        : provider === "xai" ? t("voice.hosted.host") : "Host voice";
   const systemVoicesAvailable = capabilities.host.platform === "darwin";
   const hostConfigured = Boolean(tts?.configured);
   const configured = usesLocalSystem || hostConfigured;
@@ -234,7 +234,7 @@ export function VoiceSettings({
                   ? " the voices are the ones already installed on this Mac."
                   : " built-in Mac voices are unavailable here. Switch to a hosted voice provider to keep using voice."
                 : provider === "xai"
-                  ? ` ${t("voice.grok.sharedKey")}`
+                  ? ` ${t("voice.hosted.sharedKey")}`
                 : provider === "chatterbox"
                   ? " the Chatterbox server address is shared by the workspace."
                   : ` the ${cloudProvider?.name ?? "voice provider"} key is shared by the workspace.`}</>}
@@ -277,7 +277,7 @@ export function VoiceSettings({
               { value: "fish" as const, label: "Fish Audio", available: true },
               { value: "system" as const, label: "Built-in Mac voices", available: systemVoicesAvailable },
               { value: "chatterbox" as const, label: "Chatterbox (local)", available: true },
-              ...(admin ? [{ value: "xai" as const, label: t("voice.grok.label"), available: true }] : []),
+              ...(admin ? [{ value: "xai" as const, label: t("voice.hosted.label"), available: true }] : []),
             ] as Array<{ value: "elevenlabs" | "fish" | "system" | "chatterbox" | "xai"; label: string; available: boolean }>)).map((option) => (
               <button
                 key={option.value}
@@ -340,7 +340,7 @@ export function VoiceSettings({
 
       {provider === "xai" && (
         <p className="mt-4 text-[13px] text-ink-secondary">
-          {hostConfigured ? t("voice.grok.ready") : t("voice.grok.missingKey")}
+          {hostConfigured ? t("voice.hosted.ready") : t("voice.hosted.missingKey")}
         </p>
       )}
 
