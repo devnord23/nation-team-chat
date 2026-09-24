@@ -287,7 +287,7 @@ export function AccessSection({
               </div>
             )}
             <CloudBackendPicker
-              value={bot.cloudBackend ?? "box"}
+              value={bot.cloudBackend ?? "vps"}
               vpsSupported={canUseVps}
               onChange={(backend) => patch({ cloudBackend: backend })}
             />

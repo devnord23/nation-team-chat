@@ -15,13 +15,14 @@ export interface Brand {
 export interface BrandStatus {
   brand: Brand;
   source: "default" | "file";
-  file: string;
+  /** Server filesystem path — only present in authenticated responses; omitted from public /api/brand. */
+  file?: string;
   notice?: string;
 }
 
 export const DEFAULT_BRAND: Brand = { name: "Nation Team Chat", tagline: "Nation · thenation.city · @visitnation", supportUrl: "https://t.me/thenation_city" };
 
-let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default", file: "" };
+let current: BrandStatus = { brand: DEFAULT_BRAND, source: "default" };
 
 /** The brand in effect. Stable after bootstrap; a changed brand.json needs a reload. */
 export function brand(): Brand {

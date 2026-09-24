@@ -450,7 +450,7 @@ import {
   sessionCookieName,
 } from "./request-auth.ts";
 import { cookieMaxAgeSeconds, formatPairingCode, SessionRegistry, type Scope } from "./sessions.ts";
-import { describeBrand, loadBrand } from "./brand.ts";
+import { describeBrand, loadBrand, publicBrand } from "./brand.ts";
 import { PRODUCT_IDENTITY_LOCK } from "./product-identity.ts";
 import { deliverSseFrame } from "./sse-fanout.ts";
 import {
@@ -6708,7 +6708,7 @@ async function startTurn(
       // Cloud routines always use Box/BoxAgent. The per-bot backend applies
       // only to ordinary turns that mount a computer into the local agent.
       const teamComputer = inheritedTeamComputer(bot);
-      const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
+      const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend === "box" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       // Box's native runner owns its computer tools. Local drivers mount
       // Local VM/VPS tools, but have no Box relay to execute this descriptor.
@@ -11473,9 +11473,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { app: "nation-team-chat" });
     }
     // The brand is public too: the sign-in page must carry the deployment's
-    // name and icon before anyone has a session, and it holds nothing secret.
+    // name and icon before anyone has a session. Strip server filesystem paths.
     if (method === "GET" && path === "/api/brand" && !gate.auth) {
-      return json(res, 200, loadBrand());
+      return json(res, 200, publicBrand(loadBrand()));
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;

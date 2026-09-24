@@ -87,3 +87,16 @@ export function describeBrand(status: BrandStatus): string {
   if (status.source === "file") return `brand: ${status.brand.name} (from ${status.file})`;
   return `brand: default${status.notice ? ` (${status.notice})` : ""}`;
 }
+
+/** Public API shape: only the brand and source, never server filesystem paths. */
+export interface PublicBrandStatus {
+  brand: Brand;
+  source: "default" | "file";
+  notice?: string;
+}
+
+export function publicBrand(status: BrandStatus): PublicBrandStatus {
+  const out: PublicBrandStatus = { brand: status.brand, source: status.source };
+  if (status.notice) out.notice = status.notice;
+  return out;
+}

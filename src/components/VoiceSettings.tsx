@@ -20,6 +20,7 @@ import {
 } from "@/lib/local-voice";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { voiceKeyDraftValue, type VoiceKeyDraft } from "@/lib/voice-key-draft";
 import { Switch } from "./SettingsPrimitives";
 
@@ -36,6 +37,11 @@ export function VoiceSettings({
 }) {
   const { state, dispatch } = useStore();
   const tts = state.config?.tts;
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
 
   const [keyDraft, setKeyDraft] = useState<VoiceKeyDraft>({ provider: null, value: "" });
   const [serverUrl, setServerUrl] = useState("");
@@ -251,13 +257,13 @@ export function VoiceSettings({
         <div className="mt-4">
           <div className="mb-2 text-[13px] text-ink-secondary">Voice engine</div>
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-inset p-1" role="radiogroup" aria-label="Voice engine">
-            {([
-              { value: "elevenlabs", label: "ElevenLabs", available: true },
-              { value: "fish", label: "Fish Audio", available: true },
-              { value: "system", label: "Built-in Mac voices", available: systemVoicesAvailable },
-              { value: "chatterbox", label: "Chatterbox (local)", available: true },
-              { value: "xai", label: t("voice.grok.label"), available: true },
-            ] as const).map((option) => (
+            {(([
+              { value: "elevenlabs" as const, label: "ElevenLabs", available: true },
+              { value: "fish" as const, label: "Fish Audio", available: true },
+              { value: "system" as const, label: "Built-in Mac voices", available: systemVoicesAvailable },
+              { value: "chatterbox" as const, label: "Chatterbox (local)", available: true },
+              ...(admin ? [{ value: "xai" as const, label: t("voice.grok.label"), available: true }] : []),
+            ] as Array<{ value: "elevenlabs" | "fish" | "system" | "chatterbox" | "xai"; label: string; available: boolean }>)).map((option) => (
               <button
                 key={option.value}
                 type="button"

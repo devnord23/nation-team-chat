@@ -3,10 +3,10 @@
 // answer rather than one per call site.
 export const APP_NAME = "Nation Team Chat";
 export const APP_REPOSITORY = "https://github.com/devnord23/nation-team-chat";
-export const DOCS_URL = `${APP_REPOSITORY}/tree/main/docs`;
-export const HELP_CENTER_URL = DOCS_URL;
-export const APPROVAL_LEVELS_URL = `${APP_REPOSITORY}/blob/main/docs/approval-levels.md`;
 export const FEEDBACK_URL = "https://t.me/thenation_city";
+export const DOCS_URL = `${APP_REPOSITORY}/tree/main/docs`;
+export const HELP_CENTER_URL = FEEDBACK_URL;
+export const APPROVAL_LEVELS_URL = `${APP_REPOSITORY}/blob/main/docs/approval-levels.md`;
 export const RELEASES_URL = `${APP_REPOSITORY}/releases`;
 export const LICENSE_URL = `${APP_REPOSITORY}/blob/main/LICENSE`;
 
