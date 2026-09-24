@@ -153,7 +153,7 @@ export function Automations({ playing, onCue, onEnded, label }: SceneProps) {
                     )}
                     style={{ top: ROW + 2, height: ROW - 8 }}
                   >
-                    <MausAvatar color="green" state={busy ? "working" : "idle"} size={16} animated={!still} trackPointer={false} />
+                    <MausAvatar color="green" bodyId="squircle" state={busy ? "working" : "idle"} size={16} animated={!still} trackPointer={false} />
                     <div className="min-w-0">
                       <div className="truncate text-[9.5px] font-semibold leading-tight text-ink">Weekly report</div>
                       <div className="text-[8px] leading-tight tabular-nums text-ink-secondary">9:00 · weekly</div>
@@ -211,6 +211,7 @@ export function Automations({ playing, onCue, onEnded, label }: SceneProps) {
         <div className="relative drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]">
           <MausAvatar
             color="green"
+            bodyId="squircle"
             state={hookDone ? "happy" : hook ? "alerting" : done ? "proud" : firing ? "working" : "drowsy"}
             size={40}
             animated={!still}

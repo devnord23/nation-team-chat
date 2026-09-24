@@ -3,7 +3,6 @@
 // welcome tour's phone beat in place of three identical value cards. Purely
 // illustrative: nothing here is interactive.
 import { Check, X } from "lucide-react";
-import { MausAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { brand } from "@/lib/brand";
 
@@ -23,8 +22,8 @@ export function PhonePreview({ className }: { className?: string }) {
           </div>
           {/* chat header */}
           <div className="flex items-center gap-1.5 border-b border-hairline/40 px-3 py-1.5">
-            <MausAvatar color="green" state="happy" size={16} animated={false} trackPointer={false} />
-            <span className="text-[9.5px] font-semibold text-ink">Maus</span>
+            <img src="/bot-faces/coordinator.svg" alt="" width={16} height={16} style={{ borderRadius: "4px" }} />
+            <span className="text-[9.5px] font-semibold text-ink">Nation</span>
             <span className="ml-auto size-1.5 rounded-full bg-success" />
           </div>
           {/* transcript */}

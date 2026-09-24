@@ -1211,6 +1211,13 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
       if (!Object.hasOwn(map, id)) map[id] = { ...entry };
     }
   }
+  // Auto-provision the Nation OpenRouter engine when OPENROUTER_API_KEY is set
+  // server-side. This gives all paired users the NATION API model picker (VPS
+  // rail, curated catalog) without any key-paste step. A product config that
+  // already has "nationApi" keeps its explicit entry unchanged.
+  if (process.env.OPENROUTER_API_KEY?.trim() && !Object.hasOwn(map, "nationApi")) {
+    map.nationApi = { driver: "nation-openrouter", displayName: "NATION API" };
+  }
   for (const [id, sourceEntry] of Object.entries(map)) {
     // instanceConfigs() builds a transient runtime map. Never mutate the
     // caller's persisted entries while injecting workspace defaults: doing so

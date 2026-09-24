@@ -62,33 +62,49 @@ describe("persistence patches", () => {
 });
 
 describe("beat machine", () => {
-  it("lists beats for the desktop app with the reel off", () => {
-    expect(beatsFor({ dictation: true, reel: false })).toEqual(["hello", "engines", "permissions", "phone", "bot"]);
+  it("omits the engines beat by default (non-admin public tour)", () => {
+    expect(beatsFor({ dictation: false, reel: false })).toEqual(["hello", "phone", "bot"]);
+    expect(beatsFor({ dictation: true, reel: false })).toEqual(["hello", "permissions", "phone", "bot"]);
+    expect(beatsFor({ dictation: false, reel: true })).toEqual(["hello", "reel", "phone", "bot"]);
+  });
+
+  it("includes the engines beat when engines:true (admin tour)", () => {
+    expect(beatsFor({ dictation: true, reel: false, engines: true })).toEqual(["hello", "engines", "permissions", "phone", "bot"]);
   });
 
   it("drops the permissions beat where there is no microphone to ask for", () => {
-    expect(beatsFor({ dictation: false, reel: false })).toEqual(["hello", "engines", "phone", "bot"]);
+    expect(beatsFor({ dictation: false, reel: false, engines: true })).toEqual(["hello", "engines", "phone", "bot"]);
   });
 
   it("slots the reel after hello when enabled", () => {
-    expect(beatsFor({ dictation: false, reel: true })).toEqual(["hello", "reel", "engines", "phone", "bot"]);
+    expect(beatsFor({ dictation: false, reel: true, engines: true })).toEqual(["hello", "reel", "engines", "phone", "bot"]);
   });
 
   it("always ends on the bot beat", () => {
     for (const dictation of [true, false]) {
       for (const reel of [true, false]) {
-        expect(beatsFor({ dictation, reel }).at(-1)).toBe("bot");
+        for (const engines of [true, false]) {
+          expect(beatsFor({ dictation, reel, engines }).at(-1)).toBe("bot");
+        }
       }
     }
   });
 
-  it("walks forward and back and stops at the ends", () => {
-    const beats = beatsFor({ dictation: true, reel: false });
+  it("walks forward and back and stops at the ends (admin tour with engines)", () => {
+    const beats = beatsFor({ dictation: true, reel: false, engines: true });
     expect(nextBeat(beats, "hello")).toBe("engines");
     expect(nextBeat(beats, "bot")).toBeNull();
     expect(previousBeat(beats, "engines")).toBe("hello");
     expect(previousBeat(beats, "hello")).toBeNull();
-    expect(nextBeat(beats, "reel")).toBeNull();
+  });
+
+  it("walks forward correctly on the public tour (no engines)", () => {
+    const beats = beatsFor({ dictation: false, reel: true });
+    expect(nextBeat(beats, "hello")).toBe("reel");
+    expect(nextBeat(beats, "reel")).toBe("phone");
+    expect(nextBeat(beats, "bot")).toBeNull();
+    expect(previousBeat(beats, "phone")).toBe("reel");
+    expect(previousBeat(beats, "hello")).toBeNull();
   });
 
   it("gives the engines beat the widest card", () => {

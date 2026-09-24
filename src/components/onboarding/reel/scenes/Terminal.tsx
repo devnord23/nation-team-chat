@@ -144,7 +144,7 @@ export function Terminal({ playing, onCue, onEnded, label }: SceneProps) {
               <span className="size-2.5 rounded-full bg-[#28c840]" />
             </div>
             <div className="ml-2 flex h-6 max-w-[150px] items-center gap-1.5 rounded-t-lg bg-[#35363a] px-2.5 text-[9.5px] text-[#e8eaed]">
-              <MausAvatar color="green" state="idle" size={10} animated={false} trackPointer={false} />
+              <MausAvatar color="green" bodyId="squircle" state="idle" size={10} animated={false} trackPointer={false} />
               <span className="truncate">NATION Team</span>
               <span className="ml-1 text-[#9aa0a6]">×</span>
             </div>
@@ -170,7 +170,7 @@ export function Terminal({ playing, onCue, onEnded, label }: SceneProps) {
             <div className="h-5 rounded-md bg-inset" />
             <div className="mt-2 text-[7.5px] font-semibold uppercase tracking-[0.12em] text-ink-secondary/70">Bots</div>
             <div className="mt-1 flex items-center gap-1.5 rounded-md bg-raised/70 px-1.5 py-1">
-              <MausAvatar color="green" state="happy" size={14} animated={false} trackPointer={false} />
+              <MausAvatar color="green" bodyId="squircle" state="happy" size={14} animated={false} trackPointer={false} />
               <div className="min-w-0">
                 <div className="h-1.5 w-9 rounded bg-ink/70" />
                 <div className="mt-1 h-1 w-12 rounded bg-ink-secondary/40" />
@@ -183,14 +183,14 @@ export function Terminal({ playing, onCue, onEnded, label }: SceneProps) {
           </div>
           <div className="relative flex-1">
             <div className="flex items-center gap-2 border-b border-hairline/40 px-3 py-2">
-              <MausAvatar color="green" state="happy" size={14} animated={false} trackPointer={false} />
+              <MausAvatar color="green" bodyId="squircle" state="happy" size={14} animated={false} trackPointer={false} />
               <div className="h-1.5 w-10 rounded bg-ink/70" />
             </div>
             {/* dimmed shell under the welcome card, as the real first run looks */}
             <div className="absolute inset-0 top-[29px] bg-app/80" />
             <div className="absolute left-1/2 top-[6px] w-[196px] -translate-x-1/2 rounded-xl border border-hairline/50 bg-panel px-4 py-2.5 shadow-[0_18px_40px_-16px_rgba(0,0,0,0.7)]">
               <div className="flex flex-col items-center">
-                <MausAvatar color="green" state="happy" size={24} animated={!still} trackPointer={false} />
+                <MausAvatar color="green" bodyId="squircle" state="happy" size={24} animated={!still} trackPointer={false} />
                 <div className="mt-1 text-[10px] font-semibold text-ink">Welcome to NATION Team</div>
                 <div className="mt-0.5 h-1 w-24 rounded bg-ink-secondary/40" />
                 <div className="mt-2 flex h-[18px] w-full items-center rounded-md border border-hairline/40 bg-inset px-2 text-[8px] text-ink-secondary">Your name</div>
@@ -205,7 +205,7 @@ export function Terminal({ playing, onCue, onEnded, label }: SceneProps) {
       {/* the guide: loading while the wizard runs, happy when the app opens */}
       <div className="absolute bottom-3 right-5 z-20">
         <div className="drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]">
-          <MausAvatar color="green" state={rising ? "happy" : now > 1800 ? "working" : "loading"} size={36} animated={!still} trackPointer={false} />
+          <MausAvatar color="green" bodyId="squircle" state={rising ? "happy" : now > 1800 ? "working" : "loading"} size={36} animated={!still} trackPointer={false} />
         </div>
       </div>
     </div>

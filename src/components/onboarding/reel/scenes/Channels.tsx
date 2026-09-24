@@ -205,7 +205,7 @@ export function Channels({ playing, onCue, onEnded, label }: SceneProps) {
       {/* the guide keeps its distance: this room belongs to the members */}
       <div className="flex h-11 shrink-0 items-center justify-center">
         <div className="drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]">
-          <MausAvatar color="green" state={replied ? "proud" : busy ? "listening" : "idle"} size={28} animated={!still} trackPointer={false} />
+          <MausAvatar color="green" bodyId="squircle" state={replied ? "proud" : busy ? "listening" : "idle"} size={28} animated={!still} trackPointer={false} />
         </div>
       </div>
     </div>
