@@ -21,6 +21,7 @@ export interface PendingTeamImport {
 /** Small client-side preview only; the server remains the trust boundary. */
 export function teamImportPreview(manifest: unknown): PendingTeamImport {
   if (typeof manifest === "string") manifest = markdownPackage(manifest);
+  manifest = normalizeTeamImportManifest(manifest);
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("This file does not contain a team.");
   }
@@ -141,4 +142,16 @@ function packagePreview(root: Record<string, unknown>, manifest: unknown): Pendi
       return typeof name === "string" && name.trim() ? [name.trim()] : [];
     }) : [],
   };
+}
+
+/** New web formats are aliases; old backups and durable scheduler records remain readable. */
+export function normalizeTeamImportManifest(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return input;
+  const root = input as Record<string, unknown>;
+  const format = typeof root.format === "string" ? root.format.replace(/^nation\.(backup|package|team)$/, "openmaus.$1") : root.format;
+  const routines = Array.isArray(root.routines) ? root.routines.map(routine => {
+    if (!routine || typeof routine !== "object" || Array.isArray(routine)) return routine;
+    return routine.runOn === "nation" ? { ...routine, runOn: "maus" } : routine;
+  }) : root.routines;
+  return { ...root, format, ...(root.routines !== undefined ? { routines } : {}) };
 }

@@ -10,6 +10,7 @@ const PRIVATE_KEYS = new Set([
 /** One projection for HTTP, live SSE and replay. Never mutate stored records.
  * User-authored text and normal work outputs are deliberately preserved. */
 export function publicResponse(value: unknown, admin = false): unknown {
+  if (typeof value === "string") return value.replace(/openmausbot:\/\/thread\//gi, "nation://thread/");
   if (Array.isArray(value)) return value.map(item => publicResponse(item, admin));
   if (!value || typeof value !== "object") return value;
   const input = value as Record<string, unknown>;
@@ -17,6 +18,8 @@ export function publicResponse(value: unknown, admin = false): unknown {
   const failedTool = input.ok === false;
   const runtimeError = input.type === "runtime.error" || input.synthetic === true;
   for (const [key, item] of Object.entries(input)) {
+    if (key === "runOn" && item === "maus") { out[key] = "nation"; continue; }
+    if (key === "format" && typeof item === "string" && /^openmaus\.(backup|package|team)$/.test(item)) { out[key] = item.replace(/^openmaus\./, "nation."); continue; }
     if (runtimeError && key === "raw") continue;
     if (runtimeError && ["message", "text", "delta"].includes(key) && typeof item === "string") out[key] = publicError(item);
     else if (["error", "problem", "reason"].includes(key) && typeof item === "string") out[key] = publicError(item);

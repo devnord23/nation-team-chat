@@ -46,3 +46,10 @@ it("removes nested host paths and desk implementation details from member respon
   expect(publicResponse(input)).toEqual({ bot: { tasks: [{ threadId: "task" }] }, backend: "vps", ready: true });
   expect(publicResponse(input, true)).toEqual(input);
 });
+
+it("canonicalizes historical links and schedule destinations without rewriting stored records", () => {
+  const original = { text: "See [work](openmausbot://thread/abc?bot=one)", runOn: "maus", format: "openmaus.backup" };
+  expect(publicResponse(original)).toEqual({ text: "See [work](nation://thread/abc?bot=one)", runOn: "nation", format: "nation.backup" });
+  expect(original.runOn).toBe("maus");
+  expect(original.text).toContain("openmausbot:");
+});

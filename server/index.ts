@@ -1,5 +1,5 @@
 import { publicRoutineInput } from "./public-routine-input.ts";
-import { teamImportPreview } from "./team-import-preview.ts";
+import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
@@ -14338,7 +14338,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           projectCwd = validated.cwd;
         }
       }
-      const body = await readBody(req, MAX_TEAM_BACKUP_BYTES);
+      const body = normalizeTeamImportManifest(await readBody(req, MAX_TEAM_BACKUP_BYTES)) as any;
       if (body?.format === "openmaus.backup") {
         if (importMode !== "add") return json(res, 400, { error: "Import backups alongside your existing bots; project mode is only for templates" });
         try {

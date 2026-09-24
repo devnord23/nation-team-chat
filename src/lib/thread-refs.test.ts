@@ -127,7 +127,8 @@ describe("canonical thread links", () => {
     expect(link).toBe(`nation://thread/${uuid}?bot=scout`);
     // the paste path accepts exactly what copy emits
     expect(parseThreadRefUrl(link)).toEqual({ threadId: uuid, botId: "scout" });
-    expect(parseThreadRefUrl(`openmausbot://thread/${uuid}`)).toEqual({ threadId: uuid });
+    // Historical schemes are canonicalized by the server before web display.
+    expect(parseThreadRefUrl(`openmausbot://thread/${uuid}`)).toBeNull();
     for (const miss of [
       `openmausbot://thread/${uuid}/extra?bot=scout`,
       `openmausbot://thread/${uuid}?bot=scout&x=1`,

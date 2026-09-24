@@ -144,7 +144,6 @@ export interface ThreadRefAddress {
 }
 
 const THREAD_URL_PREFIX = "nation://thread/";
-const LEGACY_THREAD_URL_PREFIX = "openmausbot://thread/";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_LIMIT = 256;
 
@@ -163,7 +162,7 @@ export function threadRefUrl(ref: { botId: string; threadId: string }): string {
  * near-misses with extra path, extra query or a foreign scheme. */
 export function parseThreadRefUrl(value: string): ThreadRefAddress | null {
   const raw = value.trim();
-  if (![THREAD_URL_PREFIX, LEGACY_THREAD_URL_PREFIX].some(prefix => raw.toLowerCase().startsWith(prefix))) return null;
+  if (!raw.toLowerCase().startsWith(THREAD_URL_PREFIX)) return null;
   let url: URL;
   try {
     url = new URL(raw);
@@ -393,7 +392,7 @@ export function threadTokenFromPaste(
 ): { token: string; ref: ResolvedThreadRef } | null {
   const trimmed = pasted.trim();
   if (!trimmed) return null;
-  const wrapped = /^\[((?:\\.|[^\\\]])*)\]\(((?:nation|openmausbot):\/\/thread\/[^()\s]*)\)$/.exec(trimmed);
+  const wrapped = /^\[((?:\\.|[^\\\]])*)\]\((nation:\/\/thread\/[^()\s]*)\)$/.exec(trimmed);
   const address = wrapped
     ? parseThreadRefUrl(wrapped[2])
     : parseThreadRefUrl(trimmed) ?? (isThreadUuid(trimmed) ? { threadId: trimmed } : null);

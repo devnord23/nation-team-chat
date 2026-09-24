@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { teamImportPreview } from "./team-import-preview.ts";
+import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
 import { takeImportName } from "../shared/import-name.ts";
 
 describe("team import preview", () => {
@@ -125,5 +125,14 @@ Create the team.`);
       chiefOfStaff: "Scout",
       apps: [{ label: "Reddit", optional: false }],
     });
+  });
+});
+
+it("accepts canonical web imports and translates nested schedule destinations without mutating input", () => {
+  const input = { format: "nation.team", version: 2, team: { name: "Team", members: [{ name: "Scout" }] } };
+  expect(teamImportPreview(input)).toMatchObject({ kind: "team", name: "Team" });
+  expect(input.format).toBe("nation.team");
+  expect(normalizeTeamImportManifest({ format: "nation.backup", routines: [{ runOn: "nation" }] })).toEqual({
+    format: "openmaus.backup", routines: [{ runOn: "maus" }],
   });
 });
