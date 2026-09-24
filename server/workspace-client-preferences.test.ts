@@ -8,5 +8,5 @@ it("preserves legacy encrypted-backup preferences under canonical keys", () => {
 it("rejects credential keys, unknown keys, and ambiguous duplicate preferences", () => {
   for (const value of [{ token: "secret" }, { "__proto__": null, other: "bad" },
     { "openmausbot.sidebarDensity": "compact", "nation.sidebarDensity": "icons" }])
-    expect(() => workspaceClientPreferences(value as Record<string, string>)).toThrow("preference");
+    expect(() => workspaceClientPreferences(value as unknown as Record<string, string>)).toThrow("preference");
 });

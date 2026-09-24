@@ -19,3 +19,13 @@ allowBuilds:
 onlyBuiltDependencies:
   - electron
   - esbuild
+
+# Runtime diagnostics use NATION support; algorithms and license notices are unchanged.
+patchedDependencies:
+  '@mermaid-js/parser@2.0.0': patches/mermaid-js__parser2.0.0.patch
+  'chevrotain@11.1.2': patches/chevrotain11.1.2.patch
+  'elkjs@0.9.3': patches/elkjs0.9.3.patch
+  'hast-util-to-jsx-runtime@2.3.6': patches/hast-util-to-jsx-runtime2.3.6.patch
+  'marked@16.4.2': patches/marked16.4.2.patch
+  'mermaid@12.0.0': patches/mermaid12.0.0.patch
+  'react-markdown@10.1.0': patches/react-markdown10.1.0.patch

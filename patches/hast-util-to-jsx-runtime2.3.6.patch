@@ -1,0 +1,11 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -42,7 +42,7 @@
+ 
+ const tableCellElement = new Set(['td', 'th'])
+ 
+-const docs = 'https://github.com/syntax-tree/hast-util-to-jsx-runtime'
++const docs = 'https://www.npmjs.com/package/hast-util-to-jsx-runtime'
+ 
+ /**
+  * Transform a hast tree to preact, react, solid, svelte, vue, etc.,
