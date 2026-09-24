@@ -15,7 +15,7 @@ import { apiUrl } from "@/state/store";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
 const LINUX_GUIDE_URL =
-  "https://github.com/milind-soni/NATION Team/blob/main/docs/linux-desktop.md#enable-local-control";
+  "https://github.com/devnord23/nation-team-chat/blob/main/docs/linux-desktop.md#enable-local-control";
 
 export function LinuxLocalControl() {
   const { capabilities } = useDesktopCapabilities();

@@ -209,7 +209,7 @@ async function handle(message: Json): Promise<void> {
       return;
     }
     if (/WAIT_FOR_CONNECTIONS$/i.test(name)) {
-      send(textResult(id, "OpenMausBot is handling connection completion and will continue the task automatically."));
+      send(textResult(id, "The workspace is handling connection completion and will continue the task automatically."));
       return;
     }
   }

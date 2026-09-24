@@ -407,7 +407,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
   const SOURCE = support.nativeSource;
   const decodeConfig = decodeAcpConfig(support.defaultCli);
   const DENY_TIMEOUT_NOTE =
-    "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+    "Nobody answered this permission request in time. Skipping this action and finishing what you can without it.";
 
   return {
     driverKind: DRIVER_KIND,
@@ -1342,7 +1342,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   "initialize",
                   {
                     protocolVersion: 1,
-                    clientInfo: { name: "openmausbot", version: "0.0.0" },
+                    clientInfo: { name: "nation-team-chat", version: "0.0.0" },
                     clientCapabilities: {
                       fs: {
                         readTextFile: support.clientFileSystem === true,

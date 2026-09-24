@@ -4,7 +4,7 @@ import { activeLocale, t } from "@/lib/i18n";
 import { Card } from "./SettingsPrimitives";
 
 const providerNames: Record<string, string> = { anthropic: "Anthropic", openai: "OpenAI", openrouter: "OpenRouter" };
-const DEFAULT_PORTAL_ORIGIN = "https://admin.openmausbot.com";
+const DEFAULT_PORTAL_ORIGIN = "https://admin.thenation.city";
 
 /** Only the trusted desktop bridge can enroll this computer or hold its token. */
 export function OrganizationSettings() {

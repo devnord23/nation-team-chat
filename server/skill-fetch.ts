@@ -110,7 +110,7 @@ async function fetchListing(url: string, fetcher: typeof fetch): Promise<Content
 }
 
 async function fetchText(url: string, fetcher: typeof fetch): Promise<string> {
-  const response = await fetcher(url, { headers: { "user-agent": "OpenMausBot-skills" } });
+  const response = await fetcher(url, { headers: { "user-agent": "nation-team-chat-skills" } });
   if (!response.ok) throw new Error(`download failed (${response.status})`);
   const text = await response.text();
   if (Buffer.byteLength(text, "utf8") > MAX_FILE_BYTES) throw new Error("file is larger than the 256KB import cap");

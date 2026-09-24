@@ -128,7 +128,7 @@ function parseRecord(path, invalidMessage, validate) {
     raw = readFileSync(path, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") return null;
-    throw leaseError("OpenMausBot cannot read the data-directory lease; refusing to start to protect its state.", error);
+    throw leaseError("Nation Team Chat cannot read the data-directory lease; refusing to start to protect its state.", error);
   }
   let record;
   try {
@@ -143,7 +143,7 @@ function parseRecord(path, invalidMessage, validate) {
 function readOwner(path) {
   return parseRecord(
     path,
-    "The OpenMausBot data-directory lease is invalid; refusing to start to protect its state.",
+    "The Nation Team Chat data-directory lease is invalid; refusing to start to protect its state.",
     isLeaseOwner,
   );
 }
@@ -151,7 +151,7 @@ function readOwner(path) {
 function readReaper(path, targetToken) {
   return parseRecord(
     path,
-    "The OpenMausBot stale-lease recovery record is invalid; refusing to start to protect its state.",
+    "The Nation Team Chat stale-lease recovery record is invalid; refusing to start to protect its state.",
     (value) => isReaperOwner(value, targetToken),
   );
 }
@@ -164,7 +164,7 @@ function processIsAlive(pid) {
     if (error?.code === "ESRCH") return false;
     // EPERM means the pid exists but this account cannot signal it.
     if (error?.code === "EPERM") return true;
-    throw leaseError("OpenMausBot could not verify the data-directory lease owner; refusing to start.", error);
+    throw leaseError("Nation Team Chat could not verify the data-directory lease owner; refusing to start.", error);
   }
 }
 
@@ -250,7 +250,7 @@ function publishRecord(path, record, prepareMessage, acquireMessage) {
       throw leaseError(acquireMessage, error);
     }
   } finally {
-    unlinkExact(candidatePath, "OpenMausBot could not remove its lease candidate.");
+    unlinkExact(candidatePath, "Nation Team Chat could not remove its lease candidate.");
   }
 }
 
@@ -284,21 +284,21 @@ function claimReaperAuthority(leasePath, expected) {
     if (publishRecord(
       reaperPath,
       candidate,
-      "OpenMausBot could not prepare stale-lease recovery.",
-      "OpenMausBot could not safely recover the stale data-directory lease.",
+      "Nation Team Chat could not prepare stale-lease recovery.",
+      "Nation Team Chat could not safely recover the stale data-directory lease.",
     )) return true;
 
     const current = readReaper(reaperPath, expected.token);
     if (!current) continue;
     if (current.host !== candidate.host) {
       throw leaseError(
-        `A stale OpenMausBot data-directory lease is being recovered on another machine. Recovery record: ${JSON.stringify(reaperPath)}.`,
+        `A stale Nation Team Chat data-directory lease is being recovered on another machine. Recovery record: ${JSON.stringify(reaperPath)}.`,
       );
     }
     if (ownerIsAlive(current)) return false;
     reaperPath = successorReaperPath(leasePath, expected.token, current.token);
   }
-  throw leaseError("OpenMausBot could not recover the stale data-directory lease after repeated interrupted attempts.");
+  throw leaseError("Nation Team Chat could not recover the stale data-directory lease after repeated interrupted attempts.");
 }
 
 function retireDeadOwner(leasePath, expected) {
@@ -307,7 +307,7 @@ function retireDeadOwner(leasePath, expected) {
   if (!current || current.token !== expected.token) return true;
   if (current.host !== hostname()) {
     throw leaseError(
-      `The stale OpenMausBot data-directory lease changed ownership to another machine. Lease record: ${JSON.stringify(leasePath)}.`,
+      `The stale Nation Team Chat data-directory lease changed ownership to another machine. Lease record: ${JSON.stringify(leasePath)}.`,
     );
   }
   if (ownerIsAlive(current)) return false;
@@ -317,7 +317,7 @@ function retireDeadOwner(leasePath, expected) {
 
 function validateDataDir(dataDir) {
   if (typeof dataDir !== "string" || dataDir.trim().length === 0 || /[\r\n\0]/.test(dataDir)) {
-    throw leaseError("OpenMausBot cannot lease an invalid data directory.");
+    throw leaseError("Nation Team Chat cannot lease an invalid data directory.");
   }
   return dataDir;
 }
@@ -341,7 +341,7 @@ function prepareDataDir(dataDir, legacyDataDir) {
   try {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   } catch (error) {
-    throw leaseError("OpenMausBot cannot create its data directory.", error);
+    throw leaseError("Nation Team Chat cannot create its data directory.", error);
   }
   return join(dataDir, LEASE_NAME);
 }
@@ -352,12 +352,12 @@ function assertNoLiveDelegatedChild(dataDir) {
   if (!child) return;
   if (child.host !== hostname()) {
     throw leaseError(
-      `This OpenMausBot data directory still has a delegated server on another machine. Delegated server lease: ${JSON.stringify(childLeasePath)}.`,
+      `This Nation Team Chat data directory still has a delegated server on another machine. Delegated server lease: ${JSON.stringify(childLeasePath)}.`,
     );
   }
   if (ownerIsAlive(child)) {
     throw leaseError(
-      `OpenMausBot's previous server process ${child.pid} is still shutting down. Try again shortly.`,
+      `Nation Team Chat's previous server process ${child.pid} is still shutting down. Try again shortly.`,
     );
   }
 }
@@ -380,10 +380,10 @@ function consumeChildCapability(environment) {
   try {
     delete environment[CHILD_LEASE_ENV];
   } catch (error) {
-    throw leaseError("OpenMausBot could not consume its private desktop lease delegation.", error);
+    throw leaseError("Nation Team Chat could not consume its private desktop lease delegation.", error);
   }
   if (environment[CHILD_LEASE_ENV] !== undefined) {
-    throw leaseError("OpenMausBot could not consume its private desktop lease delegation.");
+    throw leaseError("Nation Team Chat could not consume its private desktop lease delegation.");
   }
   return value;
 }
@@ -460,7 +460,7 @@ function acquireDataDirLeaseInternal(dataDir, options = {}) {
       if (!current) continue;
       if (current.host !== owner.host) {
         throw leaseError(
-          `This OpenMausBot data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(leasePath)}.`,
+          `This Nation Team Chat data directory is already owned by a process on another machine. Lease record: ${JSON.stringify(leasePath)}.`,
         );
       }
       if (ownerIsAlive(current)) {
@@ -469,11 +469,11 @@ function acquireDataDirLeaseInternal(dataDir, options = {}) {
         );
       }
       if (!retireDeadOwner(leasePath, current)) {
-        throw leaseError("A stale OpenMausBot data-directory lease is already being recovered; try again shortly.");
+        throw leaseError("A stale Nation Team Chat data-directory lease is already being recovered; try again shortly.");
       }
     }
   } finally {
-    unlinkExact(candidatePath, "OpenMausBot could not remove its lease candidate.");
+    unlinkExact(candidatePath, "Nation Team Chat could not remove its lease candidate.");
   }
 
   if (!acquired) throw leaseError("OpenMausBot could not acquire its data-directory lease.");

@@ -128,11 +128,7 @@ docker compose up
 - **thenation.city integration**: not yet wired into the NATION platform. This is the standalone chat-team product.
 - **Production hosting**: Docker Compose or a Linux VPS is the intended self-hosting path. See `docs/self-hosting.md`.
 
-## Upstream
-
-This is a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot)
-(Apache-2.0). UX patterns are adapted from
-[BOTROSTER](https://github.com/mandarwagh9/botroster).
+## Attribution
 
 See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for full attribution.
 
