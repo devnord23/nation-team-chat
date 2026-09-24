@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { nationDataDir } from "../server/nation-compat.ts";
+import { brandHits } from "./brand-terms.mjs";
 
 const args = new Set(process.argv.slice(2));
 const env = process.env;
@@ -12,7 +13,6 @@ const apiOrigin = env.NATION_SMOKE_API || "http://127.0.0.1:8799";
 const output = resolve(env.NATION_SMOKE_OUTPUT || "/tmp/nation-smoke");
 mkdirSync(output, { recursive: true, mode: 0o700 });
 let failures = 0, cookie = "", bot, memberId;
-const banned = /openmuse|open muse|open-muse|open_muse|openmaus(?:bot)?|maus|open source|opensource|github|star us|contribute|anthropic|claude|hermes|nous|venice|grok|xai|cua/i;
 const assert = (value, message) => { if (!value) throw new Error(message); };
 async function check(name, work) {
   try { await work(); console.log(`PASS ${name}`); }
@@ -39,7 +39,7 @@ async function api(path, { method = "GET", body, admin = false } = {}) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (!admin && response.headers.has("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
   const value = await response.json();
-  if (!admin) assert(!banned.test(JSON.stringify(value)), "Member API response contains a banned term");
+  if (!admin) assert(brandHits(JSON.stringify(value)).length === 0, "Member API response contains a banned term");
   return { status: response.status, value };
 }
 await check("1. Swarm HTML and referenced JavaScript contain no banned words", async () => {
@@ -50,7 +50,7 @@ await check("1. Swarm HTML and referenced JavaScript contain no banned words", a
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     assert(response.status === 200, `Asset returned ${response.status}: ${url}`);
     const text = await response.text();
-    assert(!banned.test(text), `Banned term in ${url}`);
+    assert(brandHits(text).length === 0, `Banned term in ${url}`);
     for (const match of text.matchAll(/["']([^"'\s<>]+\.(?:m?js|css)(?:\?[^"'\s<>]*)?)["']/g)) {
       const next = new URL(match[1], match[1].startsWith("assets/") ? site : url);
       if (next.origin === new URL(site).origin) queue.push(next.href);
@@ -112,7 +112,7 @@ await check("4. VPS desk opens with the approved wallpaper and Chrome", async ()
   assert(container && /^[a-zA-Z0-9][a-zA-Z0-9_.-]+$/.test(container), "Set NATION_SMOKE_DESK_CONTAINER for the test bot's desk; inspect the saved screenshot");
   const desktop = execFileSync("docker", ["exec", "--user", "cua", "-e", "DISPLAY=:1", container, "xfconf-query", "-c", "xfce4-desktop", "-lv"], { encoding: "utf8", timeout: 15_000 });
   const wallpaper = desktop.split("\n").find(line => /last-image/.test(line))?.trim().split(/\s+/).at(-1);
-  assert(wallpaper && env.NATION_SMOKE_WALLPAPER_SHA256, "Set the SHA256 of the approved iOS 27 silver-ribbon wallpaper");
+  assert(wallpaper && env.NATION_SMOKE_WALLPAPER_SHA256, "Set the SHA256 of the approved current wallpaper");
   const hash = execFileSync("docker", ["exec", container, "sha256sum", wallpaper], { encoding: "utf8", timeout: 15_000 }).split(/\s+/)[0];
   assert(hash === env.NATION_SMOKE_WALLPAPER_SHA256, "Active wallpaper differs from the approved Nation wallpaper");
   execFileSync("docker", ["exec", container, "pgrep", "-f", "google-chrome|/chrome"], { timeout: 15_000 });
