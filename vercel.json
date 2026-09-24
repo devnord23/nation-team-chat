@@ -5,6 +5,11 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" }
+    { "source": "/swarm/api/:path*", "destination": "https://server.aurk.org/nation-team-chat/api/:path*" },
+    { "source": "/swarm/.well-known/openmausbot/:path*", "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*" },
+    { "source": "/api/:path*", "destination": "https://server.aurk.org/nation-team-chat/api/:path*" },
+    { "source": "/.well-known/openmausbot/:path*", "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*" },
+    { "source": "/swarm", "destination": "/swarm/index.html" },
+    { "source": "/swarm/:path*", "destination": "/swarm/index.html" }
   ]
 }

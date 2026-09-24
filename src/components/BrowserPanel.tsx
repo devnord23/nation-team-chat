@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, EllipsisVertical, Globe, Hand, Loader2, Maximize2, Plus, RotateCw, UserRound, X } from "lucide-react";
 import { browserUnavailableReason } from "@/lib/feature-flags";
-import { api, useStore, type Bot } from "@/state/store";
+import { api, apiUrl, useStore, type Bot } from "@/state/store";
 import { BrowserProfilesManager } from "./BrowserProfilesManager";
 import { BrowserViewport, type BrowserFrame } from "./BrowserViewport";
 import { createBrowserInputQueue } from "@/lib/browser-input-queue";
@@ -80,7 +80,7 @@ export function LiveBrowser({ bot }: { bot: Bot }) {
     urlEditing.current = false;
     setFrame(null); setTabs([]); setAddress(""); setConnected(false); setError("");
     setControl({ held: false, controlling: false, owned: false }); setPending(false);
-    const source = new EventSource(`/api/bots/${encodeURIComponent(bot.id)}/browser/live`);
+    const source = new EventSource(apiUrl(`/api/bots/${encodeURIComponent(bot.id)}/browser/live`));
     const listen = (name: string, handler: (data: any) => void) => source.addEventListener(name, (event) => {
       if (stopped || !ownsConnection()) return;
       try { handler(JSON.parse((event as MessageEvent).data)); } catch { /* Malformed events are not rendered. */ }

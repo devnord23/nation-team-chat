@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, useStore } from "@/state/store";
+import { StoreProvider, apiUrl, useStore } from "@/state/store";
 import { WelcomeFlow } from "@/components/onboarding/WelcomeFlow";
 import { FirstConversationTour } from "@/components/onboarding/FirstConversationTour";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
@@ -226,7 +226,7 @@ function Shell() {
     return window.ogb?.desktopViewer?.onState((viewer) => {
       if (viewer.open || !viewer.contextId) return;
       const botId = viewer.contextId;
-      void fetch(`/api/bots/${botId}/computer/control`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/control`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "release" }),
@@ -236,7 +236,7 @@ function Shell() {
           if (snap) dispatch({ type: "computerControl", botId, held: snap.held === true, helpReason: snap.helpReason ?? null });
         })
         .catch(() => {});
-      void fetch(`/api/bots/${botId}/computer/viewer-close`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/viewer-close`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",

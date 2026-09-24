@@ -2281,11 +2281,22 @@ export async function createBotWithRole(role?: BotRole, request: typeof api = ap
  * transcript window mounts. */
 export const MESSAGE_PAGE_SIZE = 200;
 
+/**
+ * Resolve a root-relative path against the app's base URL so API calls work
+ * whether the SPA is served at "/" (bare deployment) or "/swarm/" (proxied
+ * under nation-app). import.meta.env.BASE_URL is replaced at build time by
+ * Vite, so this has zero runtime overhead.
+ */
+export function apiUrl(path: string): string {
+  if (path.startsWith("/")) return import.meta.env.BASE_URL + path.slice(1);
+  return path;
+}
+
 export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   // timeoutMs races the fetch against AbortSignal.timeout, combined with any
   // caller signal so either can cancel. Omitted means no behavior change.
   const { timeoutMs, signal, ...rest } = init ?? {};
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: { "content-type": "application/json" },
     ...rest,
     signal: timeoutMs === undefined
@@ -2648,7 +2659,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      fetch(apiUrl(`/api/bots/${botId}/cards/${messageId}`), {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
@@ -3602,7 +3613,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               (selectedTask?.unread || (!bot.tasks && bot.unread))) {
             if (selectedTask) selectedTask.unread = false;
             bot.unread = Boolean(bot.tasks?.some((task) => task.unread));
-            fetch(`/api/bots/${bot.id}/read`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: selected?.threadId }) }).catch(() => {});
+            fetch(apiUrl(`/api/bots/${bot.id}/read`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: selected?.threadId }) }).catch(() => {});
           }
           rawDispatch({
             type: "botPatched",
@@ -3615,7 +3626,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected room clears its badge immediately
           if (group.unread && group.id === stateRef.current.selectedId) {
             group.unread = false;
-            fetch(`/api/groups/${group.id}/read`, { method: "POST" }).catch(() => {});
+            fetch(apiUrl(`/api/groups/${group.id}/read`), { method: "POST" }).catch(() => {});
           }
           rawDispatch({ type: "groupPatched", group });
           break;

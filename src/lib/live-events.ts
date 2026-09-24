@@ -6,7 +6,7 @@
  * this supervisor uses it as liveness, owns reconnects itself, and carries an
  * explicit replay cursor whenever it replaces the native EventSource.
  */
-export const LIVE_EVENTS_PATH = "/api/events";
+export const LIVE_EVENTS_PATH = `${import.meta.env.BASE_URL}api/events`;
 export const LIVE_EVENTS_STALE_MS = 40_000;
 export const LIVE_EVENTS_RETRY_MIN_MS = 500;
 export const LIVE_EVENTS_RETRY_MAX_MS = 10_000;

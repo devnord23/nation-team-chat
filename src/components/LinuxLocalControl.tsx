@@ -11,6 +11,7 @@ import {
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { apiUrl } from "@/state/store";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
 const LINUX_GUIDE_URL =
@@ -35,7 +36,7 @@ export function LinuxLocalControl() {
     setError(null);
     try {
       if (action === "disable" || action === "retry") {
-        const response = await fetch("/api/local-computer/interrupt", { method: "POST" });
+        const response = await fetch(apiUrl("/api/local-computer/interrupt"), { method: "POST" });
         if (!response.ok) {
           setError({ key: "computer.linux.stopFailed" });
           return;
