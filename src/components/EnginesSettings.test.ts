@@ -34,7 +34,8 @@ describe("Settings → Engines → Codex", () => {
     const html = render(false);
     expect(html).toContain("Connect ChatGPT");
     expect(html).toContain("Provider icon");
-    expect(html).toContain("Google Gemini");
+    expect(html).not.toContain("Google Gemini");
+    expect(html).toContain("nation-logo.svg");
     expect(html).toContain("Upload a custom provider icon for Codex");
   });
 

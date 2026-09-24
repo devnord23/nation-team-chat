@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { InstanceInfo } from "@/state/store";
 import { EngineCard, EngineSections, engineReady } from "./EngineLibrary";
-import { CursorMark, HermesMark, InstanceProviderMark } from "./ProviderIcons";
+import { NationMark, InstanceProviderMark } from "./ProviderIcons";
 
 const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
   instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
@@ -12,20 +12,19 @@ const instance = (overrides: Partial<InstanceInfo> = {}): InstanceInfo => ({
 });
 
 describe("engine library", () => {
-  it("keeps monochrome provider logos legible in light and dark skins", () => {
-    for (const Mark of [CursorMark, HermesMark]) {
-      const html = renderToStaticMarkup(createElement(Mark));
-      expect(html).not.toContain("#F5F5F5");
-      expect(html).toContain("ink");
-    }
+  it("uses the existing product mark across light and dark skins", () => {
+    const html = renderToStaticMarkup(createElement(NationMark, { size: 24 }));
+    expect(html).toContain("nation-logo.svg");
+    expect(html).toContain('width="24"');
+    expect(html).toContain("object-contain");
   });
-  it("uses an instance icon without changing the driver's default mark", () => {
+  it("preserves custom images and maps legacy presets to the NATION mark", () => {
     const preset = renderToStaticMarkup(createElement(InstanceProviderMark, { instance: instance({ icon: { kind: "preset", preset: "azure" } }) }));
     const custom = renderToStaticMarkup(createElement(InstanceProviderMark, { instance: instance({ icon: { kind: "custom", dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" } }) }));
     const fallback = renderToStaticMarkup(createElement(InstanceProviderMark, { instance: instance() }));
-    expect(preset).toContain("#0089D6");
+    expect(preset).toContain("nation-logo.svg");
     expect(custom).toContain("data:image/png;base64,iVBORw0KGgo");
-    expect(fallback).toContain("viewBox=\"0 0 256 257\"");
+    expect(fallback).toContain("nation-logo.svg");
   });
   it("preserves readiness semantics without mistaking installation for sign-in", () => {
     expect(engineReady(instance())).toBe(true);
@@ -49,7 +48,7 @@ describe("engine library", () => {
     const render = (value: InstanceInfo) => renderToStaticMarkup(createElement(EngineCard, { instance: value, children: null }));
     expect(render(row)).not.toContain("private@example.test");
     expect(render(row)).toContain("Needs setup");
-    expect(render({ ...row, snapshot: { ...row.snapshot, authenticated: true } })).toContain("private@example.test");
+    expect(render({ ...row, snapshot: { ...row.snapshot, authenticated: true } })).not.toContain("private@example.test");
   });
 
   it("does not present executable names as versions", () => {
