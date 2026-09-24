@@ -4,6 +4,7 @@ import { Box, ExternalLink, Loader2, Monitor, Plus, RefreshCw, X } from "lucide-
 import { api, apiUrl, useStore } from "@/state/store";
 import type { TeamComputer } from "../../shared/team-computer";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { isProductAdmin } from "@/lib/admin-gate";
 
 const control = "rounded-lg px-3 py-2 text-[12px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40";
 const field = "w-full rounded-lg border border-hairline/60 bg-inset px-3 py-2 text-[12px] text-ink outline-none focus:border-accent";
@@ -20,7 +21,12 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
   onDropHandled: () => void;
   onChange: (computers: TeamComputer[]) => void;
 }) {
-  const { dispatch } = useStore();
+  const { dispatch, state } = useStore();
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -187,11 +193,11 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         <p className="text-[12px] leading-relaxed text-ink-secondary">Drag a computer onto a team, or choose its team below. Bots on Auto will use it.</p>
         {(error || readError || inventory?.problem) && <p role="alert" className="rounded-lg bg-danger/10 p-3 text-[12px] text-danger">{error || readError || inventory?.problem}</p>}
-        {inventory && !inventory.configured && <div className="rounded-xl border border-hairline/50 p-3 text-[12px]">
+        {inventory && !inventory.configured && admin && <div className="rounded-xl border border-hairline/50 p-3 text-[12px]">
           <p className="text-ink-secondary">Connect your Box account before creating a cloud computer.</p>
           <button className={`${control} mt-2 border border-hairline/50`} onClick={settings}>Connect Box</button>
         </div>}
-        {creating ? <form className="space-y-3 rounded-xl border border-hairline/60 bg-card p-3" onSubmit={(event) => {
+        {admin && (creating ? <form className="space-y-3 rounded-xl border border-hairline/60 bg-card p-3" onSubmit={(event) => {
           event.preventDefault();
           const value = submittedName.current ?? name.trim();
           if (!value || !inventory?.configured) return;
@@ -211,7 +217,7 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
               {busy === "create" && <Loader2 size={13} className="animate-spin" />}Create Box
             </button>
           </div>
-        </form> : <button className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-hairline/60 px-3 py-3 text-[12px] text-ink-secondary hover:bg-control hover:text-ink" disabled={busy !== null} onClick={() => setCreating(true)}><Plus size={14} /> New Box computer</button>}
+        </form> : <button className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-hairline/60 px-3 py-3 text-[12px] text-ink-secondary hover:bg-control hover:text-ink" disabled={busy !== null} onClick={() => setCreating(true)}><Plus size={14} /> New Box computer</button>)}
         {inventory?.computers.map((computer) => {
           const ready = ["idle", "ready", "running"].includes(computer.state);
           const starting = ["init", "provisioning", "provisioned", "cloning", "starting"].includes(computer.state);

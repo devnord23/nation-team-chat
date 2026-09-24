@@ -1754,6 +1754,7 @@
   "computer.addBoxKey": "Add a Box API key to give this bot a cloud computer â€” it spins up right here.",
   "computer.vpsAliasHint": "To use the VPS computer, set VPS_SSH_KEY or VPS_SSH_KEY_PATH in your environment (password-only auth is not supported), then add the SSH alias in Settings → Connections.",
   "computer.twoDesktopsTitle": "Watch two Local VM desktops together without pausing either bot",
+  "computer.nation.gettingReady": "Your computer is being prepared.",
   "computer.twoDesktops": "Open two desktops",
   "computer.askedHands": "asked for your hands:",
   "computer.takeControl": "Take control",

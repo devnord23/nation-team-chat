@@ -65,6 +65,7 @@ import {
 } from "@/lib/computer-panel-view";
 import { approvalModeFor } from "../../shared/approval-mode";
 import { t } from "@/lib/i18n";
+import { isProductAdmin } from "@/lib/admin-gate";
 import type { LocaleKey } from "@/locales";
 
 /** Keep local failure copy translatable while it remains in panel state. */
@@ -219,6 +220,11 @@ export function ComputerPanel({
     onResizeBy(widen);
   };
   const { state, dispatch, flushBotPatches } = useStore();
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
   // Where this bot's current conversation works and whether a turn is acting
   // there now: the tab for that place carries the live dot.
   const liveTask = profileBot.tasks?.find((task) => task.threadId === profileBot.threadId);
@@ -1429,6 +1435,8 @@ export function ComputerPanel({
                       : localMisses >= 3
                       ? t("computer.needsScreenPerm")
                       : t("computer.capturingLocal")
+                    : emptyState[phase] && (phase === "unconfigured" || phase === "vps-unconfigured") && !admin
+                      ? t("computer.nation.gettingReady")
                     : emptyState[phase]}
               </span>
               {cloudPreviewReady && previewWaitMs >= 15_000 && !control.held && !control.helpReason && (
@@ -1501,7 +1509,7 @@ export function ComputerPanel({
                   </button>
                 )
               )}
-              {computerStatusCurrent && (phase === "vps-unconfigured" || phase === "vps-stopped") && (
+              {computerStatusCurrent && admin && (phase === "vps-unconfigured" || phase === "vps-stopped") && (
                 <button
                   onClick={openConnectionSettings}
                   className="mt-1 rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-raised-hover"
@@ -1540,7 +1548,7 @@ export function ComputerPanel({
             {errorText}
           </div>
         )}
-        {phase === "unconfigured" && (
+        {phase === "unconfigured" && admin && (
           <div className="mt-3 rounded-xl bg-card p-4">
             <div className="mb-3 text-[13px] text-ink-secondary">
               {t("computer.addBoxKey")}
@@ -1551,7 +1559,7 @@ export function ComputerPanel({
             />
           </div>
         )}
-        {phase === "vps-unconfigured" && (
+        {phase === "vps-unconfigured" && admin && (
           <div className="mt-3 rounded-xl bg-card p-4">
             <div className="mb-3 text-[13px] text-ink-secondary">
               {t("computer.vpsAliasHint")}
