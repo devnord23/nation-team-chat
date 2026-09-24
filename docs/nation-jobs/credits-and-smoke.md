@@ -1,9 +1,9 @@
-# Credits and VPS review — draft only
+# Credits and VPS review — Base USDC launch candidate
 
 This branch starts at the preserved billing commit and replaces its expiring
 allowance design. It also carries the reviewed branding and connector changes.
 No merge, deployment, production purchase, or live VPS modification was made.
-The strict branding guard remains a release blocker inherited from PR #8.
+The combined candidate at `d8fab572acd9fa21795b7490387c906410ca4abc` passes the strict public asset and captured member API guard. Browser and production smoke gates remain pending; this is not a deployment record.
 
 ## Accounting and payment behavior
 
@@ -48,9 +48,11 @@ with persisted block cursors. Payment RPC verifies chain, successful canonical
 receipt, token Transfer event, destination, amount and confirmation depth.
 Transaction hashes have a unique index. The browser cannot mint credit.
 
-Base uses chain 8453 and USDC
-`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. Robinhood Chain uses chain 4663 and
-USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`. Both have six decimals.
+The approved launch enables **Base USDC only**: chain 8453, six-decimal token
+`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, receiving treasury
+`0x85E3C2D8f776d9D05b14E108F368070CbD8C1639` (supplied by the founder on 2026-09-24).
+The address checksum and Base-only configuration have been checked. This does
+not prove wallet ownership or a completed transfer. Robinhood remains disabled.
 The payment screen offers exact address/amount, an ERC-681 QR, injected-wallet
 ERC-20 transfer, and transaction-hash fallback. Wallet network gas is separate.
 
@@ -73,9 +75,14 @@ ERC-20 transfer, and transaction-hash fallback. Wallet network gas is separate.
 | NATION_PRODUCT_OWNER / NATION_PRODUCT_ADMIN | 0; existing authenticated admin scope also required |
 | NATION_DATA_DIR | new directory if present, otherwise existing legacy data in place |
 
-Founder decisions: starter amount, markup, pack prices, each chain's treasury,
-RPC capacity, additional disposable domains, and trusted proxy configuration.
-Confirm the treasury can receive the exact tokens before enabling a chain.
+The founder selected Base USDC only and supplied the treasury above. The reviewed
+non-secret overlay is `deploy/nation-base-usdc.env`. Apply only its two values to
+the API process configuration during the approved release; it is not a complete
+.env file and must not replace existing credentials, owner flags or data paths.
+Explicitly clear the Robinhood treasury, including any inherited process value.
+The overlay has not been applied to production. Existing defaults remain as shown
+above. RPC capacity, additional disposable domains and proxy configuration remain
+operator settings.
 The unique amount suffix can be up to $0.999999 and is fully credited; review
 that UX before launch. Default markup 1.0 does not cover other operating costs.
 Public RPCs may throttle historical receipt scans; retained invoices and pasted
@@ -98,7 +105,14 @@ $0.60 chat debit, $0.10 image debit, the remaining $2.30 chat debit, then HTTP 4
 with no further model request. It records actual-cost ledger evidence. RPC tests
 cover wrong chain/token/destination/amount, reused hashes, reorgs, failed
 receipts and insufficient confirmations. No live keys or paid services are used.
-No full test suite was rerun. The strict asset scan currently fails.
+Final independent run on `d8fab572`: frozen dependency install and `pnpm build`
+(including both TypeScript checks, Vite and the strict guard) passed. The guard
+reported 88 built assets / zero matches, and 89 files / zero matches when adding
+the captured member API responses. Eighteen tests across the credit ledger,
+real HTTP credit flow and real HTTP import/routine/webhook flow passed in 7.77s.
+Earlier focused protocol, workspace restore, privacy and UI checks are recorded
+in `branding-audit.md`. No full test suite, real payment or paid model call was
+run. Browser verification and founder production smoke remain outstanding.
 
 ## Founder-run VPS smoke
 

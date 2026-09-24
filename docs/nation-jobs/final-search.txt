@@ -1,11 +1,18 @@
-Final combined working tree, 2026-09-24
+Combined release candidate d8fab572acd9fa21795b7490387c906410ca4abc
+Independent verification date: 2026-09-24
 
-FAIL source search: 13502 matching lines in 1252 files outside LICENSE/NOTICE
-FAIL brand-guard frontend: 383 files, 911 matches
-PASS brand-guard captured member API: 1 file, 0 matches
+PASS pnpm install --frozen-lockfile --ignore-scripts
+PASS pnpm build (frontend/server TypeScript, Vite, strict asset guard)
+PASS brand-guard frontend: 88 files, 0 matches
+PASS brand-guard frontend plus captured member API: 89 files, 0 matches
+PASS final ledger/payment and HTTP fixtures: 18 tests in 3 files
+PASS founder-provided treasury checksum and Base-only creditChains configuration
 
-The requested zero-hit result was NOT achieved. Do not merge or deploy as a complete brand scrub.
+The source-wide zero-hit requirement is not claimed. Readable compatibility
+aliases, source-only adapters, historical documentation, dependency metadata
+and the guard's own terms remain. No fresh whole-source count was generated.
+The earlier 911/917/1149 asset counts describe old candidates, not this build.
 
-Search terms (case-insensitive): openmuse|open muse|open-muse|open_muse|openmaus|openmausbot|maus|open source|opensource|github|star us|contribute|anthropic|claude|hermes|nous|venice|grok|xai|cua
-
-Source scan examined tracked and newly created UTF-8 files, excluding filenames beginning LICENSE or NOTICE. Built asset scan: node scripts/brand-guard.mjs. Remaining source includes providers, protocols, documentation, dependency metadata, readable compatibility fallbacks and the guard itself. Remaining asset matches include admin/provider implementation and dependency grammars. No encoded substitutions or broad exceptions were used to manufacture a pass.
+Browser and live deployment smoke are pending. No real token transfer, paid
+model request, PR merge or production deployment occurred in this verification.
+See branding-audit.md and credits-and-smoke.md for scope and retained evidence.
