@@ -1,0 +1,674 @@
+<title>NATION Agent Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,700;125,800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #eef0ee;
+    --surface: #f8f9f8;
+    --ink: #151918;
+    --muted: #5a6461;
+    --line: #d5dad7;
+    --accent: #0f8f58;
+    --glow: #46ffa6;
+    --chip: #e3e7e4;
+    --studio: #e7e9e8;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #101413;
+      --surface: #161b1a;
+      --ink: #e7ecea;
+      --muted: #94a09c;
+      --line: #28302e;
+      --accent: #46e39a;
+      --chip: #1d2322;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #101413;
+    --surface: #161b1a;
+    --ink: #e7ecea;
+    --muted: #94a09c;
+    --line: #28302e;
+    --accent: #46e39a;
+    --chip: #1d2322;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 var(--body);
+    padding-inline: 16px;
+    padding-block: 28px 64px;
+  }
+  .wrap { max-width: 1240px; margin-inline: auto; display: grid; gap: 28px; }
+  header { display: grid; gap: 10px; max-width: 68ch; }
+  .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  h1 {
+    font-family: var(--display); font-weight: 800; font-stretch: 125%;
+    font-size: clamp(28px, 4.6vw, 52px); line-height: 1.02; letter-spacing: -.01em;
+    margin: 0; text-wrap: balance;
+  }
+  header p { margin: 0; color: var(--muted); }
+
+  /* Studio stage: always a light neutral set, like a product photo */
+  .stage {
+    position: relative; border-radius: 6px; overflow: hidden;
+    background: var(--studio);
+    height: clamp(420px, 38vw, 560px);
+    touch-action: pan-y; cursor: grab; user-select: none;
+  }
+  .stage:active { cursor: grabbing; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .tag {
+    position: absolute; transform: translate(-50%, 0); pointer-events: auto;
+    display: grid; justify-items: center; gap: 2px; color: #151918; background: none; border: 0; padding: 4px 8px; cursor: pointer;
+  }
+  .tag b { font: 800 13px/1 var(--display); font-stretch: 125%; letter-spacing: .16em; }
+  .tag span { white-space: nowrap; font: 400 11px/1.2 var(--mono); color: #56605d; letter-spacing: .04em; }
+  .tag:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 640px) { .hint { display: none; } }
+  .hint { position: absolute; right: 14px; top: 12px; font: 400 11px/1 var(--mono); color: #6b7471; letter-spacing: .04em; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; justify-content: space-between; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .seg-label { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-right: 8px; }
+  .seg button {
+    font: 500 13px/1 var(--body); color: var(--ink); background: var(--chip);
+    border: 1px solid transparent; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+  .concepts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1020px) { .concepts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .concepts { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; display: grid; gap: 14px; align-content: start; }
+  .card-head { display: flex; align-items: center; gap: 12px; }
+  .card-head img { width: 56px; height: 56px; border-radius: 12px; background: var(--studio); flex: none; }
+  .letter { font: 500 11px/1 var(--mono); letter-spacing: .14em; color: var(--muted); }
+  .card h2 { margin: 3px 0 0; font: 700 20px/1.1 var(--display); font-stretch: 112%; }
+  .sig { margin: 0; padding: 10px 12px; border-radius: 4px; background: var(--chip); font-size: 14px; }
+  .sig strong { display: block; font: 500 11px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  dl { margin: 0; display: grid; grid-template-columns: 64px 1fr; gap: 8px 12px; font-size: 14px; }
+  dt { font: 500 11px/1.9 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  dd { margin: 0; }
+
+  .scale { display: grid; gap: 14px; }
+  .scale h3, .notes h3 { margin: 0; font: 700 16px/1.2 var(--display); font-stretch: 112%; }
+  .scale p { margin: 0; color: var(--muted); max-width: 68ch; }
+  .rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 720px) { .rows { grid-template-columns: 1fr; } }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 16px 18px; border-radius: 6px; }
+  .row.light { background: #ffffff; color: #151918; }
+  .row.dark { background: #0c0f0e; color: #e7ecea; }
+  .row figure { margin: 0; display: grid; justify-items: center; gap: 6px; }
+  .row figcaption { font: 400 11px/1 var(--mono); opacity: .65; }
+  .av { display: flex; align-items: flex-end; gap: 8px; }
+  .av img { display: block; background: #e7e9e8; }
+  .av .s40 { width: 40px; height: 40px; border-radius: 10px; }
+  .av .s24 { width: 24px; height: 24px; border-radius: 6px; }
+  .notes { display: grid; gap: 8px; max-width: 72ch; color: var(--muted); }
+  .notes p { margin: 0; }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Base agent · round 1 · 4 directions</div>
+    <h1>Four original bodies for one NATION teammate</h1>
+    <p>Each concept is a real 3D model built on the same rules: soft-touch off-white and graphite shell, smoked-glass face, a little polished metal, one green signal. No role props yet. Drag the stage to turn them, switch the expression state, and check how each head reads at 40px.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="c" aria-label="Four NATION agent concepts, A to D, standing side by side"></canvas>
+    <div class="hint">drag to rotate · double-click to reset</div>
+  </div>
+
+  <div class="controls">
+    <div class="seg" role="group" aria-label="View">
+      <span class="seg-label">View</span>
+      <button id="v-all" data-view="all" aria-pressed="true">All</button>
+      <button id="v-0" data-view="0" aria-pressed="false">A</button>
+      <button id="v-1" data-view="1" aria-pressed="false">B</button>
+      <button id="v-2" data-view="2" aria-pressed="false">C</button>
+      <button id="v-3" data-view="3" aria-pressed="false">D</button>
+    </div>
+    <div class="seg" role="group" aria-label="Expression">
+      <span class="seg-label">Expression</span>
+      <button id="s-idle" data-state="idle" aria-pressed="true">Idle</button>
+      <button id="s-think" data-state="think" aria-pressed="false">Thinking</button>
+      <button id="s-work" data-state="work" aria-pressed="false">Working</button>
+      <button id="s-happy" data-state="happy" aria-pressed="false">Done</button>
+    </div>
+  </div>
+
+  <section class="concepts" id="cards"></section>
+
+  <section class="scale">
+    <h3>Silhouette at app size</h3>
+    <p>Head-and-shoulders crops rendered live from the same models, shown at 40px and 24px on light and dark chat surfaces. These update when you change the expression.</p>
+    <div class="rows">
+      <div class="row light" id="row-light"></div>
+      <div class="row dark" id="row-dark"></div>
+    </div>
+  </section>
+
+  <section class="notes">
+    <h3>What stays fixed across all four</h3>
+    <p>Materials and palette are shared on purpose, so the choice comes down to silhouette, head construction and the signature element. Whichever one you pick, the role family keeps about 75% of it: head shell, face glass, eye system and signature stay; props, posture, shell trims and expression tuning change per job.</p>
+  </section>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const stage = document.getElementById('stage');
+const canvas = document.getElementById('c');
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe7e9e8);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd9dedb, 0.25);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 1.35);
+key.position.set(3.5, 7, 5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.radius = 6;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.02;
+Object.assign(key.shadow.camera, { left: -6, right: 6, top: 4, bottom: -2, near: 1, far: 20 });
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xe8fff4, 0.9);
+rim.position.set(-5, 4, -6);
+scene.add(rim);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.16 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+/* ---------- materials ---------- */
+const GREEN = new THREE.Color(0x46ffa6);
+const M = {
+  shell: new THREE.MeshPhysicalMaterial({ color: 0xe9e8e3, roughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.4, sheen: 0.4, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff), envMapIntensity: 0.55 }),
+  graphite: new THREE.MeshPhysicalMaterial({ color: 0x1f2224, roughness: 0.5, clearcoat: 0.3, clearcoatRoughness: 0.4, envMapIntensity: 0.45 }),
+  charcoal: new THREE.MeshPhysicalMaterial({ color: 0x3a3e40, roughness: 0.5, clearcoat: 0.2, envMapIntensity: 0.45 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x020303, roughness: 0.12, metalness: 0.0, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 0.35 }),
+  smoke: new THREE.MeshPhysicalMaterial({ color: 0x1a2220, roughness: 0.08, metalness: 0.1, clearcoat: 1, transparent: true, opacity: 0.72, envMapIntensity: 1.4 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0xd5d8db, metalness: 1, roughness: 0.22, envMapIntensity: 0.8 }),
+  glow: new THREE.MeshBasicMaterial({ color: GREEN.clone().multiplyScalar(3.2), toneMapped: false }),
+  glowDim: new THREE.MeshBasicMaterial({ color: GREEN.clone().multiplyScalar(1.1), toneMapped: false }),
+};
+
+/* ---------- geometry helpers ---------- */
+function rrShape(w, h, r) {
+  r = Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4);
+  const s = new THREE.Shape(), x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return s;
+}
+// rounded slab facing +z, total size w×h×t, centred
+function plate(w, h, r, t, b) {
+  const g = new THREE.ExtrudeGeometry(rrShape(w - 2 * b, h - 2 * b, Math.max(r - b, 0.002)), {
+    depth: Math.max(t - 2 * b, 0.001), bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 5, curveSegments: 20,
+  });
+  g.translate(0, 0, -(t - 2 * b) / 2);
+  g.computeVertexNormals();
+  return g;
+}
+// same slab stood upright: plan w×d with corner r, height h, soft top/bottom edges b
+function pillar(w, d, r, h, b) {
+  const g = plate(w, d, r, h, b);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+const rbox = (w, h, d, r) => new RoundedBoxGeometry(w, h, d, 6, r);
+const ellip = (sx, sy, sz) => { const g = new THREE.SphereGeometry(1, 48, 32); g.scale(sx, sy, sz); return g; };
+function add(parent, geo, mat, x = 0, y = 0, z = 0, cast = true) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.castShadow = cast; m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+function capsuleProfile(R, bottom, top, from, to, steps = 64) {
+  const pts = [];
+  const c0 = bottom + R, c1 = top - R;
+  for (let i = 0; i <= steps; i++) {
+    const y = from + (to - from) * (i / steps);
+    let r;
+    if (y < c0) r = Math.sqrt(Math.max(R * R - (c0 - y) ** 2, 0));
+    else if (y > c1) r = Math.sqrt(Math.max(R * R - (y - c1) ** 2, 0));
+    else r = R;
+    pts.push(new THREE.Vector2(r, y));
+  }
+  return new THREE.LatheGeometry(pts, 96);
+}
+
+/* ---------- eye system ---------- */
+// Each eye: a base light shape (scaled per state) plus a "done" arc.
+function makeEye(type) {
+  const g = new THREE.Group();
+  let base, w, h;
+  if (type === 'bar') { w = 0.052; h = 0.14; base = new THREE.ShapeGeometry(rrShape(w, h, w / 2), 12); }
+  if (type === 'dash') { w = 0.13; h = 0.042; base = new THREE.ShapeGeometry(rrShape(w, h, h / 2), 12); }
+  if (type === 'square') { w = 0.064; h = 0.064; base = new THREE.ShapeGeometry(rrShape(w, h, 0.012), 12); }
+  if (type === 'ring') { w = 0.1; h = 0.1; base = new THREE.TorusGeometry(0.041, 0.0125, 12, 48); }
+  const b = new THREE.Mesh(base, M.glow);
+  g.add(b);
+  const aw = Math.max(Math.min(w, 0.11) * 0.5, 0.04);
+  const arc = new THREE.Mesh(new THREE.TorusGeometry(aw, 0.012, 10, 32, Math.PI), M.glow);
+  arc.position.y = -aw * 0.35;
+  arc.scale.setScalar(0.001);
+  g.add(arc);
+  return { g, b, arc, cur: { sx: 1, sy: 1, x: 0, y: 0, a: 0 } };
+}
+const STATES = {
+  idle: { sx: 1, sy: 1, x: 0, y: 0, a: 0 },
+  think: { sx: 0.9, sy: 0.72, x: 0.022, y: 0.028, a: 0 },
+  work: { sx: 1.35, sy: 0.38, x: 0, y: -0.006, a: 0 },
+  happy: { sx: 0.001, sy: 0.001, x: 0, y: 0.01, a: 1 },
+};
+let expr = 'idle';
+function tickEyes(eyes, t, blink, seed) {
+  const s = STATES[expr];
+  eyes.forEach((e, i) => {
+    let tx = s.x, ty = s.y, sy = s.sy;
+    if (expr === 'think' && i === 1) sy *= 0.6;
+    if (expr === 'work') tx = Math.sin(t * 2.6 + seed) * 0.03;
+    if (expr === 'idle' && !reduceMotion) tx = Math.sin(t * 0.37 + seed) * 0.012;
+    const k = 0.16;
+    e.cur.sx += (s.sx - e.cur.sx) * k;
+    e.cur.sy += (sy - e.cur.sy) * k;
+    e.cur.x += (tx - e.cur.x) * k;
+    e.cur.y += (ty - e.cur.y) * k;
+    e.cur.a += (s.a - e.cur.a) * k;
+    e.b.scale.set(Math.max(e.cur.sx, 0.001), Math.max(e.cur.sy * blink, 0.001), 1);
+    e.b.position.set(e.cur.x, e.cur.y, 0);
+    e.arc.scale.setScalar(Math.max(e.cur.a, 0.001));
+    e.arc.position.x = e.cur.x;
+  });
+}
+
+/* ---------- Concept A · Seam ---------- */
+function conceptA() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) {
+    add(g, rbox(0.28, 0.13, 0.4, 0.06), M.graphite, s * 0.16, 0.065, 0.04);
+    add(g, new THREE.CylinderGeometry(0.062, 0.068, 0.14, 32), M.metal, s * 0.13, 0.19, 0);
+    add(g, rbox(0.3, 0.6, 0.46, 0.13), M.shell, s * 0.16, 0.56, 0);
+    add(g, ellip(0.1, 0.085, 0.13), M.graphite, s * 0.42, 0.8, 0);
+    const arm = add(g, new THREE.CapsuleGeometry(0.07, 0.18, 8, 24), M.shell, s * 0.43, 0.6, 0);
+    arm.rotation.z = s * 0.07;
+    add(g, ellip(0.082, 0.098, 0.088), M.graphite, s * 0.445, 0.41, 0.02);
+    add(g, rbox(0.42, 0.62, 0.6, 0.15), M.shell, s * 0.22, 1.24, 0);
+  }
+  const seamBody = add(g, new THREE.BoxGeometry(0.012, 0.44, 0.4), M.glow, 0, 0.57, 0, false);
+  const seamHead = add(g, new THREE.BoxGeometry(0.012, 0.5, 0.5), M.glow, 0, 1.24, 0, false);
+  add(g, new THREE.CylinderGeometry(0.1, 0.1, 0.07, 32), M.metal, 0, 0.9, 0);
+  add(g, plate(0.7, 0.46, 0.16, 0.05, 0.012), M.graphite, 0, 1.24, 0.3 - 0.025 + 0.008);
+  add(g, plate(0.66, 0.42, 0.145, 0.05, 0.016), M.glass, 0, 1.24, 0.3 - 0.025 + 0.02);
+  const front = 0.3 + 0.02 + 0.003;
+  const eyes = [makeEye('bar'), makeEye('bar')];
+  eyes.forEach((e, i) => { e.g.position.set(i ? 0.12 : -0.12, 1.25, front); g.add(e.g); });
+  return {
+    group: g, eyes, headY: 1.2, avDist: 2.35,
+    tick() {
+      const m = expr === 'idle' || expr === 'happy' ? M.glow : M.glowDim;
+      seamBody.material = seamHead.material = expr === 'work' ? M.glow : m;
+    },
+  };
+}
+
+/* ---------- Concept B · Aperture ---------- */
+function conceptB() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) {
+    add(g, ellip(0.16, 0.085, 0.23), M.shell, s * 0.16, 0.075, 0.05);
+    const arm = add(g, new THREE.CapsuleGeometry(0.068, 0.15, 8, 24), M.shell, s * 0.345, 0.47, 0);
+    arm.rotation.z = s * 0.38;
+  }
+  const prof = new THREE.SplineCurve([
+    [0.0, 0.13], [0.2, 0.15], [0.3, 0.27], [0.305, 0.46], [0.25, 0.66], [0.14, 0.79], [0.0, 0.81],
+  ].map(([x, y]) => new THREE.Vector2(x, y))).getPoints(80);
+  add(g, new THREE.LatheGeometry(prof, 96), M.graphite);
+  add(g, new THREE.CylinderGeometry(0.09, 0.1, 0.07, 32), M.metal, 0, 0.84, 0);
+  add(g, pillar(0.98, 0.64, 0.24, 0.6, 0.1), M.shell, 0, 1.17, 0);
+  add(g, pillar(1.0, 0.66, 0.25, 0.24, 0.014), M.glass, 0, 1.12, 0);
+  // forehead aperture
+  const ap = new THREE.Group();
+  ap.position.set(0, 1.345, 0.322);
+  const ring = add(ap, new THREE.TorusGeometry(0.058, 0.012, 16, 48), M.metal);
+  const disc = add(ap, new THREE.CylinderGeometry(0.054, 0.054, 0.012, 48), M.glass, 0, 0, -0.002);
+  disc.rotation.x = Math.PI / 2;
+  const iris = add(ap, new THREE.CircleGeometry(0.022, 32), M.glow, 0, 0, 0.0055, false);
+  g.add(ap);
+  const eyes = [makeEye('dash'), makeEye('dash')];
+  eyes.forEach((e, i) => { e.g.position.set(i ? 0.15 : -0.15, 1.12, 0.333); g.add(e.g); });
+  return {
+    group: g, eyes, headY: 1.12, avDist: 2.6,
+    tick(t) {
+      const target = expr === 'work' ? 0.55 : expr === 'think' ? 1.35 : 1;
+      const pulse = reduceMotion ? 1 : 1 + 0.08 * Math.sin(t * 2.2);
+      iris.scale.setScalar(THREE.MathUtils.lerp(iris.scale.x, target * pulse, 0.12));
+    },
+  };
+}
+
+/* ---------- Concept C · Tower ---------- */
+function conceptC() {
+  const g = new THREE.Group();
+  for (const s of [-1, 1]) {
+    add(g, pillar(0.22, 0.36, 0.05, 0.1, 0.03), M.shell, s * 0.16, 0.05, 0.05);
+    add(g, pillar(0.11, 0.11, 0.03, 0.14, 0.02), M.graphite, s * 0.14, 0.16, 0);
+    add(g, pillar(0.15, 0.2, 0.045, 0.16, 0.035), M.graphite, s * 0.405, 0.72, 0);
+    add(g, pillar(0.1, 0.12, 0.04, 0.26, 0.03), M.charcoal, s * 0.405, 0.5, 0);
+    add(g, rbox(0.14, 0.13, 0.15, 0.05), M.shell, s * 0.405, 0.32, 0.01);
+  }
+  add(g, pillar(0.62, 0.46, 0.1, 0.19, 0.035), M.shell, 0, 0.315, 0);
+  add(g, pillar(0.56, 0.4, 0.09, 0.05, 0.01), M.graphite, 0, 0.42, 0);
+  add(g, pillar(0.58, 0.43, 0.09, 0.17, 0.035), M.shell, 0, 0.51, 0);
+  add(g, pillar(0.52, 0.38, 0.08, 0.05, 0.01), M.graphite, 0, 0.6, 0);
+  add(g, pillar(0.54, 0.4, 0.08, 0.15, 0.035), M.shell, 0, 0.685, 0);
+  // chest fin: stepped light, narrowing upward
+  add(g, pillar(0.15, 0.05, 0.02, 0.48, 0.012), M.glass, 0, 0.52, 0.245);
+  const bars = [0.1, 0.076, 0.052, 0.028].map((w, i) =>
+    add(g, new THREE.PlaneGeometry(w, 0.05), M.glow, 0, 0.35 + i * 0.1, 0.2715, false));
+  add(g, new THREE.CircleGeometry(0.01, 24), M.glow, 0, 0.73, 0.2715, false);
+  add(g, pillar(0.2, 0.18, 0.05, 0.06, 0.012), M.metal, 0, 0.785, 0);
+  add(g, pillar(0.8, 0.6, 0.1, 0.56, 0.06), M.shell, 0, 1.1, 0);
+  add(g, pillar(0.6, 0.42, 0.07, 0.06, 0.015), M.graphite, 0, 1.405, 0);
+  add(g, pillar(0.38, 0.26, 0.05, 0.03, 0.008), M.metal, 0, 1.45, 0);
+  add(g, plate(0.66, 0.4, 0.08, 0.03, 0.008), M.graphite, 0, 1.1, 0.3 - 0.01);
+  add(g, plate(0.62, 0.36, 0.06, 0.04, 0.012), M.glass, 0, 1.1, 0.3);
+  const eyes = [makeEye('square'), makeEye('square')];
+  eyes.forEach((e, i) => { e.g.position.set(i ? 0.12 : -0.12, 1.11, 0.323); g.add(e.g); });
+  return {
+    group: g, eyes, headY: 1.08, avDist: 2.4,
+    tick(t) {
+      bars.forEach((b, i) => {
+        let on = 1;
+        if (expr === 'work' && !reduceMotion) on = ((t * 3) % 4.5) > i ? 1 : 0;
+        if (expr === 'think' && !reduceMotion) on = Math.floor(t * 2) % 4 === i ? 1 : 0.35;
+        b.material = on > 0.5 ? M.glow : M.glowDim;
+        b.scale.y = on > 0.5 ? 1 : 0.55;
+      });
+    },
+  };
+}
+
+/* ---------- Concept D · Orbit ---------- */
+function conceptD() {
+  const g = new THREE.Group();
+  const R = 0.4, bottom = 0.2, top = 1.5, split = 0.7;
+  add(g, capsuleProfile(R, bottom, top, bottom, split), M.graphite);
+  add(g, capsuleProfile(R, bottom, top, split, top), M.shell);
+  const band = add(g, new THREE.TorusGeometry(R + 0.001, 0.006, 12, 128), M.metal, 0, split, 0);
+  band.rotation.x = Math.PI / 2;
+  // full wraparound visor
+  const vis = rrShape(0.03, 0.25, 0.013).getPoints(12).map(p => new THREE.Vector2(p.x + R + 0.004, p.y + 0.98));
+  add(g, new THREE.LatheGeometry(vis, 128), M.glass);
+  for (const s of [-1, 1]) add(g, ellip(0.15, 0.08, 0.22), M.graphite, s * 0.17, 0.07, 0.05);
+  const hands = [-1, 1].map(s => add(g, ellip(0.09, 0.12, 0.09), M.shell, s * 0.54, 0.55, 0.02));
+  const orbit = new THREE.Group();
+  orbit.position.set(0, 0.74, 0);
+  orbit.rotation.set(0.22, 0, -0.07);
+  const spin = new THREE.Group();
+  orbit.add(spin);
+  const tr = add(spin, new THREE.TorusGeometry(0.67, 0.009, 12, 180), M.metal);
+  tr.rotation.x = Math.PI / 2;
+  const arc = add(spin, new THREE.TorusGeometry(0.67, 0.0135, 12, 60, 1.1), M.glow, 0, 0, 0, false);
+  arc.rotation.x = Math.PI / 2;
+  add(spin, new THREE.SphereGeometry(0.03, 24, 16), M.smoke, 0.67 * Math.cos(-2.2), 0, 0.67 * Math.sin(-2.2));
+  g.add(orbit);
+  const eyes = [makeEye('ring'), makeEye('ring')];
+  const ER = R + 0.022;
+  eyes.forEach((e, i) => {
+    const a = (i ? 1 : -1) * 0.27;
+    e.g.position.set(Math.sin(a) * ER, 0.985, Math.cos(a) * ER);
+    e.g.rotation.y = a;
+    g.add(e.g);
+  });
+  return {
+    group: g, eyes, headY: 1.02, avDist: 2.45,
+    tick(t) {
+      const speed = expr === 'work' ? 1.6 : expr === 'think' ? 0.7 : 0.25;
+      if (!reduceMotion) spin.rotation.y += 0.01 * speed;
+      hands.forEach((h, i) => { h.position.y = 0.55 + (reduceMotion ? 0 : Math.sin(t * 1.3 + i * 1.7) * 0.018); });
+    },
+  };
+}
+
+/* ---------- lineup ---------- */
+const SPACING = 2.05;
+const builders = [conceptA, conceptB, conceptC, conceptD];
+const agents = builders.map((b, i) => {
+  const a = b();
+  const holder = new THREE.Group();
+  holder.position.x = (i - 1.5) * SPACING;
+  holder.add(a.group);
+  scene.add(holder);
+  a.holder = holder;
+  a.x = holder.position.x;
+  a.seed = i * 2.3;
+  a.blinkAt = 1 + Math.random() * 3;
+  return a;
+});
+
+const META = [
+  { name: 'Seam', line: 'split shell',
+    sig: 'A luminous seam splits the shell from forehead to chest, as if the agent is assembled around a line of light.',
+    head: 'Soft rectangular block in two halves, with an inset smoked-glass face in a graphite bezel.',
+    eyes: 'Vertical light bars. Squeeze into slits when working, arc when done.',
+    body: 'Split block torso, floating shoulder pods, mitten hands, heavy graphite feet.',
+    small: 'Reads as a rounded square with a dark screen. Very clean; the seam disappears below ~32px.' },
+  { name: 'Aperture', line: 'forehead lens',
+    sig: 'A small glass lens in the forehead with a green iris that dilates with attention: wide when thinking, tight when focused.',
+    head: 'Wide off-white shell with a wraparound smoked visor band that runs all the way round.',
+    eyes: 'Horizontal light dashes, the calmest face of the four.',
+    body: 'Graphite pear body with no hard edges, stubby angled arms, oversized clogs.',
+    small: 'Visor band plus a single green dot survives even at 24px. Strongest small-size signal.' },
+  { name: 'Tower', line: 'stepped core',
+    sig: 'A glass fin on the chest holds four light bars that narrow upward like a tower and double as a progress meter.',
+    head: 'Crisp chamfered block with a setback crown in graphite and metal, like the top floors of a building.',
+    eyes: 'Square light pixels. The most technical, least cute face.',
+    body: 'Three stacked floors, floating shoulder blocks, squared hands and wedge feet.',
+    small: 'Crown gives a distinctive flat-topped outline, but the chest core is lost in avatar crops.' },
+  { name: 'Orbit', line: 'status ring',
+    sig: 'A tilted ring orbits the waist and carries a green arc that speeds up as the agent works.',
+    head: 'No separate head: one two-tone capsule with a full wraparound visor band.',
+    eyes: 'Ring-shaped light apertures that squash, narrow and arc.',
+    body: 'Pebble silhouette, floating hands with no arms, low wide feet.',
+    small: 'Pill-with-a-band is friendly and very animatable. Ring is lost in a head crop.' },
+];
+
+/* ---------- camera + view ---------- */
+const camera = new THREE.PerspectiveCamera(26, 1, 0.1, 100);
+let view = innerWidth < 700 ? '0' : 'all';
+const camCur = { x: 0, y: 0.8, d: 12 }, camTo = { x: 0, y: 0.8, d: 12 };
+const ELEV = 0.13;
+function frameFor(v) {
+  const aspect = stage.clientWidth / stage.clientHeight;
+  const vf = THREE.MathUtils.degToRad(camera.fov);
+  const hf = 2 * Math.atan(Math.tan(vf / 2) * aspect);
+  const W = v === 'all' ? SPACING * 3 + 2.0 : 1.9, H = v === 'all' ? 1.9 : 1.9;
+  const d = Math.max((W / 2) / Math.tan(hf / 2), (H / 2) / Math.tan(vf / 2));
+  return { x: v === 'all' ? 0 : agents[+v].x, y: 0.64, d };
+}
+function setView(v, instant = false) {
+  view = v;
+  Object.assign(camTo, frameFor(v));
+  if (instant) Object.assign(camCur, camTo);
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v)));
+}
+
+/* ---------- composer ---------- */
+const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+const composer = new EffectComposer(renderer, rt);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.32, 0.25, 1.9);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  setView(view, true);
+}
+new ResizeObserver(resize).observe(stage);
+
+/* ---------- labels ---------- */
+const tags = agents.map((a, i) => {
+  const b = document.createElement('button');
+  b.className = 'tag';
+  b.id = 'tag-' + i;
+  b.innerHTML = `<b>CONCEPT ${'ABCD'[i]}</b><span>${META[i].name} · ${META[i].line}</span>`;
+  b.addEventListener('click', () => setView(view === String(i) ? 'all' : String(i)));
+  stage.appendChild(b);
+  return b;
+});
+const v3 = new THREE.Vector3();
+function placeTags() {
+  agents.forEach((a, i) => {
+    v3.set(a.x, -0.02, 0.5).project(camera);
+    const x = (v3.x * 0.5 + 0.5) * stage.clientWidth, y = (-v3.y * 0.5 + 0.5) * stage.clientHeight;
+    const vis = v3.x > -1.2 && v3.x < 1.2;
+    tags[i].style.left = x + 'px';
+    tags[i].style.top = Math.min(y + 6, stage.clientHeight - 44) + 'px';
+    tags[i].hidden = !vis;
+  });
+}
+
+/* ---------- drag to turn ---------- */
+let yaw = -0.35, yawTo = -0.35, dragging = false, lastX = 0;
+stage.addEventListener('pointerdown', e => { if (e.target.closest('.tag')) return; dragging = true; lastX = e.clientX; stage.setPointerCapture(e.pointerId); });
+stage.addEventListener('pointermove', e => { if (!dragging) return; yawTo += (e.clientX - lastX) * 0.012; lastX = e.clientX; });
+stage.addEventListener('pointerup', () => { dragging = false; });
+stage.addEventListener('pointercancel', () => { dragging = false; });
+stage.addEventListener('dblclick', () => { yawTo = -0.35; });
+
+/* ---------- controls ---------- */
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+document.querySelectorAll('[data-state]').forEach(b => b.addEventListener('click', () => {
+  expr = b.dataset.state;
+  document.querySelectorAll('[data-state]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  captureAt = frame + 20;
+}));
+
+/* ---------- cards + avatars ---------- */
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+const cards = document.getElementById('cards');
+META.forEach((m, i) => {
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.innerHTML = `
+    <div class="card-head"><img id="av-card-${i}" src="${BLANK}" alt="Concept ${'ABCD'[i]} head"><div><div class="letter">CONCEPT ${'ABCD'[i]}</div><h2>${m.name}</h2></div></div>
+    <p class="sig"><strong>Signature</strong>${m.sig}</p>
+    <dl><dt>Head</dt><dd>${m.head}</dd><dt>Eyes</dt><dd>${m.eyes}</dd><dt>Body</dt><dd>${m.body}</dd><dt>40px</dt><dd>${m.small}</dd></dl>`;
+  cards.appendChild(el);
+});
+for (const id of ['row-light', 'row-dark']) {
+  const row = document.getElementById(id);
+  agents.forEach((_, i) => {
+    const f = document.createElement('figure');
+    f.innerHTML = `<div class="av"><img class="s40 av-${i}" src="${BLANK}" alt=""><img class="s24 av-${i}" src="${BLANK}" alt=""></div><figcaption>${'ABCD'[i]}</figcaption>`;
+    row.appendChild(f);
+  });
+}
+const avCam = new THREE.PerspectiveCamera(22, 1, 0.1, 50);
+const avCanvas = document.createElement('canvas');
+avCanvas.width = avCanvas.height = 192;
+const avCtx = avCanvas.getContext('2d');
+function captureAvatars() {
+  const S = 192 / renderer.getPixelRatio();
+  const dpr = renderer.getPixelRatio();
+  const size = new THREE.Vector2();
+  renderer.getSize(size);
+  if (size.y < S) return;
+  renderer.setScissorTest(true);
+  agents.forEach((a, i) => {
+    const hx = a.x, hy = a.headY;
+    avCam.position.set(hx + Math.sin(0.32) * a.avDist, hy + 0.08, Math.cos(0.32) * a.avDist);
+    avCam.lookAt(hx, hy - 0.06, 0);
+    const saved = a.holder.rotation.y;
+    a.holder.rotation.y = 0;
+    renderer.setViewport(0, 0, S, S);
+    renderer.setScissor(0, 0, S, S);
+    renderer.render(scene, avCam);
+    a.holder.rotation.y = saved;
+    avCtx.clearRect(0, 0, 192, 192);
+    avCtx.drawImage(canvas, 0, canvas.height - S * dpr, S * dpr, S * dpr, 0, 0, 192, 192);
+    const url = avCanvas.toDataURL('image/png');
+    document.querySelectorAll('.av-' + i).forEach(img => { img.src = url; });
+    const c = document.getElementById('av-card-' + i);
+    if (c) c.src = url;
+  });
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, size.x, size.y);
+}
+
+/* ---------- loop ---------- */
+const clock = new THREE.Clock();
+let frame = 0, captureAt = 3;
+function loop() {
+  const t = clock.getElapsedTime();
+  frame++;
+  for (const k of ['x', 'y', 'd']) camCur[k] += (camTo[k] - camCur[k]) * 0.08;
+  camera.position.set(camCur.x, camCur.y + Math.sin(ELEV) * camCur.d, Math.cos(ELEV) * camCur.d);
+  camera.lookAt(camCur.x, camCur.y, 0);
+  yaw += (yawTo - yaw) * 0.1;
+  agents.forEach((a, i) => {
+    const sway = reduceMotion || dragging ? 0 : Math.sin(t * 0.4 + a.seed) * 0.04;
+    a.holder.rotation.y = yaw + sway;
+    a.group.position.y = reduceMotion ? 0 : Math.max(0, Math.sin(t * 1.4 + a.seed)) * 0.006;
+    let blink = 1;
+    if (t > a.blinkAt) { const p = (t - a.blinkAt) / 0.16; blink = p < 1 ? Math.abs(1 - 2 * p) * 0.92 + 0.08 : 1; if (p >= 1) a.blinkAt = t + 2.5 + Math.random() * 3.5; }
+    tickEyes(a.eyes, t, expr === 'happy' ? 1 : blink, a.seed);
+    a.tick(t);
+  });
+  placeTags();
+  if (frame === captureAt) captureAvatars();
+  composer.render();
+  requestAnimationFrame(loop);
+}
+resize();
+setView(view, true);
+loop();
+window.__ready = true;
+</script>
