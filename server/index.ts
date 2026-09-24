@@ -1,3 +1,5 @@
+import { publicRoutineInput } from "./public-routine-input.ts";
+import { teamImportPreview } from "./team-import-preview.ts";
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
@@ -13546,7 +13548,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
     if (path === "/api/routines" && method === "POST") {
-      return json(res, 201, { routine: routines!.create(await readBody(req)) });
+      return json(res, 201, { routine: routines!.create(publicRoutineInput(await readBody(req))) });
     }
     // The desktop shell polls this to decide whether to hold the computer
     // awake: a run in flight, or a routine due within the hour.
@@ -13560,7 +13562,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     routineMatch = path.match(/^\/api\/routines\/([\w-]+)$/);
     if (routineMatch && method === "PATCH") {
-      const routine = routines!.update(routineMatch[1], await readBody(req));
+      const routine = routines!.update(routineMatch[1], publicRoutineInput(await readBody(req)));
       return routine ? json(res, 200, { routine }) : json(res, 404, { error: "no such routine" });
     }
     if (routineMatch && method === "DELETE") {
@@ -13623,7 +13625,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { webhooks: webhooks.list(), attempts: webhooks.listAttempts(), ingress: webhookIngressStatus() });
     }
     if (path === "/api/webhooks" && method === "POST") {
-      const created = webhooks.create(await readBody(req));
+      const created = webhooks.create(publicRoutineInput(await readBody(req)));
       const ingress = webhookIngressStatus();
       return json(res, 201, {
         webhook: created.webhook,
@@ -13648,7 +13650,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     webhookMatch = path.match(/^\/api\/webhooks\/([\w-]+)$/);
     if (webhookMatch && method === "PATCH") {
-      const webhook = webhooks.update(webhookMatch[1], await readBody(req));
+      const webhook = webhooks.update(webhookMatch[1], publicRoutineInput(await readBody(req)));
       return webhook ? json(res, 200, { webhook }) : json(res, 404, { error: "no such webhook" });
     }
     if (webhookMatch && method === "DELETE") {
@@ -14257,7 +14259,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, status, { error: error instanceof Error ? error.message : "The team could not be loaded" });
       }
     }
-    if (method === "POST" && path === "/api/team-library/github") {
+    if (method === "POST" && (path === "/api/team-library/github" || path === "/api/team-library/source")) {
       const body = await readBody(req);
       if (typeof body.url !== "string" || !body.url.trim()) {
         return json(res, 400, { error: "A team file link is required" });
@@ -14300,6 +14302,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         console.warn("bot directory lookup failed:", error instanceof Error ? error.message : String(error));
       }
       return json(res, 200, { directory });
+    }
+    if (method === "POST" && path === "/api/teams/import-preview") {
+      const body = await readBody(req, MAX_TEAM_BACKUP_BYTES);
+      try {
+        return json(res, 200, teamImportPreview(body.manifest));
+      } catch (error) {
+        return json(res, 400, { error: error instanceof Error ? error.message : "Team could not be previewed" });
+      }
     }
     if (method === "POST" && path === "/api/teams/import") {
       // Import is additive-only. A manifest is untrusted input (catalog,

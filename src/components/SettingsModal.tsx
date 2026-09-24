@@ -19,7 +19,6 @@ import { CustomDomainSettings } from "./CustomDomainSettings";
 import { BrowserProfilesManager } from "./BrowserProfilesManager";
 import { RemoteComputerSection } from "./RemoteComputerSection";
 import { ConnectedWorkspacesSettings } from "./ConnectedWorkspacesSettings";
-import { OrganizationSettings } from "./OrganizationSettings";
 import { Card, SettingRow, Switch } from "./SettingsPrimitives";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
@@ -45,7 +44,6 @@ const SECTIONS: Array<{
 }> = [
   { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "analytics", "updates", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size"] },
   { id: "desktopWorkspaces", labelKey: "settings.section.desktopWorkspaces", icon: Building2, keywords: ["workspace", "cloud", "hosted", "vps", "server", "connect", "pair", "switch", "local"] },
-  { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "sign in", "enroll", "managed", "models", "disconnect"] },
   { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["vm", "virtual", "desktop"] },
@@ -616,7 +614,6 @@ export function SettingsModal() {
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "desktopWorkspaces" && <ConnectedWorkspacesSettings />}
-            {section === "organization" && window.ogb?.organization && !remoteActive && <OrganizationSettings />}
             {section === "general" && (
               <>
                 <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>

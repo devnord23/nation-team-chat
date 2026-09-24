@@ -645,7 +645,6 @@ export type ConfigStatusFrame = Pick<
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
   return {
-    xai: frame.xai,
     composio: frame.composio,
     box: frame.box,
     vps: frame.vps,

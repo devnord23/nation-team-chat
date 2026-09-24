@@ -59,7 +59,7 @@ import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
-import { SecretRequestCard } from "./SecretRequestCard";
+import { SecretRequestCard } from "./web/SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachmentGallery, collectMessageFiles } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";

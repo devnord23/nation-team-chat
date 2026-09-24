@@ -1456,8 +1456,8 @@ export function LocalComputerSection() {
         title={t("vm.safety.title")}
         subtitle={
           perBot
-            ? t("vm.safety.perBot", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
-            : t("vm.safety.shared", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
+            ? t("vm.safety.perBot", { path: status?.workspace_guest_path ?? "workspace" })
+            : t("vm.safety.shared", { path: status?.workspace_guest_path ?? "workspace" })
         }
       >
         {existing && (

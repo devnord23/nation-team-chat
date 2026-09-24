@@ -33,7 +33,7 @@ import { GroupTaskPicker } from "./TaskPicker";
 import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
-import { SecretRequestCard } from "./SecretRequestCard";
+import { SecretRequestCard } from "./web/SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { GoalRunCard } from "./GoalRunCard";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";

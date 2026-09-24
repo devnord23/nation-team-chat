@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import";
+import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import-web";
 import type { Routine } from "@/lib/routines";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import {
@@ -55,7 +55,7 @@ export interface TeamImportResult {
   members: number;
 }
 
-type ImportSource = "library" | "file" | "github";
+type ImportSource = "library" | "file" | "link";
 type TeamTab = "explore" | "import" | "scout";
 
 /** the scout endpoint's answer, as far as this panel renders it — the
@@ -226,14 +226,14 @@ export function TeamLibraryPanel({
         throw cause;
       }
     }
-    previewManifest(teamImportPreview(manifest), "file");
+    previewManifest(await teamImportPreview(manifest), "file");
   };
 
   const loadLibraryTeam = async (entry: TeamCatalogEntry) => {
     setBusySlug(entry.slug);
     setError("");
     try {
-      previewManifest(teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)), "library");
+      previewManifest(await teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)), "library");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -250,11 +250,11 @@ export function TeamLibraryPanel({
     setGithubLoading(true);
     setError("");
     try {
-      const manifest = await api("/api/team-library/github", {
+      const manifest = await api("/api/team-library/source", {
         method: "POST",
         body: JSON.stringify({ url: requestedUrl.trim() }),
       });
-      previewManifest(teamImportPreview(manifest), "github");
+      previewManifest(await teamImportPreview(manifest), "link");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
