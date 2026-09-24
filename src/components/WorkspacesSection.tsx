@@ -131,8 +131,8 @@ function NewWorkspaceForm({ domain, onCreated, disabled }: { domain: string; onC
           <input value={cap} onChange={(e) => setCap(e.target.value)} inputMode="decimal" placeholder="50" disabled={disabled || saving} aria-label={t("workspaces.cap")} className={field} />
         </label>
         <label className="flex flex-col gap-1 text-[12px] text-ink-secondary sm:col-span-2">
-          {t("workspaces.anthropicKey")}
-          <input value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} type="password" autoComplete="off" placeholder="sk-ant-…" disabled={disabled || saving} aria-label={t("workspaces.anthropicKey")} className={field} />
+          {t("workspaces.providerKey")}
+          <input value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} type="password" autoComplete="off" placeholder="sk-ant-…" disabled={disabled || saving} aria-label={t("workspaces.providerKey")} className={field} />
         </label>
       </div>
       <p className="text-[11.5px] leading-relaxed text-ink-secondary">{t("workspaces.createHint")}</p>
