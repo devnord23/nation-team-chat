@@ -16,12 +16,16 @@ export type SessionState =
   | { kind: "unauthenticated"; error: string }
   | { kind: "unreachable"; error: string };
 
+function resolveUrl(path: string): string {
+  return path.startsWith("/") ? import.meta.env.BASE_URL + path.slice(1) : path;
+}
+
 /** Ask the server who we are. A 401/403 means "go pair"; a network failure
  * is reported separately so the pair page can say the server is down. */
 export async function readSessionState(fetchImpl: typeof fetch = fetch): Promise<SessionState> {
   let res: Response;
   try {
-    res = await fetchImpl("/api/auth/session", { credentials: "same-origin" });
+    res = await fetchImpl(resolveUrl("/api/auth/session"), { credentials: "same-origin" });
   } catch (error) {
     return { kind: "unreachable", error: error instanceof Error ? error.message : String(error) };
   }
@@ -84,7 +88,7 @@ export async function pairWithCode(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   let res: Response;
   try {
-    res = await fetchImpl("/api/auth/pair", {
+    res = await fetchImpl(resolveUrl("/api/auth/pair"), {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },
@@ -103,7 +107,7 @@ export async function pairWithCode(
 async function postAuth(path: string, body: Record<string, unknown>, fetchImpl: typeof fetch): Promise<{ ok: true } | { ok: false; error: string }> {
   let res: Response;
   try {
-    res = await fetchImpl(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    res = await fetchImpl(resolveUrl(path), { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   } catch (error) {
     return { ok: false, error: `could not reach the server (${error instanceof Error ? error.message : String(error)})` };
   }

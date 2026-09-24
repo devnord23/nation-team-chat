@@ -235,7 +235,7 @@ async function startEmbedded(binary, signal) {
         !permissionStatus.accessibility && "Accessibility",
         !permissionStatus.screenRecording && "Screen Recording",
       ].filter(Boolean).join(" and ");
-      throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart OpenMausBot`);
+      throw new Error(`${missing || "macOS permissions"} required; grant access in System Settings and restart NATION`);
     }
   }
   const host = new sdk.EmbeddedCuaDriverHost(binary, HOST_BUNDLE_ID);

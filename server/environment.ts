@@ -13,7 +13,6 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 import { SERVER_ROOT } from "./proxy-paths.ts";
@@ -122,7 +121,7 @@ export function serverVersion(): string {
 export function environmentDescriptor(input: { environmentId: string; desktopManaged: boolean; emailSignIn?: boolean; sharedComputers?: boolean }): EnvironmentDescriptor {
   return {
     environmentId: input.environmentId,
-    label: process.env.OMB_ENVIRONMENT_LABEL?.trim() || hostname(),
+    label: process.env.NATION_PUBLIC_NAME?.trim() || process.env.OMB_PUBLIC_NAME?.trim() || process.env.OMB_ENVIRONMENT_LABEL?.trim() || "Nation Team Chat",
     platform: process.platform,
     version: serverVersion(),
     capabilities: {

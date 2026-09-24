@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { Box, ExternalLink, Loader2, Monitor, Plus, RefreshCw, X } from "lucide-react";
-import { api, useStore } from "@/state/store";
+import { api, apiUrl, useStore } from "@/state/store";
 import type { TeamComputer } from "../../shared/team-computer";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -64,7 +64,7 @@ export function CanvasComputers({ open, createRequest, drop, sections, onClose, 
   useEffect(() => () => {
     const held = heldHereRef.current;
     if (!held) return;
-    void fetch(`/api/team-computers/${encodeURIComponent(held)}/control`, {
+    void fetch(apiUrl(`/api/team-computers/${encodeURIComponent(held)}/control`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "release", controlLeaseId: controlLeaseId.current }),

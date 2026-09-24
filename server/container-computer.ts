@@ -381,7 +381,7 @@ function statusProblem(status: ContainerComputerStatus): string | null {
   }
   if (status.container === "missing") return "Create the Local VM";
   if (!status.imageMatches) return "The existing Local VM uses an older desktop or Cua Driver; recreate it";
-  if (!status.managed) return "The existing container was not created by OpenMausBot; recreate it";
+  if (!status.managed) return "The existing container was not created by NATION; recreate it";
   if (status.network === "unsafe") return "The existing Local VM exposes its viewer publicly; recreate it";
   if (status.security === "unsafe") return "The existing Local VM is missing safety limits; recreate it";
   if (status.persistence === "unsafe") return "The existing Local VM is missing its durable workspace; recreate it";
@@ -1004,7 +1004,7 @@ export async function containerComputerAction(
   if (action === "remove" && !before.managed) {
     throw Object.assign(
       new Error(
-        `The existing container named ${target.containerName} was not created by OpenMausBot; remove it manually in ${runtime}`,
+        `The existing container named ${target.containerName} was not created by NATION; remove it manually in ${runtime}`,
       ),
       { status: 409 },
     );

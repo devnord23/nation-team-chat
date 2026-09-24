@@ -1,7 +1,7 @@
 // The memory panel's client side: the wire types the server's memory
 // routes answer with, the calls, and the pure wording helpers the panel
 // renders from — kept here so the sentences can be tested without React.
-import { ApiError, api } from "@/state/store";
+import { ApiError, api, apiUrl } from "@/state/store";
 
 export const MEMORY_INDEX = "MEMORY.md";
 
@@ -77,7 +77,7 @@ export function fetchMemoryDoc(botId: string, path: string): Promise<MemoryDoc> 
  * editor opened it, and the panel has to show both versions. Every other
  * refusal throws the way api() does. */
 export async function saveMemoryDoc(botId: string, path: string, text: string, expectedHash: string | undefined): Promise<SaveResult> {
-  const response = await fetch(`/api/bots/${botId}/memory/file`, {
+  const response = await fetch(apiUrl(`/api/bots/${botId}/memory/file`), {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path, text, expectedHash }),

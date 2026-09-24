@@ -29,7 +29,7 @@ import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { FEEDBACK_URL, openExternalLink } from "@/lib/app-links";
+import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
 
 /** "Milind Soni" Ã¢â€ â€™ "MS", "milind" Ã¢â€ â€™ "M", "you@x.dev" Ã¢â€ â€™ "Y", unset Ã¢â€ â€™ "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -41,13 +41,12 @@ export function profileInitials(profile?: { name?: string; email?: string }): st
       .map((w) => w[0]!.toUpperCase())
       .join("");
   }
-  const email = profile?.email?.trim();
-  return email ? email[0]!.toUpperCase() : "?";
+  return "N";
 }
 
-/** The name shown on the row: the profile name, else the email, else "You". */
+/** The name shown on the row: the profile name, else "You". Email is never shown. */
 export function profileLabel(profile?: { name?: string; email?: string }): string {
-  return profile?.name?.trim() || profile?.email?.trim() || t("sidebar.profile.you");
+  return profile?.name?.trim() || t("sidebar.profile.you");
 }
 
 export type UpdatePhase =
@@ -225,8 +224,7 @@ export function SidebarProfileMenu() {
       key: "help",
       label: t("sidebar.menu.help"),
       icon: <HelpCircle size={18} />,
-      disabled: true,
-      onSelect: () => {},
+      onSelect: () => void openExternalLink(HELP_CENTER_URL),
     },
     {
       key: "feedback",

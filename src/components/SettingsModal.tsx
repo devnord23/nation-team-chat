@@ -3,8 +3,8 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { Archive, Coins, FlaskConical, KeyRound, Monitor, Palette, Search, Terminal, User, Users, X, Building2 } from "lucide-react";
-import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { Archive, Coins, FlaskConical, KeyRound, Monitor, Palette, Search, User, Users, X, Building2 } from "lucide-react";
+import { api, apiUrl, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { browserAvailable, browserUnavailableReason, builtInBrowserEnabled, showToolCallsEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { localeChoices, type LocaleKey } from "@/locales";
@@ -13,7 +13,6 @@ import { withTourReset } from "@/lib/guided-tour";
 import { completionPatch } from "@/lib/onboarding";
 import { ApiKeyRow, OpenAiCompatUrl, VpsConnection } from "./ApiKeys";
 import { useUpdaterState } from "@/lib/updater";
-import { EnginesSettings } from "./EnginesSettings";
 import { LocalComputerSection } from "./LocalComputerSection";
 import { ServerPairingCard } from "./ServerPairingCard";
 import { PeopleSection } from "./PeopleSection";
@@ -46,13 +45,12 @@ const SECTIONS: Array<{
   icon: typeof User;
   keywords: string[];
 }> = [
-  { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "email", "analytics", "updates", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size"] },
+  { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "analytics", "updates", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size"] },
   { id: "desktopWorkspaces", labelKey: "settings.section.desktopWorkspaces", icon: Building2, keywords: ["workspace", "cloud", "hosted", "vps", "server", "connect", "pair", "switch", "local"] },
   { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "sign in", "enroll", "managed", "models", "disconnect"] },
   { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "composio", "box", "xai", "vps"] },
-  { id: "engines", labelKey: "settings.section.engines", icon: Terminal, keywords: ["models", "claude", "grok", "providers", "cli"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["vm", "virtual", "desktop"] },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
   { id: "people", labelKey: "settings.section.people", icon: Users, keywords: ["people", "users", "invite", "sign in", "members", "admins", "access"] },
@@ -65,21 +63,19 @@ function sectionMatches(section: (typeof SECTIONS)[number], query: string): bool
   return [t(section.labelKey), ...section.keywords].some((part) => part.toLowerCase().includes(query));
 }
 
-/** Name + email, persisted to /api/config {profile} on blur. */
+/** Display name, persisted to /api/config {profile} on blur. */
 function ProfileFields() {
   const { state, dispatch } = useStore();
   const [name, setName] = useState(state.config?.profile?.name ?? "");
-  const [email, setEmail] = useState(state.config?.profile?.email ?? "");
   useEffect(() => {
     setName(state.config?.profile?.name ?? "");
-    setEmail(state.config?.profile?.email ?? "");
-  }, [state.config?.profile?.name, state.config?.profile?.email]);
+  }, [state.config?.profile?.name]);
 
   const save = () => {
-    void fetch("/api/config", {
+    void fetch(apiUrl("/api/config"), {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ profile: { name: name.trim(), email: email.trim().toLowerCase() } }),
+      body: JSON.stringify({ profile: { name: name.trim() } }),
     })
       .then((r) => r.json())
       .then((config) => dispatch({ type: "configStatus", config }))
@@ -91,15 +87,6 @@ function ProfileFields() {
   return (
     <div className="flex flex-col gap-3">
       <input aria-label={t("settings.profile.name")} value={name} onChange={(e) => setName(e.target.value)} onBlur={save} placeholder={t("settings.profile.name")} className={inputClass} />
-      <input
-        type="email"
-        aria-label={t("phone.signIn.email")}
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        onBlur={save}
-        placeholder="you@example.com"
-        className={inputClass}
-      />
     </div>
   );
 }
@@ -488,6 +475,7 @@ export function SettingsModal() {
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
     pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
   });
   const visibleSections = availableSections.filter((entry) => {
     if (!admin && isAdminOnlySettingsSection(entry.id)) return false;
@@ -558,7 +546,7 @@ export function SettingsModal() {
         aria-modal="true"
         aria-labelledby="app-settings-title"
         tabIndex={-1}
-        className={cn("flex max-h-[calc(100dvh-24px)] w-full overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none", section === "engines" ? "h-[720px] max-w-[1040px]" : "h-[560px] max-w-[860px]")}
+        className="flex max-h-[calc(100dvh-24px)] h-[560px] w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none"
       >
         {/* section nav */}
         <span id="app-settings-title" className="sr-only">{t("settings.title")}</span>
@@ -705,10 +693,6 @@ export function SettingsModal() {
                   </details>
                 </div>
               </Card>
-            )}
-
-            {section === "engines" && (
-              <EnginesSettings />
             )}
 
             {section === "backups" && <><WorkspaceBackupSettings /><CompanyBackupSettings /></>}

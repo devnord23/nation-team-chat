@@ -14,7 +14,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { api, useStore, type Action, type Bot } from "@/state/store";
+import { api, apiUrl, useStore, type Action, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { transitionComputerControlLease } from "@/lib/computer-control";
 import {
@@ -75,7 +75,7 @@ async function readComputerControl(botId: string): Promise<LocalVmWorkspaceContr
 }
 
 function bestEffortRelease(botId: string, controlLeaseId: string) {
-  void fetch(`/api/bots/${botId}/computer/control`, {
+  void fetch(apiUrl(`/api/bots/${botId}/computer/control`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action: "release", controlLeaseId }),

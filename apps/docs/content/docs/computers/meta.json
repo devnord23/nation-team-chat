@@ -1,5 +1,10 @@
 {
-  "title": "Computers",
+  "title": "NATION Isolated PC",
   "icon": "Monitor",
-  "pages": ["index", "local-computer", "local-vm", "cloud-and-vps"]
+  "pages": [
+    "index",
+    "local-computer",
+    "local-vm",
+    "cloud-and-vps"
+  ]
 }

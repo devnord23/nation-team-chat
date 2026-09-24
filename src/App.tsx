@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, useStore } from "@/state/store";
+import { StoreProvider, apiUrl, useStore } from "@/state/store";
 import { WelcomeFlow } from "@/components/onboarding/WelcomeFlow";
 import { FirstConversationTour } from "@/components/onboarding/FirstConversationTour";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
@@ -28,8 +28,10 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { LocalVmWorkspace } from "@/components/LocalVmWorkspace";
 import { TeamMapPage } from "@/components/TeamMapPage";
+import { NationAdminPage } from "@/components/NationAdminPage";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { isProductAdmin } from "@/lib/admin-gate";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -79,7 +81,7 @@ function Shell() {
   // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousViewRef = useRef(state.activeView);
-  const calendarOriginRef = useRef<"chat" | "team-map">("chat");
+  const calendarOriginRef = useRef<"chat" | "team-map" | "admin">("chat");
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const calendarFocus = state.activeView === "routines";
@@ -158,6 +160,13 @@ function Shell() {
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
 
+  // Eject from admin view if the server-provided owner flag revokes access.
+  useEffect(() => {
+    if (state.activeView === "admin" && state.config?.isProductOwner === false) {
+      dispatch({ type: "showChat" });
+    }
+  }, [state.activeView, state.config?.isProductOwner, dispatch]);
+
   useEffect(() => {
     if (
       localVmWorkspaceBotId &&
@@ -181,6 +190,10 @@ function Shell() {
   const closeCalendar = useCallback(() => {
     if (calendarOriginRef.current === "team-map") {
       dispatch({ type: "showTeamMap" });
+      return;
+    }
+    if (calendarOriginRef.current === "admin") {
+      dispatch({ type: "showAdmin" });
       return;
     }
     dispatch({ type: "select", id: state.selectedId });
@@ -213,7 +226,7 @@ function Shell() {
     return window.ogb?.desktopViewer?.onState((viewer) => {
       if (viewer.open || !viewer.contextId) return;
       const botId = viewer.contextId;
-      void fetch(`/api/bots/${botId}/computer/control`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/control`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "release" }),
@@ -223,7 +236,7 @@ function Shell() {
           if (snap) dispatch({ type: "computerControl", botId, held: snap.held === true, helpReason: snap.helpReason ?? null });
         })
         .catch(() => {});
-      void fetch(`/api/bots/${botId}/computer/viewer-close`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/viewer-close`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -260,7 +273,13 @@ function Shell() {
           menuButtonRef.current?.focus();
         }}
       />}
-      {state.activeView === "team-map" ? (
+      {state.activeView === "admin" && isProductAdmin({
+        remoteClient: Boolean(window.ogb?.remoteClient),
+        pinRequired: state.config?.adminGate?.pinRequired,
+        isProductOwner: state.config?.isProductOwner,
+      }) ? (
+        <NationAdminPage />
+      ) : state.activeView === "team-map" ? (
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
         <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />

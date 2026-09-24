@@ -12,7 +12,7 @@
 // under ~/.openmausbot (server/harness/bus.ts, server/drivers/native.ts).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bug, ChevronDown, ChevronRight, RefreshCw, X } from "lucide-react";
-import { useStore, visibleMessages, type Bot } from "@/state/store";
+import { apiUrl, useStore, visibleMessages, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { formatTime, toRows, type InspectorEntry, type InspectorPage, type InspectorRow } from "@/lib/inspector";
@@ -44,7 +44,7 @@ export function InspectorPanel({ bot }: { bot: Bot }) {
     const controller = new AbortController();
     loadAbort.current = controller;
     try {
-      const res = await fetch(`/api/threads/${threadId}/events?limit=400`, { signal: controller.signal });
+      const res = await fetch(apiUrl(`/api/threads/${threadId}/events?limit=400`), { signal: controller.signal });
       if (!res.ok) throw new Error(`${res.status}`);
       // SAFETY: this same-version renderer calls the harness's typed
       // inspector endpoint; malformed transport data is handled by catch.

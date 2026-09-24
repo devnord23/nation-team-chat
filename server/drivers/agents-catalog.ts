@@ -155,7 +155,7 @@ const ROUTINE_FIELDS_SCHEMA = {
   run_on: {
     type: "string",
     enum: ["maus", "box"],
-    description: "Default maus keeps the bot's selected model and configured computer, INCLUDING a self-hosted VPS. Omit this field for normal schedules. box explicitly switches the agent to the Box-hosted runner; it requires Box setup and is not the generic cloud/VPS option. Legacy cloud values from list_routines mean box, not VPS.",
+    description: "Default (maus) keeps the bot's selected model and configured computer, INCLUDING a self-hosted VPS. Omit this field for normal schedules. box explicitly switches the agent to the Box-hosted runner; it requires Box setup and is not the generic cloud/VPS option. Legacy cloud values from list_routines mean box, not VPS.",
   },
   timeout_minutes: {
     type: "integer",

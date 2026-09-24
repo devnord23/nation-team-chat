@@ -54,7 +54,7 @@ function response(value: unknown, status = 200): Response {
 describe("team library", () => {
   it("validates catalog paths and adds the trusted repository URL", () => {
     const parsed = parseTeamCatalog(catalog);
-    expect(parsed.repositoryUrl).toBe("https://github.com/milind-soni/openmausbot-teams");
+    expect(parsed.repositoryUrl).toBe("https://thenation.city");
     expect(parsed.teams[0]).toMatchObject({ slug: "engineering", members: 1 });
 
     const unsafe = structuredClone(catalog);
@@ -91,8 +91,8 @@ describe("team library", () => {
     expect(githubManifestUrls("https://raw.githubusercontent.com/acme/team/main/team.mausteam.json")).toEqual([
       "https://raw.githubusercontent.com/acme/team/main/team.mausteam.json",
     ]);
-    expect(() => githubManifestUrls("http://example.com/team.json")).toThrow("public HTTPS GitHub");
-    expect(() => githubManifestUrls("https://github.com/acme/team/blob/main/run.sh")).toThrow("Markdown playbook");
+    expect(() => githubManifestUrls("http://example.com/team.json")).toThrow("team file link is not supported");
+    expect(() => githubManifestUrls("https://github.com/acme/team/blob/main/run.sh")).toThrow("team file");
   });
 
   it("falls back from main to master for a repository link", async () => {

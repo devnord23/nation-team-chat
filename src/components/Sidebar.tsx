@@ -27,6 +27,7 @@ import {
   Plus,
   Search,
   Puzzle,
+  ShieldCheck,
   Trash2,
   Users,
   X,
@@ -92,6 +93,7 @@ import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarMoreMenu } from "./SidebarMoreMenu";
 import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 import { profileInitials, SidebarProfileMenu } from "./SidebarProfileMenu";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { AttentionThreadRows, crossBotAttentionThreads, SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
@@ -1527,6 +1529,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   });
   const [densityOpen, setDensityOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<string[]>(() => loadCollapsedSections());
+  const admin = isProductAdmin({
+    remoteClient,
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
@@ -1760,7 +1767,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
     event.preventDefault();
     const from =
-      event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
+      event.dataTransfer.getData("application/x-nation-sidebar-section") ||
       event.dataTransfer.getData("text/plain") ||
       sectionDragRef.current.from;
     const over = sectionDragRef.current.over;
@@ -2088,7 +2095,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     dragging={draggingSectionId === id}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("application/x-openmausbot-sidebar-section", id);
+                      event.dataTransfer.setData("application/x-nation-sidebar-section", id);
                       event.dataTransfer.setData("text/plain", id);
                       sectionDragRef.current = { from: id, over: null };
                       setDraggingSectionId(id);
@@ -2193,6 +2200,21 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <Puzzle size={20} className="text-ink-secondary" />
             <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span>
           </button>
+          {admin && (
+            <button
+              onClick={() => dispatch({ type: "showAdmin" })}
+              aria-label="Admin"
+              title="Admin"
+              className={cn(
+                "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
+                density === "icons" ? "justify-center px-2" : "gap-3 px-3",
+                state.activeView === "admin" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
+              )}
+            >
+              <ShieldCheck size={20} className={state.activeView === "admin" ? "text-accent" : "text-ink-secondary"} />
+              <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Admin</span>
+            </button>
+          )}
           </>
         )}
         {density === "icons" && (
@@ -2230,6 +2252,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 icon: <Puzzle size={18} />,
                 onSelect: () => dispatch({ type: "togglePlugins", open: true }),
               },
+              ...(admin ? [{
+                key: "admin",
+                label: "Admin",
+                icon: <ShieldCheck size={18} />,
+                active: state.activeView === "admin",
+                onSelect: () => dispatch({ type: "showAdmin" }),
+              }] : []),
             ]}
           />
         )}

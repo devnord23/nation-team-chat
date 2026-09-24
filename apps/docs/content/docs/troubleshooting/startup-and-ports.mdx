@@ -1,24 +1,12 @@
 ---
-title: App startup and ports
-description: Diagnose launch failures and local server conflicts.
-icon: Power
+title: Startup and ports
+description: Help for your Nation Team Chat workspace.
 ---
 
-The Electron app starts a local harness and serves the interface from the same machine. The normal port is `8799`. If another process already owns it, packaged builds may select a fallback port automatically.
+If a reply or desktop connection fails, check the conversation status and try again. Your saved agents and conversations remain available.
 
-## App opens but never becomes ready
+If an agent is still working, wait for its result or stop the turn before changing the task.
 
-1. Quit every OpenMausBot window.
-2. Confirm no old OpenMausBot process remains.
-3. Start the app once and wait for the local harness.
-4. If it still fails, inspect the desktop log.
+For repeated problems, contact NATION support with the action you tried and the time it happened. Do not include passwords, keys, or private files.
 
-On macOS, packaged logs are under `~/Library/Logs/OpenMausBot`. On Windows they are under the OpenMausBot log directory in `%APPDATA%`.
-
-## Development port overrides
-
-Use `OMB_PORT` for a source-run harness. A packaged desktop build owns its server lifecycle and may choose a fallback if the preferred port is unavailable.
-
-## Isolate a test profile
-
-Developers can set `OMB_DATA_DIR` to run against a clean OpenMausBot data directory. This is useful for reproduction and screenshots without touching a real workspace.
+[Contact NATION support](https://t.me/thenation_city).

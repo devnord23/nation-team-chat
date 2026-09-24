@@ -1,3 +1,4 @@
+import { isProductAdmin } from "@/lib/admin-gate";
 // Access: where this bot runs, its working folder, connected apps and
 // browser toggles, its webhooks, and the standing "always allowed" grants.
 // Works on/cloud backend/auto-start VPS, Working folder, Connected apps, and
@@ -175,7 +176,7 @@ function McpServersCard({ bot, patch }: { bot: Bot; patch: (patch: { mcpServers:
   );
 }
 
-export function AccessSection({
+export function OwnerAccessSection({
   bot,
   derived,
 }: {
@@ -287,7 +288,7 @@ export function AccessSection({
               </div>
             )}
             <CloudBackendPicker
-              value={bot.cloudBackend ?? "box"}
+              value={bot.cloudBackend ?? "vps"}
               vpsSupported={canUseVps}
               onChange={(backend) => patch({ cloudBackend: backend })}
             />
@@ -378,7 +379,7 @@ export function AccessSection({
           <div className="mt-0.5 text-[13px] text-ink-secondary">
             {!desktopBrowser
               ? browserBlockedOnWindows && !browserInstallable
-                ? "Not available on this Windows machine yet: install the browser engine with `openmausbot browser install`."
+                ? "Not available on this Windows machine yet: install the browser engine with `nation browser install`."
                 : browserUnavailableReason(state.config)
               : !browserFeature
                 ? "The built-in browser is switched off under App Settings → Experimental."
@@ -467,4 +468,12 @@ export function AccessSection({
       />
     </div>
   );
+}
+
+export function AccessSection(props: Parameters<typeof OwnerAccessSection>[0]) {
+  const { state } = useStore();
+  if (!isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) {
+    return <div className="rounded-xl bg-card p-4 text-ink"><h3 className="font-medium">NATION API</h3><p className="mt-2 text-sm text-ink-secondary">Your agent uses a NATION Isolated PC when available.</p></div>;
+  }
+  return <OwnerAccessSection {...props} />;
 }

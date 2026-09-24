@@ -13,6 +13,19 @@ const { version } = JSON.parse(
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: "/swarm/",
+  build: {
+    // Place the SPA under dist/swarm/ so Vercel (outputDirectory=dist) serves
+    // index.html and assets at /swarm/… matching the asset paths Vite emits
+    // for base="/swarm/".
+    outDir: "dist/swarm",
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        ledger: fileURLToPath(new URL("./ledger/index.html", import.meta.url)),
+      },
+    },
+  },
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
@@ -53,11 +66,13 @@ export default defineConfig({
     // the harness server owns every provider process; the app only ever
     // talks to /api — clients hold no transports
     proxy: {
-      "/api": {
+      "/swarm/api": {
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
+        rewrite: (path) => path.replace(/^\/swarm/, ""),
       },
-      "/.well-known/openmausbot/environment": {
+      "/swarm/.well-known/openmausbot": {
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
+        rewrite: (path) => path.replace(/^\/swarm/, ""),
       },
     },
   },

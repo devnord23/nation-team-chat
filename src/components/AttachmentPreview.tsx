@@ -32,6 +32,7 @@ import {
 } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { apiUrl } from "@/state/store";
 
 export interface PreviewImage {
   src: string;
@@ -147,7 +148,7 @@ function sourceImageExtension(source: string | undefined): string | null {
   if (!source) return null;
   let pathname = source;
   try {
-    pathname = decodeURIComponent(new URL(source, "https://openmausbot.invalid").pathname);
+    pathname = decodeURIComponent(new URL(source, "https://nation.invalid").pathname);
   } catch {
     pathname = source.split(/[?#]/, 1)[0] ?? source;
   }
@@ -200,7 +201,7 @@ export function messageImagePreviewUrl(
   message: MessageAttachmentContext,
   sourceOffset: number,
 ): string {
-  return `/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file?preview=1&ref=${sourceOffset}`;
+  return apiUrl(`/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file?preview=1&ref=${sourceOffset}`);
 }
 
 function revokeObjectUrlLater(url: string): void {
@@ -214,7 +215,7 @@ export async function requestMessageFile(
   message: MessageAttachmentContext,
   signal: AbortSignal,
 ): Promise<Response> {
-  const response = await fetch(`/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file`, {
+  const response = await fetch(apiUrl(`/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path: filePath }),

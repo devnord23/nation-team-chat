@@ -16,7 +16,7 @@ const fixture = vi.hoisted(() => {
     instances: [] as InstanceInfo[],
     modelVariantSessions: {} as AppState["modelVariantSessions"],
     dispatch: vi.fn(),
-    config: undefined as AppState["config"] | undefined,
+    config: { isProductOwner: true } as AppState["config"] | undefined,
   };
 });
 vi.mock("@/state/store", async (importOriginal) => ({
@@ -141,7 +141,7 @@ describe("OpenCode model variants", () => {
     const markup = render();
     expect(levelButtons(markup)).toEqual([
       { label: "None", pressed: false }, { label: "Minimal", pressed: false },
-      { label: "OpenCode default", pressed: false }, { label: "Deep custom", pressed: false },
+      { label: "Default", pressed: false }, { label: "Deep custom", pressed: false },
     ]);
     expect(markup).toContain("No variant selected.");
     expect(fixture.dispatch).not.toHaveBeenCalled();
@@ -289,16 +289,17 @@ describe("Claude provider and account selection", () => {
   const personal: InstanceInfo = { ...engine(), instanceId: "claude-personal", driverKind: "claudeAgent", displayName: "Personal" };
   const work: InstanceInfo = { ...engine(), instanceId: "claude-work", driverKind: "claudeAgent", displayName: "Work", access: "custom" };
 
-  it("renders one Claude provider across Cloud and Local, pressed for either account", () => {
+  it("renders one NATION API provider across Cloud and Local, pressed for either account", () => {
     for (const selectedInstance of [personal, work]) {
       const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
         instances: [engine(), personal, work], selectedInstance, claudeInstance: work, onSelect: () => {},
       }));
-      expect(markup.match(/aria-label="Claude"/g)).toHaveLength(1);
-      expect(markup).toContain('aria-label="Claude" aria-pressed="true"');
+      expect(markup.match(/aria-label="NATION API"/g)).toHaveLength(1);
+      expect(markup).toContain('aria-label="NATION API" aria-pressed="true"');
       expect(markup).toContain('aria-label="Codex" aria-pressed="false"');
       expect(markup).not.toContain('aria-label="Personal"');
       expect(markup).not.toContain('aria-label="Work"');
+      expect(markup).not.toContain('aria-label="Claude"');
       expect(markup).toContain("w-14");
     }
   });
@@ -348,12 +349,13 @@ describe("NATION admin gate — Claude filtering", () => {
   // captures the closed (initial) state, we verify filtering via ModelEngineRail directly
   // which receives the pickerInstances after the admin filter is applied.
 
-  it("ModelEngineRail shows Claude button when Claude instances are passed", () => {
+  it("ModelEngineRail shows NATION API button for Claude instances (no raw Anthropic labels)", () => {
     // Admin path: both instances reach the rail
     const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
       instances: [claude, openrouter], selectedInstance: openrouter, onSelect: () => {},
     }));
-    expect(markup).toContain('aria-label="Claude"');
+    expect(markup).toContain('aria-label="NATION API"');
+    expect(markup).not.toContain('aria-label="Claude"');
     expect(markup).toContain('aria-label="OpenRouter"');
   });
 
@@ -377,5 +379,41 @@ describe("NATION admin gate — Claude filtering", () => {
     // The claudeAccounts dropdown is only rendered inside the open popover,
     // but the trigger aria-label must NOT identify Claude as the provider
     expect(markup).not.toContain('aria-label="Account"');
+  });
+
+  it("trigger shows NATION API (not Claude model name) when isProductOwner is false and active is claudeAgent", () => {
+    fixture.instances = [claude, openrouter];
+    // Non-admin: isProductOwner: false
+    fixture.config = { isProductOwner: false } as AppState["config"];
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "claude-1", model: "gpt-5.6" } },
+    }));
+    // Model name must be masked — "NATION API" only, no vendor model name
+    expect(markup).toContain("NATION API");
+    expect(markup).not.toContain("Claude");
+    expect(markup).not.toContain("Anthropic");
+    // Title tooltip must also be masked
+    expect(markup).toMatch(/title="NATION API[^"]*"/);
+    expect(markup).not.toMatch(/title="[^"]*claude/i);
+  });
+
+  it("trigger shows actual model name for admin (isProductOwner: true)", () => {
+    fixture.instances = [{ ...claude, models: { default: "claude-sonnet-5", options: [{ id: "claude-sonnet-5", label: "Claude Sonnet 5" }] } }];
+    fixture.config = { isProductOwner: true } as AppState["config"];
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "claude-1", model: "claude-sonnet-5" } },
+    }));
+    expect(markup).toContain("Claude Sonnet 5");
+  });
+
+  it("trigger shows NATION API label when no engine configured and model ID looks like Claude", () => {
+    fixture.instances = [];
+    fixture.config = { isProductOwner: false } as AppState["config"];
+    const claudeBot = { ...bot(), modelSelection: { instanceId: "gone", model: "claude-sonnet-5" } };
+    const markup = renderToStaticMarkup(createElement(ModelPicker, { bot: claudeBot }));
+    // Raw Claude model ID must not surface to non-admin
+    expect(markup).toContain("NATION API");
+    expect(markup).not.toContain("claude-sonnet-5");
+    expect(markup).not.toContain("Claude");
   });
 });

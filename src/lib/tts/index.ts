@@ -226,7 +226,7 @@ export class Speaker {
   }
 
   private async prepare(text: string, voiceId: string | undefined, signal: AbortSignal): Promise<string[]> {
-    const res = await fetch("/api/tts/prepare", {
+    const res = await fetch(`${import.meta.env.BASE_URL}api/tts/prepare`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, voiceId }),
@@ -241,7 +241,7 @@ export class Speaker {
   }
 
   private async render(text: string, voiceId: string | undefined, signal: AbortSignal): Promise<Blob> {
-    const res = await fetch("/api/tts/speak", {
+    const res = await fetch(`${import.meta.env.BASE_URL}api/tts/speak`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, voiceId }),

@@ -3,7 +3,7 @@
 // optional with a sensible default and Finish always works, even when the
 // save fails (the bot can be edited later from its settings).
 import { useEffect, useState } from "react";
-import { MausAvatar } from "@/components/Avatar";
+import { BotAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { MAUS_COLOR_NAMES, MAUS_COLORS, type MausColor } from "@/lib/mascot";
@@ -79,7 +79,7 @@ export function MeetYourBotBeat({
 
       <div className="animate-rise mt-5 flex items-center gap-4" style={staggerIndex(1)}>
         {/* the bot itself, in its chosen color, next to the guide */}
-        <MausAvatar color={color} state="happy" size={64} label={name || bot?.name} />
+        <BotAvatar bot={{ color, name: name || bot?.name }} size={64} label={name || bot?.name} />
         <div className="min-w-0 flex-1">
           <label className="text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary" htmlFor="welcome-bot-name">
             {t("onboarding.bot.name")}

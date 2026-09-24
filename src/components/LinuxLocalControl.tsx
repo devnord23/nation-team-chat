@@ -11,10 +11,11 @@ import {
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { apiUrl } from "@/state/store";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
 const LINUX_GUIDE_URL =
-  "https://github.com/milind-soni/NATION Team/blob/main/docs/linux-desktop.md#enable-local-control";
+  "https://t.me/thenation_city";
 
 export function LinuxLocalControl() {
   const { capabilities } = useDesktopCapabilities();
@@ -35,7 +36,7 @@ export function LinuxLocalControl() {
     setError(null);
     try {
       if (action === "disable" || action === "retry") {
-        const response = await fetch("/api/local-computer/interrupt", { method: "POST" });
+        const response = await fetch(apiUrl("/api/local-computer/interrupt"), { method: "POST" });
         if (!response.ok) {
           setError({ key: "computer.linux.stopFailed" });
           return;

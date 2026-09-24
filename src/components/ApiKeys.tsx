@@ -360,7 +360,7 @@ export function VpsConnection() {
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
         {t("keys.vps.descBefore")}
         <a
-          href="https://github.com/milind-soni/NATION Team/blob/main/docs/byo-vps.md"
+          href="https://t.me/thenation_city"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline"
@@ -398,8 +398,8 @@ export function VpsConnection() {
   );
 }
 
-/** The OpenAI-compatible engine's base URL: a setting next to its key, so
- * OpenRouter, Groq, Together or OpenAI itself are one field away. */
+/** The compatible API engine's base URL: a setting next to its key, so
+ * OpenRouter, Groq, Together, or another provider are one field away. */
 export function OpenAiCompatUrl() {
   const { state, dispatch } = useStore();
   const saved = state.config?.openaiCompat?.url ?? "";
