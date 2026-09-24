@@ -1,3 +1,4 @@
+import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 // Config + data dirs. One file, ~/.openmausbot/config.json, env fallbacks:
 //   { "xai": {"key":"xai-â€¦"}, "composio": {"apiKey":"ak_â€¦"}, "box": {"token":"â€¦"},
 //     "instances": { "<instanceId>": {"driver":"grok", â€¦} } }
@@ -705,7 +706,7 @@ export function sharedComputersEnabled(cfg: AppConfig): boolean {
  * then omits --strict-mcp-config while keeping skills, hooks and the
  * personal CLAUDE.md out. */
 export function claudeUserMcpEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.claudeUserMcp === true;
+  return CONNECTORS_ENABLED && cfg.features?.claudeUserMcp === true;
 }
 
 /** Opt-in generated titles for new bot threads: a cheap provider one-shot

@@ -26,7 +26,6 @@ import {
   PinOff,
   Plus,
   Search,
-  Puzzle,
   ShieldCheck,
   Trash2,
   Users,
@@ -2191,15 +2190,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-2 rounded-full bg-danger" />
             )}
           </button>
-          <button
-            onClick={() => dispatch({ type: "togglePlugins", open: true })}
-            className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}
-            aria-label={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-            title={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-          >
-            <Puzzle size={20} className="text-ink-secondary" />
-            <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span>
-          </button>
           {admin && (
             <button
               onClick={() => dispatch({ type: "showAdmin" })}
@@ -2244,13 +2234,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   (run) => isRoutineProblemRun(run) && !run.seenAt,
                 ),
                 onSelect: () => dispatch({ type: "showRoutines" }),
-              },
-              {
-                key: "plugins",
-                tourId: "nav-apps",
-                label: t("sidebar.nav.connectedApps"),
-                icon: <Puzzle size={18} />,
-                onSelect: () => dispatch({ type: "togglePlugins", open: true }),
               },
               ...(admin ? [{
                 key: "admin",

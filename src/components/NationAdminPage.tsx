@@ -124,7 +124,7 @@ function OpenRouterSection() {
 function ConnectionsSection() {
   return (
     <Card
-      title="API Keys & Integrations"
+      title="API Keys"
       subtitle="Provider credentials stored on the server. Keys are write-only — only configured/not is returned to clients."
     >
       <div className="flex flex-col gap-4">
@@ -143,14 +143,6 @@ function ConnectionsSection() {
         </div>
         <ApiKeyRow section="box" />
         <ApiKeyRow section="opencodeGo" />
-        <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
-          <summary className="cursor-pointer text-[13px] text-ink-secondary">
-            {t("settings.connections.selfHost")}
-          </summary>
-          <div className="mt-3">
-            <ApiKeyRow section="composio" />
-          </div>
-        </details>
       </div>
     </Card>
   );
@@ -161,7 +153,7 @@ function ConnectionsSection() {
 const TABS = [
   { id: "openrouter", label: "OpenRouter", icon: Server },
   { id: "engines", label: "Engines", icon: Terminal },
-  { id: "keys", label: "Keys & Integrations", icon: PlugZap },
+  { id: "keys", label: "API Keys", icon: PlugZap },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 

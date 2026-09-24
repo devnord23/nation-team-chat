@@ -1,3 +1,4 @@
+import { CONNECTORS_ENABLED } from "../connector-policy.ts";
 // Claude driver — upstream ClaudeDriver skeleton over agentcal's
 // drivers/claude.js runtime (stream-json both directions, prompt over
 // stdin, completion from a real `result` event — verified against
@@ -196,7 +197,7 @@ function claudeEnvironment(
  * to give a bot a server is the app's own `mcpServers` config or the bot
  * project's `.mcp.json`. */
 function inheritsUserConfig(env: NodeJS.ProcessEnv): boolean {
-  return env.OMB_CLAUDE_INHERIT_USER_CONFIG === "1";
+  return CONNECTORS_ENABLED && env.OMB_CLAUDE_INHERIT_USER_CONFIG === "1";
 }
 
 /** The Engines-page warning while the escape hatch is set. The flag is a

@@ -1,3 +1,4 @@
+import { CONNECTORS_ENABLED, removedConnectorPath } from "./connector-policy.ts";
 import { publicResponse } from "./public-response.ts";
 import { publicError } from "../shared/public-error.ts";
 import { loadLocalEnv } from "./load-local-env.ts";
@@ -1885,7 +1886,7 @@ function previewSystemPrompt(bot: BotRecord) {
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
     }, { note: previewPlan.note }) },
-    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? COMPOSIO_PROMPT : "" },
+    { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) ? COMPOSIO_PROMPT : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(customMcpServers(cfg, bot.mcpServers))) : "" },
     { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "coordination", label: "Team", text: agentsMounted && coordination ? ` ${coordination}` : "" },
@@ -1913,7 +1914,7 @@ function previewSystemPrompt(bot: BotRecord) {
  * read this same route, so they can never disagree about what a bot does. */
 async function botOverview(bot: BotRecord): Promise<BotOverview> {
   const connectedApps = await connectedAppsFacts(
-    composio.configured(cfg),
+    (CONNECTORS_ENABLED && composio.configured(cfg)),
     composio.connectorAvailability(cfg),
     () => composio.connectedServices(cfg),
   );
@@ -6653,14 +6654,14 @@ async function startTurn(
       // them Ã¢â‚¬â€ a key in the config says the connections exist, not that
       // this engine can reach them Ã¢â‚¬â€ and only to a bot the user has not
       // switched off: the key is workspace-wide, the grant is per bot.
-      if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+      if (bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) && instance.adapter.capabilities.composioMcp === true) {
         const connection = await connectedAppsIntegration(bot.id, threadId, dispatchClaimId);
         if (connection) integrations.composio = connection;
       }
       // user-configured MCP servers (config.json mcpServers): same rule as
       // composio Ã¢â‚¬â€ only to a driver that can mount them. Their tools are
       // never pre-allowed, so every call rides the normal permission flow.
-      if (instance.adapter.capabilities.customMcp === true) {
+      if (CONNECTORS_ENABLED && instance.adapter.capabilities.customMcp === true) {
         const custom = customMcpServers(cfg, bot.mcpServers);
         if (Object.keys(custom).length) integrations.custom = custom;
       }
@@ -8592,7 +8593,7 @@ async function runGroupMemberTurn(
     integrations.phone = phoneIntegration();
   }
   try {
-    if (bot.composio !== false && composio.configured(cfg) && instance.adapter.capabilities.composioMcp === true) {
+    if (bot.composio !== false && (CONNECTORS_ENABLED && composio.configured(cfg)) && instance.adapter.capabilities.composioMcp === true) {
       const connection = await connectedAppsIntegration(bot.id, threadId, internalGeneration);
       if (connection) integrations.composio = connection;
     }
@@ -8608,7 +8609,7 @@ async function runGroupMemberTurn(
     return true;
   }
   // user-configured MCP servers: same gating as the 1:1 site above.
-  if (instance.adapter.capabilities.customMcp === true) {
+  if (CONNECTORS_ENABLED && instance.adapter.capabilities.customMcp === true) {
     const custom = customMcpServers(cfg, bot.mcpServers);
     if (Object.keys(custom).length) integrations.custom = custom;
   }
@@ -10909,7 +10910,7 @@ function configStatus() {
     // the base URL is a setting, not a secret; the key stays write-only
     openaiCompat: { configured: Boolean(cfg.openaiCompat?.key), url: cfg.openaiCompat?.url ?? "" },
     composio: {
-      configured: composio.configured(cfg),
+      configured: (CONNECTORS_ENABLED && composio.configured(cfg)),
       mode: composio.connectionMode(cfg),
     },
     box: { configured: Boolean(cfg.box?.token) },
@@ -11308,6 +11309,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return json(res, 400, { error: "invalid request URL" });
   }
   const path = url.pathname;
+  if (removedConnectorPath(path)) return json(res, 404, { error: "Not found" });
   const method = req.method ?? "GET";
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;
@@ -13306,7 +13308,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // Re-read the live bot immediately before relay so turning Connected
         // Apps off wins over a request that authenticated under the old value.
         const currentSender = store.bot(internalCapability.botId);
-        if (!currentSender || currentSender.composio === false || !composio.configured(cfg)) {
+        if (!currentSender || currentSender.composio === false || !(CONNECTORS_ENABLED && composio.configured(cfg))) {
           return json(res, 403, { error: "connected apps are not enabled for this bot" });
         }
         const upstream = await composio.relayMcp(
@@ -13435,7 +13437,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!owner) return json(res, 403, { error: "conversation does not belong to this bot" });
         if (!/^[\w-]{8,100}$/.test(resumeKey)) return json(res, 400, { error: "invalid resume key" });
         if (!items.length || items.length > 12) return json(res, 400, { error: "one to twelve valid connection requests are required" });
-        if (!composio.configured(cfg) || owner.bot.composio === false) {
+        if (!(CONNECTORS_ENABLED && composio.configured(cfg)) || owner.bot.composio === false) {
           return json(res, 409, { error: "connected apps are not enabled for this bot" });
         }
         const connectionState: Record<string, { connected?: boolean }> = await composio.connectionStatus(cfg, slugs).catch(() => ({}));
@@ -18353,7 +18355,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/connectors/catalog") {
       const { cards, source, pagination } = await composio.listToolkits(cfg);
       return json(res, 200, {
-        configured: composio.configured(cfg),
+        configured: (CONNECTORS_ENABLED && composio.configured(cfg)),
         mode: composio.connectionMode(cfg),
         source,
         cards,
