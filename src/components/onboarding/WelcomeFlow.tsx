@@ -3,7 +3,7 @@ import { api, useStore, type Bot } from "@/state/store";
 import { isProductAdmin } from "@/lib/admin-gate";
 import { setEmailGateDone } from "@/lib/analytics";
 import { completionPatch, type BeatId } from "@/lib/onboarding";
-import type { MausMotion } from "@/lib/mascot";
+import type { NationMotion } from "@/lib/mascot";
 
 const STEPS = [
   { face: "coordinator", title: "Welcome to Nation Team Chat", text: "Your AI teammates share a workspace to plan, build, and get work done." },
@@ -13,7 +13,7 @@ const STEPS = [
 
 export function WelcomeFlow({ onDone, embedded = false }: {
   bot: Bot | null; onDone: () => void; replay?: boolean; initialBeat?: BeatId;
-  embedded?: boolean; reel?: boolean; dictation?: boolean; entrance?: Exclude<MausMotion, "none">;
+  embedded?: boolean; reel?: boolean; dictation?: boolean; entrance?: Exclude<NationMotion, "none">;
 }) {
   const { state, dispatch } = useStore();
   const [step, setStep] = useState(0);
@@ -44,7 +44,7 @@ export function WelcomeFlow({ onDone, embedded = false }: {
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
           }
         }}>
-        <img src={`${import.meta.env.BASE_URL}bot-faces/${current.face}.png`} alt="NATION agent" className="mx-auto mb-6 size-28 rounded-3xl" />
+        <img src={`${import.meta.env.BASE_URL}bot-faces/${current.face}.png`} alt="NATION agent" className="mx-auto mb-6 size-28 object-contain" />
         <p className="mb-2 text-xs font-medium tracking-widest text-ink-secondary">NATION</p>
         <h1 id="nation-welcome-title" className="text-2xl font-semibold text-ink">{current.title}</h1>
         <p className="mt-3 text-sm leading-relaxed text-ink-secondary">{current.text}</p>

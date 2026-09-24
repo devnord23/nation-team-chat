@@ -412,7 +412,7 @@ export function EngineSetup({
     ? deviceSignIn
       ? t("engineSetup.device.description")
       : pasteSignIn
-      ? t("engineSetup.claude.description")
+      ? t("engineSetup.managed.description")
       : install?.managed
       ? t("engineSetup.managedSignIn")
       : t("engineSetup.terminalSignIn")

@@ -3,12 +3,10 @@ import { Loader2, RotateCcw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import {
-  PROVIDER_ICON_LABELS,
   PROVIDER_ICON_MAX_DIMENSION,
   PROVIDER_ICON_MAX_BYTES,
   PROVIDER_ICON_MEDIA_TYPES,
-  PROVIDER_ICON_PRESETS,
-  providerIconError,
+  customProviderIconError,
   type ProviderIcon,
 } from "../../shared/provider-icon";
 import { InstanceProviderMark } from "./ProviderIcons";
@@ -38,7 +36,7 @@ export async function providerIconFromFile(
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
   }
   const icon = { kind: "custom", dataUrl: `data:${file.type};base64,${btoa(binary)}` } as const;
-  const invalid = providerIconError(icon);
+  const invalid = customProviderIconError(icon);
   if (invalid) throw new Error(t("engines.icon.invalidError", { dimension: PROVIDER_ICON_MAX_DIMENSION }));
   const dimensions = await decodeImage(icon.dataUrl);
   if (dimensions.width < 1 || dimensions.height < 1 || dimensions.width > PROVIDER_ICON_MAX_DIMENSION || dimensions.height > PROVIDER_ICON_MAX_DIMENSION) {
@@ -83,8 +81,7 @@ export function ProviderIconPicker({ instance }: { instance: InstanceInfo }) {
       .finally(() => { input.value = ""; });
   };
 
-  const value = instance.icon?.kind === "preset" ? instance.icon.preset
-    : instance.icon?.kind === "custom" ? "custom" : "default";
+  const value = instance.icon?.kind === "custom" ? "custom" : "default";
   return <section aria-label={t("engines.icon.label")} className="mb-3 rounded-xl border border-hairline/40 p-3">
     <div className="flex flex-wrap items-center gap-3">
       <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-hairline/30 bg-panel">
@@ -95,12 +92,10 @@ export function ProviderIconPicker({ instance }: { instance: InstanceInfo }) {
         <select aria-label={t("engines.icon.selectAria", { name: instance.displayName })} value={value} disabled={saving}
           onChange={(event) => {
             if (event.target.value === "default") void save(null);
-            else if (event.target.value !== "custom") void save({ kind: "preset", preset: event.target.value as typeof PROVIDER_ICON_PRESETS[number] });
           }}
           className="mt-1 block w-full rounded-lg border border-hairline/40 bg-inset px-2.5 py-2 text-[12px] text-ink focus:border-accent/60 focus:outline-none disabled:opacity-50">
           <option value="default">{t("engines.icon.default")}</option>
           {instance.icon?.kind === "custom" && <option value="custom">{t("engines.icon.custom")}</option>}
-          {PROVIDER_ICON_PRESETS.map((preset) => <option key={preset} value={preset}>{PROVIDER_ICON_LABELS[preset]}</option>)}
         </select>
       </label>
       {saving && <Loader2 size={15} aria-label={t("engines.icon.saving")} className="animate-spin text-ink-secondary" />}

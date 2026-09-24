@@ -70,7 +70,7 @@ export default defineConfig({
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
         rewrite: (path) => path.replace(/^\/swarm/, ""),
       },
-      "/swarm/.well-known/openmausbot": {
+      "/swarm/.well-known/nationteamchat": {
         target: `http://127.0.0.1:${process.env.OMB_PORT || process.env.OGB_PORT || 8799}`,
         rewrite: (path) => path.replace(/^\/swarm/, ""),
       },

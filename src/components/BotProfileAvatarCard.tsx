@@ -5,10 +5,10 @@ import { api, useStore, type Bot } from "@/state/store";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import {
-  MAUS_COLORS,
-  MAUS_COLOR_NAMES,
-  type MausMotion,
-  type MausState,
+  NATION_COLORS,
+  NATION_COLOR_NAMES,
+  type NationMotion,
+  type NationState,
 } from "@/lib/mascot";
 import {
   BOT_AVATAR_CROPS,
@@ -16,7 +16,7 @@ import {
   type BotAvatarCrop,
 } from "../../shared/bot-avatar";
 import { BotAvatar } from "./Avatar";
-import { AvatarImageGenerator } from "./AvatarImageGenerator";
+import { AvatarImageGenerator } from "./web/AvatarImageGenerator";
 import { useOrganizationBranding } from "@/lib/use-organization-branding";
 
 type AvatarPatch = Partial<
@@ -34,7 +34,7 @@ const SOFT_TOWER_FACES = [
 ] as const;
 
 /** Which color produces each soft-tower face (first matching color per face). */
-const FACE_COLOR: Record<(typeof SOFT_TOWER_FACES)[number], (typeof MAUS_COLOR_NAMES)[number]> = {
+const FACE_COLOR: Record<(typeof SOFT_TOWER_FACES)[number], (typeof NATION_COLOR_NAMES)[number]> = {
   coordinator: "green",
   researcher: "blue",
   builder: "red",
@@ -43,8 +43,8 @@ const FACE_COLOR: Record<(typeof SOFT_TOWER_FACES)[number], (typeof MAUS_COLOR_N
   operator: "cyan",
 };
 
-function softTowerFace(color: (typeof MAUS_COLOR_NAMES)[number]): (typeof SOFT_TOWER_FACES)[number] {
-  const idx = MAUS_COLOR_NAMES.indexOf(color);
+function softTowerFace(color: (typeof NATION_COLOR_NAMES)[number]): (typeof SOFT_TOWER_FACES)[number] {
+  const idx = NATION_COLOR_NAMES.indexOf(color);
   return SOFT_TOWER_FACES[(idx < 0 ? 0 : idx) % SOFT_TOWER_FACES.length]!;
 }
 
@@ -62,8 +62,8 @@ export function BotProfileAvatarCard({
   onPatch,
 }: {
   bot: Bot;
-  activeState: MausState;
-  mascotMotion: { kind: Exclude<MausMotion, "none">; nonce: number } | null;
+  activeState: NationState;
+  mascotMotion: { kind: Exclude<NationMotion, "none">; nonce: number } | null;
   onPatch: (patch: AvatarPatch) => void;
 }) {
   const { flushBotPatches } = useStore();
@@ -253,7 +253,7 @@ export function BotProfileAvatarCard({
               Accent color
             </div>
             <div className="flex flex-wrap gap-2.5">
-              {MAUS_COLOR_NAMES.map((color) => (
+              {NATION_COLOR_NAMES.map((color) => (
                 <button
                   key={color}
                   type="button"
@@ -264,7 +264,7 @@ export function BotProfileAvatarCard({
                     "size-8 rounded-full border-2 border-transparent transition-transform hover:scale-110 disabled:opacity-50",
                     bot.color === color && "ring-2 ring-accent-border ring-offset-2 ring-offset-card",
                   )}
-                  style={{ backgroundColor: MAUS_COLORS[color] }}
+                  style={{ backgroundColor: NATION_COLORS[color] }}
                   title={color}
                   aria-label={`Use ${color} color`}
                 />

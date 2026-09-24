@@ -22,16 +22,16 @@
       "destination": "https://server.aurk.org/nation-team-chat/api/:path*"
     },
     {
-      "source": "/swarm/.well-known/openmausbot/:path*",
-      "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*"
+      "source": "/swarm/.well-known/nationteamchat/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/.well-known/nationteamchat/:path*"
     },
     {
       "source": "/api/:path*",
       "destination": "https://server.aurk.org/nation-team-chat/api/:path*"
     },
     {
-      "source": "/.well-known/openmausbot/:path*",
-      "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*"
+      "source": "/.well-known/nationteamchat/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/.well-known/nationteamchat/:path*"
     },
     {
       "source": "/swarm",
@@ -52,7 +52,10 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "cursor/nation-rebrand-zero-fingerprints-9a8c": false
+      "cursor/nation-rebrand-zero-fingerprints-9a8c": false,
+      "nation-scrub-openmuse": false,
+      "nation-remove-connectors": false,
+      "nation-crypto-credits": false
     }
   }
 }

@@ -277,7 +277,7 @@ export interface AcpSupport {
   }): Promise<void>;
 }
 
-const envOr = (key: string, fallback: number): number => Number(process.env[key] ?? fallback);
+const envOr = (key: string, fallback: number): number => Number(process.env[key.replace(/^OPENMAUS_/, "NATION_")] ?? process.env[key] ?? fallback);
 const INIT_TIMEOUT = envOr("OPENMAUS_ACP_INIT_TIMEOUT_MS", 300_000);
 const SESSION_CONFIG_TIMEOUT = envOr("OPENMAUS_ACP_SESSION_CONFIG_TIMEOUT_MS", 300_000); // configureSession's per-request default
 const NEW_SESSION_TIMEOUT = envOr("OPENMAUS_ACP_NEW_SESSION_TIMEOUT_MS", 300_000);
@@ -290,7 +290,7 @@ const LOAD_SESSION_TIMEOUT = envOr("OPENMAUS_ACP_LOAD_SESSION_TIMEOUT_MS", 120_0
 // disables the guard, restoring the pre-fix "hang until the user cancels"
 // behavior.
 const promptIdleTimeoutMs = (): number => {
-  const raw = process.env.OPENMAUS_ACP_PROMPT_IDLE_TIMEOUT_MS;
+  const raw = (process.env.NATION_ACP_PROMPT_IDLE_TIMEOUT_MS ?? process.env.OPENMAUS_ACP_PROMPT_IDLE_TIMEOUT_MS);
   if (raw === undefined) return 180_000;
   const ms = Number(raw);
   return Number.isFinite(ms) && ms > 0 ? ms : 0;

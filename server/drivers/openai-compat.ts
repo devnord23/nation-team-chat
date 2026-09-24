@@ -6,7 +6,7 @@ import { createOpenAIChatRuntime } from "./openai-chat.ts";
 const DRIVER_KIND = "openai-compat";
 const DEFAULT_IDLE_TIMEOUT_MS = 180_000;
 const idleTimeoutMs = () => {
-  const raw = process.env.OPENMAUS_OPENAI_COMPAT_IDLE_TIMEOUT_MS;
+  const raw = (process.env.NATION_OPENAI_COMPAT_IDLE_TIMEOUT_MS ?? process.env.OPENMAUS_OPENAI_COMPAT_IDLE_TIMEOUT_MS);
   if (!raw) return DEFAULT_IDLE_TIMEOUT_MS;
   const value = Number(raw);
   return Number.isSafeInteger(value) && value >= 1_000 && value <= 2_147_483_647 ? value : DEFAULT_IDLE_TIMEOUT_MS;

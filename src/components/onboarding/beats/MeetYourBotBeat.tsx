@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { BotAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { MAUS_COLOR_NAMES, MAUS_COLORS, type MausColor } from "@/lib/mascot";
+import { NATION_COLOR_NAMES, NATION_COLORS, type NationColor } from "@/lib/mascot";
 import { api, type Bot } from "@/state/store";
 import { inputClass, PrimaryButton, QuietButton, staggerIndex, type BeatProps } from "./shared";
 
@@ -31,7 +31,7 @@ export function MeetYourBotBeat({
   onFinish: () => void;
 }) {
   const [name, setName] = useState(bot?.name ?? "");
-  const [color, setColor] = useState<MausColor>(bot?.color ?? "green");
+  const [color, setColor] = useState<NationColor>(bot?.color ?? "green");
   const [line, setLine] = useState("");
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -101,7 +101,7 @@ export function MeetYourBotBeat({
       <div className="animate-rise mt-4" style={staggerIndex(2)}>
         <div className="text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">{t("onboarding.bot.color")}</div>
         <div role="radiogroup" aria-label={t("onboarding.bot.color")} className="mt-2 flex flex-wrap gap-2">
-          {MAUS_COLOR_NAMES.map((c) => (
+          {NATION_COLOR_NAMES.map((c) => (
             <button
               key={c}
               type="button"
@@ -116,7 +116,7 @@ export function MeetYourBotBeat({
                 "size-7 rounded-full border-2 transition-transform duration-150 hover:scale-110 active:scale-95",
                 c === color ? "border-ink" : "border-transparent",
               )}
-              style={{ backgroundColor: MAUS_COLORS[c] }}
+              style={{ backgroundColor: NATION_COLORS[c] }}
             />
           ))}
         </div>

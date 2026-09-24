@@ -118,7 +118,7 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
 
   const outcome = auth && auth.phase !== "waiting"
     ? auth.phase === "succeeded"
-      ? t("engineSetup.claude.connected")
+      ? t("engineSetup.managed.connected")
       : auth.phase === "cancelled"
         ? t("engineSetup.device.cancelled")
         : auth.phase === "expired"
@@ -135,10 +135,10 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
         link ? (
           <div className="space-y-2 rounded-lg border border-hairline/50 bg-app p-3">
             <a href={link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110">
-              {t("engineSetup.claude.open")} <ExternalLink size={13} />
+              {t("engineSetup.managed.open")} <ExternalLink size={13} />
             </a>
             <label className="block text-[12px] text-ink-secondary" htmlFor={`claude-code-${instanceId}`}>
-              {t("engineSetup.claude.codeLabel")}
+              {t("engineSetup.managed.codeLabel")}
             </label>
             <input
               id={`claude-code-${instanceId}`}
@@ -155,18 +155,18 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
             >
               {busy === "finish" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-              {busy === "finish" ? t("engineSetup.claude.finishing") : t("engineSetup.claude.finish")}
+              {busy === "finish" ? t("engineSetup.managed.finishing") : t("engineSetup.managed.finish")}
             </button>
             {auth.expiresAt && Number.isFinite(Date.parse(auth.expiresAt)) ? (
               <p className="text-[11px] text-ink-secondary">{t("engineSetup.device.expires", { time: new Date(auth.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}</p>
             ) : null}
-            <p className="text-[11px] leading-relaxed text-ink-secondary">{t("engineSetup.claude.security")}</p>
+            <p className="text-[11px] leading-relaxed text-ink-secondary">{t("engineSetup.managed.security")}</p>
             <button type="button" disabled={busy !== null} onClick={() => void cancel()} className="w-full rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink disabled:opacity-50">
               {busy === "cancel" ? t("engineSetup.device.cancelling") : t("engineSetup.device.cancel")}
             </button>
           </div>
         ) : (
-          <p role="alert" className="text-[12px] text-danger">{t("engineSetup.claude.invalidChallenge")}</p>
+          <p role="alert" className="text-[12px] text-danger">{t("engineSetup.managed.invalidChallenge")}</p>
         )
       ) : auth?.phase !== "succeeded" ? (
         <button
@@ -176,7 +176,7 @@ export function ClaudeSignIn({ instanceId }: { instanceId: string }) {
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-white hover:brightness-110 disabled:opacity-50"
         >
           {busy === "start" ? <Loader2 size={14} className="animate-spin" /> : <LogIn size={14} />}
-          {busy === "start" ? t("engineSetup.claude.starting") : t("engineSetup.claude.start")}
+          {busy === "start" ? t("engineSetup.managed.starting") : t("engineSetup.managed.start")}
         </button>
       ) : null}
       {error ? <p role="alert" className="text-[12px] text-danger">{error}</p> : null}
