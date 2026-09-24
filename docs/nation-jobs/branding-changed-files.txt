@@ -17,6 +17,8 @@ server/nation-compat.test.ts
 server/nation-compat.ts
 server/product-identity.ts
 server/project-scout.ts
+server/public-response.test.ts
+server/public-response.ts
 server/store.ts
 server/team-manifest.ts
 shared/wire.ts

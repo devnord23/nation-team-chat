@@ -38,3 +38,11 @@ it("removes raw provider envelopes and private variants from live or replayed ru
   expect(publicResponse(event)).toEqual({ type: "session.model-variants", provider: "NATION API", providerInstanceId: "nation", model: "NATION API", variants: { options: [] } });
   expect(publicResponse({ ...event, type: "runtime.error", message: "Hermes failed at /srv/app/config.json" })).toMatchObject({ message: expect.stringMatching(/^NATION/) });
 });
+
+
+it("removes nested host paths and desk implementation details from member responses", () => {
+  const input = { bot: { tasks: [{ cwd: "/root/.openmausbot/task-workspaces/private", threadId: "task" }] },
+    backend: "vps", ready: true, sshAlias: "private-host", image_ref: "old-image", container_name: "private-container" };
+  expect(publicResponse(input)).toEqual({ bot: { tasks: [{ threadId: "task" }] }, backend: "vps", ready: true });
+  expect(publicResponse(input, true)).toEqual(input);
+});
