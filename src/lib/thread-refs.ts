@@ -192,7 +192,7 @@ export function parseThreadRefUrl(value: string): ThreadRefAddress | null {
  * fails strict parsing. Markdown must never hand such a URL to the shell
  * as an external link, live or dead. */
 export function looksLikeThreadRefUrl(value: string): boolean {
-  return [THREAD_URL_PREFIX, LEGACY_THREAD_URL_PREFIX].some(prefix => value.trim().toLowerCase().startsWith(prefix));
+  return /^(?!https?:)[a-z][a-z0-9+.-]*:\/\/thread\//i.test(value.trim());
 }
 
 /** A raw thread id on its own: the UUID form the server mints. */
