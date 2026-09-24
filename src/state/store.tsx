@@ -572,8 +572,6 @@ export interface ConfigStatus {
   opencodeGo?: { configured: boolean };
   /** Nation OpenRouter integration — key stays server-side; client only sees the boolean. */
   nationOpenrouter?: { configured: boolean; model: string };
-  /** Nation billing — plan payment configuration. Only present when at least one treasury is configured. */
-  nationBilling?: { enabled: boolean };
   /** Admin gate status — drives Settings visibility for engine and key sections. */
   adminGate?: { pinRequired: boolean };
   /**
@@ -642,7 +640,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner" | "nationBilling"
+  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -669,7 +667,6 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     nationOpenrouter: frame.nationOpenrouter,
     adminGate: frame.adminGate,
     isProductOwner: frame.isProductOwner,
-    nationBilling: frame.nationBilling,
   };
 }
 
@@ -801,7 +798,7 @@ export interface AppState {
   config: ConfigStatus | null;
   /** selected chat — a bot id OR a group id */
   selectedId: string;
-  activeView: "chat" | "team-map" | "routines" | "admin" | "subscribe";
+  activeView: "chat" | "team-map" | "routines" | "admin";
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
@@ -966,7 +963,6 @@ export type Action =
   | { type: "showRoutines"; section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter }
   | { type: "showTeamMap" }
   | { type: "showAdmin" }
-  | { type: "showSubscribe" }
   | { type: "showChat" }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
@@ -1402,16 +1398,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeView: "admin",
-        settingsOpen: false,
-        computerOpen: false,
-        inspectorOpen: false,
-        appSettingsOpen: false,
-        pluginsOpen: false,
-      };
-    case "showSubscribe":
-      return {
-        ...state,
-        activeView: "subscribe",
         settingsOpen: false,
         computerOpen: false,
         inspectorOpen: false,

@@ -5,26 +5,6 @@ loadLocalEnv();
 import { cloudVpsPublicStatus } from "./cloud-vps-from-env.ts";
 import { adminGatePublicStatus, adminPinMatches } from "./admin-gate.ts";
 import { nationOpenRouterStatus, testOpenRouterConnection } from "./nation-openrouter.ts";
-import {
-  billingAdminStatus,
-  billingPublicStatus,
-  createQuote,
-} from "./nation-billing.ts";
-import {
-  confirmByTxHash,
-  startChainWatcher,
-  watcherHealth,
-} from "./nation-chain-watcher.ts";
-import {
-  expireEntitlements,
-  listEntitlements,
-  listPayments,
-  listQuotes,
-  loadEntitlement,
-  grantEntitlement,
-  saveEntitlement,
-} from "./nation-billing-store.ts";
-import { planById } from "./nation-plans.ts";
 
 // OpenMausBot server Ã¢â‚¬â€ the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
@@ -10940,7 +10920,6 @@ function configStatus() {
     },
     adminGate: adminGatePublicStatus(),
     nationOpenrouter: nationOpenRouterStatus(),
-    nationBilling: { enabled: billingPublicStatus().enabled },
     opencodeGo: { configured: Boolean(cfg.opencodeGo?.apiKey) },
     // the chosen voice is a setting, not a secret; the key is reported the
     // same configured-or-not way as every other credential
@@ -17843,103 +17822,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       return json(res, 404, { error: "not found" });
     }
-
-    // ── Nation Billing (crypto plan payments) ──────────────────────────────
-    // Public user-facing endpoints: quote creation, confirmation, entitlement
-    // read. Admin-only endpoints: payment list, quote list, watcher health,
-    // manual grant/revoke.
-
-    // GET /api/billing/status — public; tells the client which chains/plans
-    // are available. Clients use this to decide whether to show the pay UI.
-    if (method === "GET" && path === "/api/billing/status") {
-      return json(res, 200, billingPublicStatus());
-    }
-
-    // GET /api/billing/entitlement — client reads its own active plan+credits
-    if (method === "GET" && path === "/api/billing/entitlement") {
-      // userId = session email or "owner" for loopback
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const ent = loadEntitlement(userId);
-      if (!ent) return json(res, 200, { entitlement: null });
-      const now = new Date();
-      const active = new Date(ent.expiresAt) > now;
-      return json(res, 200, { entitlement: { ...ent, active } });
-    }
-
-    // POST /api/billing/quotes — create a payment quote
-    if (method === "POST" && path === "/api/billing/quotes") {
-      const body = await readBody(req);
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const planId = typeof body?.planId === "string" ? body.planId : "";
-      const chainId = typeof body?.chainId === "number" ? body.chainId : 0;
-      const result = createQuote({ userId, planId, chainId });
-      if (!result.ok) return json(res, 400, { error: result.error, code: result.code });
-      return json(res, 201, { quote: result.quote });
-    }
-
-    // POST /api/billing/confirm — fast path: client submits tx hash
-    if (method === "POST" && path === "/api/billing/confirm") {
-      const body = await readBody(req);
-      const txHash = typeof body?.txHash === "string" ? body.txHash.trim() : "";
-      const quoteId = typeof body?.quoteId === "string" ? body.quoteId.trim() : "";
-      if (!txHash || !quoteId) return json(res, 400, { error: "txHash and quoteId required" });
-      const result = await confirmByTxHash(txHash, quoteId);
-      if (!result.ok) return json(res, 400, { error: result.error, code: result.code });
-      const userId = auth.kind === "session"
-        ? (auth.session.email ?? auth.session.id)
-        : "owner";
-      const ent = loadEntitlement(userId);
-      return json(res, 200, { ok: true, entitlement: ent ?? null });
-    }
-
-    // ── Admin-only billing endpoints ──────────────────────────────────────
-    if (path.startsWith("/api/admin/billing")) {
-      if (!auth.scopes.includes("admin")) {
-        return json(res, 403, { error: "forbidden: admin scope required" });
-      }
-      if (method === "GET" && path === "/api/admin/billing/status") {
-        return json(res, 200, billingAdminStatus());
-      }
-      if (method === "GET" && path === "/api/admin/billing/quotes") {
-        return json(res, 200, { quotes: listQuotes() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/payments") {
-        return json(res, 200, { payments: listPayments() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/entitlements") {
-        return json(res, 200, { entitlements: listEntitlements() });
-      }
-      if (method === "GET" && path === "/api/admin/billing/watcher") {
-        return json(res, 200, watcherHealth());
-      }
-      // POST /api/admin/billing/grant — manually grant a plan
-      if (method === "POST" && path === "/api/admin/billing/grant") {
-        const body = await readBody(req);
-        const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
-        const planId = typeof body?.planId === "string" ? body.planId.trim() : "";
-        if (!userId || !planId) return json(res, 400, { error: "userId and planId required" });
-        const plan = planById(planId);
-        if (!plan) return json(res, 400, { error: `unknown plan: ${planId}` });
-        const ent = grantEntitlement(userId, plan.id, plan.label, plan.credits, plan.intervalSeconds);
-        return json(res, 200, { ok: true, entitlement: ent });
-      }
-      // POST /api/admin/billing/revoke — revoke a user's entitlement
-      if (method === "POST" && path === "/api/admin/billing/revoke") {
-        const body = await readBody(req);
-        const userId = typeof body?.userId === "string" ? body.userId.trim() : "";
-        if (!userId) return json(res, 400, { error: "userId required" });
-        const ent = loadEntitlement(userId);
-        if (!ent) return json(res, 404, { error: "no entitlement found" });
-        saveEntitlement({ ...ent, creditsBalance: 0, expiresAt: new Date(0).toISOString() });
-        return json(res, 200, { ok: true });
-      }
-      return json(res, 404, { error: "not found" });
-    }
-
     if (method === "GET" && path === "/api/config") {
       return json(res, 200, configForAccess(configStatus(), auth.scopes.includes("admin")));
     }
@@ -18986,13 +18868,6 @@ server.listen(PORT, "127.0.0.1", () => {
   // leftovers, and a sweep ahead of it would wake delegators of stopped
   // routine runs whose handoffs the loop above discards instead.
   setInterval(expireDelegationsNow, DELEGATION_SWEEP_MS).unref();
-  // Nation billing: start chain watcher and daily entitlement expiry.
-  startChainWatcher();
-  const ENTITLEMENT_EXPIRY_SWEEP_MS = 24 * 60 * 60 * 1000;
-  setInterval(() => {
-    const expired = expireEntitlements();
-    if (expired > 0) console.log(`[nation-billing] expired ${expired} entitlement(s)`);
-  }, ENTITLEMENT_EXPIRY_SWEEP_MS).unref();
 });
 
 // A second listener for `openmausbot serve --tunnel` (server/tunnel.ts): the

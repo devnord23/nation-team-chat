@@ -258,11 +258,6 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["GET"], path: /^\/api\/webhooks$/ },
   // configured-or-not booleans; the handler strips the few identifying fields for clients
   { methods: ["GET"], path: /^\/api\/config$/ },
-  // Nation billing: plan status, quote creation, confirmation, own entitlement
-  { methods: ["GET"], path: /^\/api\/billing\/status$/ },
-  { methods: ["GET"], path: /^\/api\/billing\/entitlement$/ },
-  { methods: ["POST"], path: /^\/api\/billing\/quotes$/ },
-  { methods: ["POST"], path: /^\/api\/billing\/confirm$/ },
 ];
 
 export function requiredScope(method: string, path: string, features: { sharedComputers?: boolean } = {}): Scope {

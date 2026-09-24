@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ClipboardCopy,
   Copy,
-  CreditCard,
   Crown,
   FolderMinus,
   FolderPlus,
@@ -2201,21 +2200,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             <Puzzle size={20} className="text-ink-secondary" />
             <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span>
           </button>
-          {state.config?.nationBilling?.enabled && (
-            <button
-              onClick={() => dispatch({ type: "showSubscribe" })}
-              aria-label="Plans"
-              title="Plans"
-              className={cn(
-                "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
-                density === "icons" ? "justify-center px-2" : "gap-3 px-3",
-                state.activeView === "subscribe" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
-              )}
-            >
-              <CreditCard size={20} className={state.activeView === "subscribe" ? "text-accent" : "text-ink-secondary"} />
-              <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Plans</span>
-            </button>
-          )}
           {admin && (
             <button
               onClick={() => dispatch({ type: "showAdmin" })}
@@ -2268,13 +2252,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 icon: <Puzzle size={18} />,
                 onSelect: () => dispatch({ type: "togglePlugins", open: true }),
               },
-              ...(state.config?.nationBilling?.enabled ? [{
-                key: "subscribe",
-                label: "Plans",
-                icon: <CreditCard size={18} />,
-                active: state.activeView === "subscribe",
-                onSelect: () => dispatch({ type: "showSubscribe" }),
-              }] : []),
               ...(admin ? [{
                 key: "admin",
                 label: "Admin",
