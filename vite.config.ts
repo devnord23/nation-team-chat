@@ -19,6 +19,12 @@ export default defineConfig({
     // index.html and assets at /swarm/… matching the asset paths Vite emits
     // for base="/swarm/".
     outDir: "dist/swarm",
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        ledger: fileURLToPath(new URL("./ledger/index.html", import.meta.url)),
+      },
+    },
   },
   define: {
     __APP_VERSION__: JSON.stringify(version),
