@@ -82,7 +82,7 @@ export function NationCredits() {
   const paid = Boolean(invoice?.paid_tx);
   return <>
     <div className="flex flex-wrap items-center justify-end gap-3 border-b border-hairline/30 bg-panel px-4 py-2 text-xs text-ink">
-      <span>{status.label}</span>
+      <span>{status.exempt ? "NATION API" : status.label}</span>
       {status.lowBalance && status.verified && <span>Your teammates are ready when you are. Add credit to keep going.</span>}
       {!status.verified && <button className="underline" onClick={() => setOpen(true)}>Get free starter credit</button>}
       {status.topUpEnabled && !status.exempt ? <button className="font-medium underline" onClick={() => setOpen(true)}>Top up</button> : !status.exempt && <span>{status.topUpMessage}</span>}

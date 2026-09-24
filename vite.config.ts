@@ -22,6 +22,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        admin: fileURLToPath(new URL("./admin/index.html", import.meta.url)),
         ledger: fileURLToPath(new URL("./ledger/index.html", import.meta.url)),
       },
     },
