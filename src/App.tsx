@@ -29,6 +29,7 @@ import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { LocalVmWorkspace } from "@/components/LocalVmWorkspace";
 import { TeamMapPage } from "@/components/TeamMapPage";
 import { NationAdminPage } from "@/components/NationAdminPage";
+import { SubscribePage } from "@/components/SubscribePage";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { isProductAdmin } from "@/lib/admin-gate";
@@ -81,7 +82,7 @@ function Shell() {
   // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousViewRef = useRef(state.activeView);
-  const calendarOriginRef = useRef<"chat" | "team-map" | "admin">("chat");
+  const calendarOriginRef = useRef<"chat" | "team-map" | "admin" | "subscribe">("chat");
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const calendarFocus = state.activeView === "routines";
@@ -279,6 +280,8 @@ function Shell() {
         isProductOwner: state.config?.isProductOwner,
       }) ? (
         <NationAdminPage />
+      ) : state.activeView === "subscribe" ? (
+        <SubscribePage />
       ) : state.activeView === "team-map" ? (
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
