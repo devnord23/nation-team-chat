@@ -1,19 +1,23 @@
-// The "set it and forget it" scene. One authored moment: the clock line
-// reaches 9:00 and the routine fires. Everything before it is setup (the
-// calendar surfaces, a pointer drops the routine onto Monday), everything
-// after is resolution (the receipt lands in chat, then an outside app calls
-// the webhook and the same bot wakes). Three layers throughout: the primary
-// action, a secondary reaction (the tile's shadow tightening as it lands,
-// the ripple when it fires), and ambient life (the guide's glow, the vignette).
-//
-// Drawn to match the real Automations page and the real run receipt card,
-// so a user recognises both when they meet them for real.
+// The "set it and forget it" scene.
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, MousePointer2, Zap } from "lucide-react";
-import { MausAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { reducedMotion } from "@/lib/onboarding";
 import type { SceneProps } from "./OrbitingApps";
+
+/** Soft-tower face image used in demo scenes. */
+function FaceImg({ size }: { size: number }) {
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}bot-faces/coordinator.svg`}
+      alt=""
+      aria-hidden
+      width={size}
+      height={size}
+      style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0 }}
+    />
+  );
+}
 
 const AUTOMATIONS_MS = 6200;
 
@@ -153,7 +157,7 @@ export function Automations({ playing, onCue, onEnded, label }: SceneProps) {
                     )}
                     style={{ top: ROW + 2, height: ROW - 8 }}
                   >
-                    <MausAvatar color="green" bodyId="squircle" state={busy ? "working" : "idle"} size={16} animated={!still} trackPointer={false} />
+                    <FaceImg size={16} />
                     <div className="min-w-0">
                       <div className="truncate text-[9.5px] font-semibold leading-tight text-ink">Weekly report</div>
                       <div className="text-[8px] leading-tight tabular-nums text-ink-secondary">9:00 · weekly</div>
@@ -209,14 +213,7 @@ export function Automations({ playing, onCue, onEnded, label }: SceneProps) {
       <div className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
         <div className={cn("absolute inset-0 -m-4 rounded-full bg-accent/20 blur-xl transition-opacity duration-500", busy ? "opacity-100" : "opacity-0")} aria-hidden="true" />
         <div className="relative drop-shadow-[0_8px_18px_rgba(0,0,0,0.45)]">
-          <MausAvatar
-            color="green"
-            bodyId="squircle"
-            state={hookDone ? "happy" : hook ? "alerting" : done ? "proud" : firing ? "working" : "drowsy"}
-            size={40}
-            animated={!still}
-            trackPointer={false}
-          />
+          <FaceImg size={40} />
         </div>
       </div>
     </div>

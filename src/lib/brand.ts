@@ -120,7 +120,7 @@ export async function bootstrapBrand(fetchImpl: typeof fetch = fetch, timeoutMs 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl("/api/brand", { signal: controller.signal });
+    const res = await fetchImpl(`${import.meta.env.BASE_URL}api/brand`, { signal: controller.signal });
     if (!res.ok) return current;
     const body: unknown = await res.json();
     if (isBrandStatus(body)) applyBrand(body);

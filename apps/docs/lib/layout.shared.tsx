@@ -10,9 +10,9 @@ export function baseOptions(): BaseLayoutProps {
       transparentMode: 'none',
     },
     links: [
-      { text: 'Website', url: 'https://www.openmausbot.com', external: true },
+      { text: 'Website', url: 'https://thenation.city', external: true },
       { text: 'Changelog', url: '/docs/changelog' },
-      { type: 'button', text: 'Download', url: 'https://github.com/milind-soni/OpenMausBot/releases/latest', external: true },
+      { type: 'button', text: 'Download', url: 'https://thenation.city/swarm', external: true },
     ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

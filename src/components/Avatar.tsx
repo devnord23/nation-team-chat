@@ -1,9 +1,7 @@
-// Bot avatar — the Blob Studio "Cursor" mascot (CursorAvatar.tsx), wrapped
-// in the app's historical MausAvatar API so no call site changes: per-bot
-// color becomes a body gradient, the app's one-shot motion beats borrow the
-// face/state for a moment, and the eyes follow the pointer. The previous
-// hand-built Maus body + face engine (maus-engine/face/driver) is gone;
-// CursorAvatar owns morphing, blinking, drift, body motion and effects.
+// Bot avatar: default bots display one of six soft-tower face images from
+// public/bot-faces/ chosen deterministically by the bot's colour. Custom
+// uploaded images continue to work unchanged. MausAvatar is kept for the
+// admin appearance picker; it is not shown on end-user surfaces.
 import {
   forwardRef,
   memo,
@@ -13,7 +11,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { MAUS_COLORS, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
+import { MAUS_COLORS, MAUS_COLOR_NAMES, type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { CursorAvatar, type CursorAvatarHandle } from "./CursorAvatar";
 import { botAvatarProfile, type BotAvatarCrop } from "../../shared/bot-avatar";
 import { MASCOT_BODIES, botMascotBody, type MascotBodyId } from "../../shared/mascot-bodies";
@@ -235,12 +233,36 @@ export function resolveBotAvatarOutcome(params: {
   return "flatImage";
 }
 
+/** Six soft-tower faces used as the default NATION avatar set, in order. */
+const SOFT_TOWER_FACES = [
+  "coordinator",
+  "researcher",
+  "builder",
+  "analyst",
+  "creator",
+  "operator",
+] as const;
+
+/** Map a bot's stored colour to one of the six soft-tower face names,
+ * deterministically and without gaps (modulo on the colour index). */
+function softTowerFace(color: MausColor): (typeof SOFT_TOWER_FACES)[number] {
+  const idx = MAUS_COLOR_NAMES.indexOf(color);
+  return SOFT_TOWER_FACES[(idx < 0 ? 0 : idx) % SOFT_TOWER_FACES.length]!;
+}
+
+/** URL for a bot's default avatar. Respects the Vite base path so the image
+ * resolves correctly whether the app runs at / or /swarm/. */
+function softTowerUrl(color: MausColor): string {
+  return `${import.meta.env.BASE_URL}bot-faces/${softTowerFace(color)}.svg`;
+}
+
 /**
- * The one renderer for a bot's chosen profile image. Malformed persisted
- * values and images that fail to load both fall back to the animated mascot,
- * so an old/corrupt profile can never leave a broken-image icon in the app.
+ * The one renderer for a bot's chosen profile image. When no custom image is
+ * set (or the crop is "mascot"), a soft-tower face from public/bot-faces/ is
+ * shown, chosen deterministically from the bot's colour. Custom uploaded
+ * images continue to work unchanged.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -254,12 +276,14 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
 
   if (outcome !== "flatImage") {
     return (
-      <MausAvatar
-        bodyId={bot.mascotBody ?? undefined}
-        {...mascotProps}
-        color={bot.color}
-        size={size}
-        label={label ?? bot.name}
+      <img
+        src={softTowerUrl(bot.color)}
+        alt={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
+        width={size}
+        height={size}
+        draggable={false}
+        className="block shrink-0 object-cover rounded-full"
+        style={{ width: size, height: size }}
       />
     );
   }
