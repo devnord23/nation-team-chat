@@ -423,7 +423,6 @@ export async function launchVerificationServer(
   mkdirSync(evidenceDir, { recursive: true });
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
-    ...(composioFixtureApi ? { composio: { apiKey: "ak_connector_fixture_only", userId: "fixture_user", sessionId: "trs_fixture" } } : {}),
     ...(boxFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
     defaultModelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
     instances: {
@@ -463,7 +462,7 @@ export async function launchVerificationServer(
     AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
-  if (composioFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_API: composioFixtureApi + "/api/v3.1", OMB_COMPOSIO_TOOLKITS_API: composioFixtureApi + "/api/v3" });
+  if (composioFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_BROKER_URL: composioFixtureApi + "/broker", OMB_COMPOSIO_BROKER_TOKEN: "a".repeat(64) });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,

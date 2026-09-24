@@ -332,12 +332,12 @@ it("Box tools execute only on the assigned machine and respect human control", a
   vi.stubEnv("OMB_BOX_API", origin);
   const controller = new AbortController(); controllers.push(controller);
   try {
-    const session = await mountChatTools({ computer: { kind: "box", boxId: "bx_fixture", token: "fixture-box", control: { url: origin + "/control", token: "fixture-control" } } }, controller.signal);
+    const session = await mountChatTools({ computer: { kind: "box", boxId: "bx_23456789", token: "fixture-box", control: { url: origin + "/control", token: "fixture-control" } } }, controller.signal);
     sessions.push(session);
     expect(session.definitions.map(tool => tool.function.name)).toContain("computer_screenshot");
-    expect((await session.execute("computer_execute", { command: "printf receipt" }, controller.signal)).ok).toBe(true);
+    expect(await session.execute("computer_execute", { command: "printf receipt" }, controller.signal)).toMatchObject({ ok: true });
     expect(commands).toHaveLength(1);
-    expect(commands[0]).toMatchObject({ path: "/boxes/bx_fixture/commands" });
+    expect(commands[0]).toMatchObject({ path: "/boxes/bx_23456789/commands" });
     expect(commands[0].command).toContain("exec env -i");
     expect(commands[0].command).not.toContain("fixture-box");
     held = true;

@@ -324,7 +324,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     const abort = new AbortController();
     const messages = messagesFor(turn);
     const model = turn.model || options.models().default;
-    const secrets = [options.apiKey];
+    const secrets = [options.apiKey, turn.integrations?.computer?.token ?? "", turn.integrations?.computer?.control?.token ?? ""];
     for (const integration of Object.values(turn.integrations ?? {})) {
       const entries = object(integration);
       const specs = entries && "command" in entries ? [entries] : Object.values(entries ?? {}).map(object);

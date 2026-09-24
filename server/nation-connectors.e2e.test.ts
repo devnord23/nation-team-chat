@@ -16,8 +16,8 @@ it("NATION mounts Gmail through Composio, waits for permission, and honors the b
       session_id: "trs_fixture", mcp: { type: "http", url: origin + "/mcp" },
       config: { user_id: "fixture_user", multi_account: { enable: true } },
     });
-    if (path === "/mcp") {
-      expect(req.headers["x-api-key"]).toBe("ak_connector_fixture_only");
+    if (path === "/broker/v1/mcp") {
+      expect(req.headers.authorization).toBe("Bearer " + "a".repeat(64));
       if (body.id === undefined) { res.writeHead(202); res.end(); return; }
       let result: unknown = {};
       if (body.method === "initialize") result = { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } };
@@ -38,7 +38,8 @@ it("NATION mounts Gmail through Composio, waits for permission, and honors the b
       return;
     }
     if (path.includes("toolkits") || path.includes("connected_accounts") || path.includes("auth_configs")) return json({ items: [] });
-    res.writeHead(404); json({});
+    if (path.startsWith("/broker/")) return json({ services: {}, items: [] });
+    res.statusCode = 404; json({});
   });
   await new Promise<void>(resolve => provider.listen(0, "127.0.0.1", resolve));
   origin = "http://127.0.0.1:" + (provider.address() as { port: number }).port;

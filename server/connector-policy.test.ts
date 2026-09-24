@@ -11,7 +11,7 @@ describe("connected-app access", () => {
     try {
       for (const path of ["/api/connectors/catalog", "/api/connectors/connected", "/api/mcp/servers"]) {
         expect((await call(path)).status).toBe(200);
-        expect((await call(path, "GET", undefined, "invalid")).status).toBe(401);
+        expect((await call(path, "GET", undefined, "omb_sess_invalid")).status).toBe(401);
       }
       const pairing: any = await (await call("/api/auth/pairing", "POST", { scopes: ["client"], label: "Connector fixture" })).json();
       const member: any = await (await call("/api/pair", "POST", { code: pairing.code, deviceName: "Connector fixture" })).json();
