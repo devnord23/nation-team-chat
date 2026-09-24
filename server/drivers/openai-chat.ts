@@ -17,6 +17,24 @@ import { ChatProtocolError, ChatReasoningDetails, ChatToolCalls, MAX_CHAT_TOOL_C
 import { appendNative } from "./native.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 
+/** Encoded screenshot bytes one turn may carry (upstream's chat image budget). */
+export const TURN_IMAGE_BUDGET = 32 * 1024 * 1024;
+export const IMAGE_BUDGET_NOTE = " [Screenshot withheld: this turn's image budget is used up. The operation itself completed; finish with what you have or ask the person to continue in a new message.]";
+
+/** Every retained screenshot is resent on each later model call of a turn,
+ * so the turn as a whole is bounded, not just one image. Returns the image
+ * parts to attach, the new total, and whether any image was withheld. */
+export function retainTurnImages(used: number, images: ReadonlyArray<{ data: string; mimeType: string }>, budget = TURN_IMAGE_BUDGET) {
+  const parts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  let withheld = false;
+  for (const image of images) {
+    if (used + image.data.length > budget) { withheld = true; continue; }
+    used += image.data.length;
+    parts.push({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } });
+  }
+  return { parts, used, withheld };
+}
+
 export interface OpenAIChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
@@ -323,6 +341,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     const turnId = newId();
     const abort = new AbortController();
     const messages = messagesFor(turn);
+    let imageBytes = 0;
     const model = turn.model || options.models().default;
     const secrets = [options.apiKey, turn.integrations?.computer?.token ?? "", turn.integrations?.computer?.control?.token ?? ""];
     for (const integration of Object.values(turn.integrations ?? {})) {
@@ -497,8 +516,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
             const output = preview({ ok: result.ok, result: text });
             emit({ ...base(turn.threadId, turnId), type: "item.completed", itemType: "tool", itemId: call.id, ok: result.ok, output });
             if (!result.ok) toolFailed = true;
-            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: result.ok, result: text }) });
-            for (const image of result.images ?? []) roundImages.push({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } });
+            const retained = retainTurnImages(imageBytes, result.images ?? []);
+            imageBytes = retained.used;
+            roundImages.push(...retained.parts);
+            messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: result.ok, result: text + (retained.withheld ? IMAGE_BUDGET_NOTE : "") }) });
             abort.signal.throwIfAborted();
             if (fatal) throw fatal;
           }

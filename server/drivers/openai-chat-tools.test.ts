@@ -637,3 +637,13 @@ it("NATION receives desktop screenshots in the next model round", async () => {
   expect(JSON.stringify(f.requests[1].messages)).toContain("data:image/png;base64," + png);
   } finally { setCreditLedgerForTests(); ledger.close(); }
 });
+
+it("bounds the screenshots one NATION turn retains", async () => {
+  const { retainTurnImages } = await import("./openai-chat.ts");
+  const shot = { data: "A".repeat(40), mimeType: "image/png" };
+  const first = retainTurnImages(0, [shot, shot], 100);
+  expect(first).toMatchObject({ used: 80, withheld: false });
+  expect(first.parts).toHaveLength(2);
+  const second = retainTurnImages(first.used, [shot], 100);
+  expect(second).toMatchObject({ used: 80, withheld: true, parts: [] });
+});
