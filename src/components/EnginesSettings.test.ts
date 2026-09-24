@@ -45,9 +45,9 @@ describe("Settings → Engines → Codex", () => {
     expect(html).not.toContain("Sign out of ChatGPT");
   });
 
-  it("names the connected account and offers sign-out only when the server supports it", () => {
+  it("conceals account email and offers sign-out only when the server supports it", () => {
     const html = render(true, { email: "ada@example.test", signOut: true });
-    expect(html).toContain("ada@example.test");
+    expect(html).not.toContain("ada@example.test");
     expect(html).toContain("Sign out of ChatGPT");
     expect(html).toContain("Stop running Codex tasks before switching accounts");
     expect(html).toContain("Check account");
@@ -79,11 +79,11 @@ describe("Settings → Engines → setup cards", () => {
     const companyOnly = renderToStaticMarkup(createElement(EnginesSettings));
     for (const driver of ["claudeAgent", "codex", "openai-compat"]) expect(companyOnly).toContain(`Company ${driver}`);
     expect(companyOnly).toContain("managed by your organisation");
-    for (const control of ["Set CLI", "CLI path and updates", "Sign out of ChatGPT", "Update Claude", "fixture login"]) expect(companyOnly).not.toContain(control);
+    for (const control of ["Set CLI", "CLI path and updates", "Sign out of ChatGPT", "Update primary engine", "fixture login"]) expect(companyOnly).not.toContain(control);
     fixture.instances.push({ instanceId: "personal", displayName: "Personal Claude", driverKind: "claudeAgent", cliDefault: "claude",
       snapshot: { state: "available" }, models: { default: "sonnet", options: [] } });
     const withPersonal = renderToStaticMarkup(createElement(EnginesSettings));
-    expect(withPersonal).toContain("Set CLI"); expect(withPersonal).toContain("CLI path and updates"); expect(withPersonal).toContain("Update Claude");
+    expect(withPersonal).toContain("Set CLI"); expect(withPersonal).toContain("CLI path and updates"); expect(withPersonal).toContain("Update primary engine");
   });
 
   it("preserves one-click server installs and updates inside engine cards", () => {
@@ -167,27 +167,28 @@ describe("Settings → Engines → Claude accounts", () => {
     const markup = renderToStaticMarkup(createElement(ClaudeAccountForm, { onSaved: () => {} }));
     expect(markup).toContain("Personal or Work");
     expect(markup).toContain("Automatic private directory");
-    expect(markup).toContain("not a signed-in session");
-    expect(markup).toContain("T3");
-    expect(markup).not.toContain("Claude connected");
-    expect(renderClaude(claude())).toContain("Add Claude account");
+    expect(markup).toContain("Complete engine sign-in next");
+    expect(markup).toContain("absolute path on the computer running NATION Team");
+    expect(markup).not.toContain("Engine connected");
+    expect(renderClaude(claude())).toContain("Add engine account");
   });
 
   it("uses the exact server command and directs remote users to the server", () => {
     const markup = renderClaude(claude(false));
     expect(markup).toContain("CLAUDE_CONFIG_DIR=/profiles/work claude auth login");
-    expect(markup).toContain("run it on the server, not this device");
+    expect(markup).toContain("computer running NATION Team");
     expect(markup).toContain("Check account");
     expect(markup).toContain("Sign-in required");
-    expect(markup).not.toContain("Claude connected");
+    expect(markup).not.toContain("Engine connected");
     expect(markup).not.toContain("work@example.test");
   });
 
   it("only announces a connected account from its authenticated snapshot", () => {
     expect(renderClaude(claude())).toContain("Account status unknown");
     const connected = renderClaude(claude(true));
-    expect(connected).toContain("Claude connected");
-    expect(connected).toContain("work@example.test · Studio");
+    expect(connected).toContain("Engine connected");
+    expect(connected).toContain("Engine connected · Studio");
+    expect(connected).not.toContain("work@example.test");
   });
 
   it("labels the server's Windows command and keeps the default directory implicit", () => {
@@ -195,21 +196,21 @@ describe("Settings → Engines → Claude accounts", () => {
     instance.claudeAccount = { ...instance.claudeAccount!, configDir: "", signInShell: "powershell" };
     const markup = renderClaude(instance);
     expect(markup).toContain("Use PowerShell for this command.");
-    expect(markup).toContain("Normal Claude configuration");
-    expect(markup).toMatch(/placeholder="Normal Claude configuration"[^>]*value=""/);
+    expect(markup).toContain("Default engine configuration");
+    expect(markup).toMatch(/placeholder="Default engine configuration"[^>]*value=""/);
   });
 
   it("offers Claude sign-out only for a signed-in account the server can sign out", () => {
     const hosted = { ...claude(true), authentication: { method: "paste-code" as const, signOut: true } };
     const html = renderClaude(hosted);
-    expect(html).toContain("Sign out of Claude");
-    expect(html).toContain("different Claude subscription");
+    expect(html).toContain("Sign out of engine");
+    expect(html).toContain("different account");
     expect(html).not.toContain("claude auth logout");
-    expect(renderClaude(claude(true))).not.toContain("Sign out of Claude");
-    expect(renderClaude({ ...claude(false), authentication: { method: "paste-code" as const, signOut: true } })).not.toContain("Sign out of Claude");
+    expect(renderClaude(claude(true))).not.toContain("Sign out of engine");
+    expect(renderClaude({ ...claude(false), authentication: { method: "paste-code" as const, signOut: true } })).not.toContain("Sign out of engine");
     expect(renderClaude(hosted, true)).toContain("1 bot(s) use this account");
-    expect(renderClaude(hosted, true)).toContain("Running tasks are not cancelled by signing out");
-    expect(html).toContain("Stop running Claude tasks before switching accounts");
+    expect(renderClaude(hosted, true)).toContain("Signing out leaves running tasks active");
+    expect(html).toContain("Stop running tasks before switching accounts");
     expect(html).not.toContain("pause");
   });
 
@@ -220,7 +221,7 @@ describe("Settings → Engines → Claude accounts", () => {
     const html = renderClaude(keyed);
     expect(html).toContain("workspace API key");
     expect(html).not.toContain("work@example.test");
-    expect(html).not.toContain("Sign out of Claude");
+    expect(html).not.toContain("Sign out of engine");
   });
 
   it("protects the default and assigned accounts and explains credential preservation", () => {
