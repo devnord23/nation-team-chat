@@ -11,8 +11,16 @@ export function setResponseOwner(res: ServerResponse, owner: boolean): void {
 }
 
 export function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(publicResponse(body, ownerResponses.has(res)));
-  res.writeHead(status, { "content-type": "application/json" });
+  const filtered = publicResponse(body, ownerResponses.has(res));
+  const data = JSON.stringify(filtered);
+  const publicError = status >= 400 && filtered !== null && typeof filtered === "object"
+    && typeof (filtered as Record<string, unknown>).error === "string";
+  res.writeHead(status, { "content-type": "application/json",
+    ...(publicError ? {
+      "x-nation-error-schema": "public-v1",
+      "access-control-expose-headers": "x-nation-error-schema",
+    } : {}),
+  });
   res.end(data);
 }
 
