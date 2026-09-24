@@ -31,7 +31,7 @@ import {
 import { api, ApiError, currentTaskBot, useStore, type Bot } from "@/state/store";
 import { effectivePlace, isComputerPlace, placeLabelKey } from "@/lib/place";
 import type { CloudBackend } from "../../shared/wire";
-import { ApiKeyRow } from "./ApiKeys";
+
 import { cn } from "@/lib/cn";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import { usePageVisible } from "@/lib/page-visible";
@@ -1543,12 +1543,9 @@ export function ComputerPanel({
         {phase === "unconfigured" && (
           <div className="mt-3 rounded-xl bg-card p-4">
             <div className="mb-3 text-[13px] text-ink-secondary">
-              {t("computer.addBoxKey")}
+              NATION Isolated PC is not configured. Contact the workspace owner.
             </div>
-            <ApiKeyRow
-              section="box"
-              onSaved={(configured) => configured && setRetry((n) => n + 1)}
-            />
+            <button type="button" className="ui-button" onClick={() => setRetry((n) => n + 1)}>Check again</button>
           </div>
         )}
         {phase === "vps-unconfigured" && (

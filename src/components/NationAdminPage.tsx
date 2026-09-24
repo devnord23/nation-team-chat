@@ -6,14 +6,11 @@
  * never renders, so there is no meaningful surface for non-admins to reach.
  */
 import { useState } from "react";
-import { CheckCircle2, ChevronLeft, Loader2, PlugZap, Server, ShieldCheck, Terminal, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, XCircle } from "lucide-react";
 import { api, useStore } from "@/state/store";
 import { isProductAdmin } from "@/lib/admin-gate";
-import { EnginesSettings } from "./EnginesSettings";
-import { ApiKeyRow, OpenAiCompatUrl } from "./ApiKeys";
 import { Card } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
-import { t } from "@/lib/i18n";
 
 // ── OpenRouter section ───────────────────────────────────────────────────────
 
@@ -48,7 +45,7 @@ function OpenRouterSection() {
 
   return (
     <Card
-      title="OpenRouter"
+      title="NATION API"
       subtitle="Nation's upstream AI provider. The API key is server-only and never sent to clients."
     >
       <div className="flex flex-col gap-4">
@@ -119,49 +116,10 @@ function OpenRouterSection() {
   );
 }
 
-// ── Connections / API keys section ───────────────────────────────────────────
-
-function ConnectionsSection() {
-  return (
-    <Card
-      title="API Keys & Integrations"
-      subtitle="Provider credentials stored on the server. Keys are write-only — only configured/not is returned to clients."
-    >
-      <div className="flex flex-col gap-4">
-        <div className="text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">
-          {t("keys.providers.title")}
-        </div>
-        <p className="-mt-3 text-[12px] leading-relaxed text-ink-secondary">
-          {t("keys.providers.subtitle")}
-        </p>
-        <ApiKeyRow section="anthropic" testProvider="anthropic" />
-        <ApiKeyRow section="openaiCompat" testProvider="openaiCompat" />
-        <OpenAiCompatUrl />
-        <ApiKeyRow section="xai" testProvider="xai" />
-        <div className="pt-2 text-[11.5px] font-medium uppercase tracking-wide text-ink-secondary">
-          {t("keys.integrations.title")}
-        </div>
-        <ApiKeyRow section="box" />
-        <ApiKeyRow section="opencodeGo" />
-        <details className="rounded-lg border border-hairline/40 bg-inset px-3 py-2">
-          <summary className="cursor-pointer text-[13px] text-ink-secondary">
-            {t("settings.connections.selfHost")}
-          </summary>
-          <div className="mt-3">
-            <ApiKeyRow section="composio" />
-          </div>
-        </details>
-      </div>
-    </Card>
-  );
-}
-
 // ── Main page ────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "openrouter", label: "OpenRouter", icon: Server },
-  { id: "engines", label: "Engines", icon: Terminal },
-  { id: "keys", label: "Keys & Integrations", icon: PlugZap },
+  { id: "openrouter", label: "NATION API", icon: Server },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -203,7 +161,7 @@ export function NationAdminPage() {
           <ShieldCheck size={20} className="text-accent" />
           <div>
             <h1 className="text-[16px] font-semibold text-ink">Nation Admin</h1>
-            <p className="text-[12px] text-ink-secondary">Owner-only configuration for OpenRouter, engines, and integrations</p>
+            <p className="text-[12px] text-ink-secondary">Owner controls for NATION API</p>
           </div>
         </div>
         {/* Tab bar */}
@@ -232,8 +190,6 @@ export function NationAdminPage() {
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto max-w-[700px]">
           {tab === "openrouter" && <OpenRouterSection />}
-          {tab === "engines" && <EnginesSettings />}
-          {tab === "keys" && <ConnectionsSection />}
         </div>
       </div>
     </main>
