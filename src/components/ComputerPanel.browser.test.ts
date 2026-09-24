@@ -3,18 +3,17 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { Bot } from "@/state/store";
 import { browserAvailable, type FeatureFlagConfig } from "@/lib/feature-flags";
-import type { AppState } from "@/state/store";
 
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("document", { visibilityState: "visible" });
   vi.stubGlobal("localStorage", { getItem: () => "browser" });
-  return { config: {} as Partial<AppState["config"]> };
+  return { config: {} as FeatureFlagConfig, isProductOwner: undefined as boolean | undefined };
 });
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   useStore: () => ({
-    state: { config: { box: { configured: false }, ...fixture.config }, instances: [], computerControl: {}, screens: {}, routines: [], routineRuns: [] },
+    state: { config: { box: { configured: false }, ...fixture.config, isProductOwner: fixture.isProductOwner }, instances: [], computerControl: {}, screens: {}, routines: [], routineRuns: [] },
     dispatch: vi.fn(),
     flushBotPatches: vi.fn(),
   }),
@@ -25,7 +24,13 @@ afterAll(() => vi.unstubAllGlobals());
 const bot = { id: "browser-fixture", name: "Browser fixture", modelSelection: { instanceId: "fixture" } } as Bot;
 const render = (config: FeatureFlagConfig, browser?: boolean) => {
   fixture.config = config;
+  fixture.isProductOwner = undefined;
   return renderToStaticMarkup(createElement(ComputerPanel, { bot: { ...bot, browser } }));
+};
+const renderAsAdmin = (isProductOwner: boolean) => {
+  fixture.config = {};
+  fixture.isProductOwner = isProductOwner;
+  return renderToStaticMarkup(createElement(ComputerPanel, { bot }));
 };
 
 describe("Browser panel installation access", () => {
@@ -64,27 +69,27 @@ describe("NATION admin gate — computer setup UI", () => {
   it("never renders Box API key entry for non-admin regardless of phase", () => {
     // The addBoxKey card is gated behind admin — non-owner sessions must not
     // see vendor setup copy even if somehow the unconfigured phase were reached.
-    const markup = render({ isProductOwner: false } as FeatureFlagConfig);
+    const markup = renderAsAdmin(false);
     expect(markup).not.toContain("Add a Box API key");
     expect(markup).not.toContain("computer.addBoxKey");
   });
 
   it("never renders VPS SSH alias setup copy for non-admin", () => {
-    const markup = render({ isProductOwner: false } as FeatureFlagConfig);
+    const markup = renderAsAdmin(false);
     expect(markup).not.toContain("VPS_SSH_KEY");
     expect(markup).not.toContain("Settings → Connections");
     expect(markup).not.toContain("computer.vpsAliasHint");
   });
 
   it("never exposes Open VPS settings button to non-admin", () => {
-    const markup = render({ isProductOwner: false } as FeatureFlagConfig);
+    const markup = renderAsAdmin(false);
     expect(markup).not.toContain("Open VPS settings");
   });
 
   it("admin render does not expose Box or VPS setup copy in the initial checking phase", () => {
     // Setup cards are phase-gated (unconfigured / vps-unconfigured) — effects
     // that set those phases don't run in SSR, so the initial render is clean.
-    const markup = render({ isProductOwner: true } as FeatureFlagConfig);
+    const markup = renderAsAdmin(true);
     expect(markup).not.toContain("Add a Box API key");
     expect(markup).not.toContain("VPS_SSH_KEY");
   });
