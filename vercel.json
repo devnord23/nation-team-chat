@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "vite",
+  "redirects": [
+    { "source": "/", "destination": "/swarm/", "permanent": true },
+    { "source": "/index.html", "destination": "/swarm/", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/swarm/api/:path*", "destination": "https://server.aurk.org/nation-team-chat/api/:path*" },
     { "source": "/swarm/.well-known/openmausbot/:path*", "destination": "https://server.aurk.org/nation-team-chat/.well-known/openmausbot/:path*" },
