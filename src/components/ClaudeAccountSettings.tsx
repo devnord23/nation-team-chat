@@ -116,7 +116,7 @@ export function ClaudeAccountSettings({ instance }: { instance: InstanceInfo }) 
   const onApiKey = instance.snapshot.account?.method === "api-key";
   const canSignOut = authenticated && instance.authentication?.signOut === true && !onApiKey;
   const identity = authenticated
-    ? onApiKey ? t("engines.account.apiKey") : [instance.snapshot.account?.email, instance.snapshot.account?.organization].filter(Boolean).join(" · ")
+    ? onApiKey ? t("engines.account.apiKey") : (instance.snapshot.account?.organization ?? t("engines.account.connected"))
     : "";
 
   const refresh = async () => {

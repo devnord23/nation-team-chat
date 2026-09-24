@@ -1,5 +1,8 @@
 {
-  "title": "Contributing",
+  "title": "Help and feedback",
   "icon": "GitPullRequest",
-  "pages": ["index", "documentation"]
+  "pages": [
+    "index",
+    "documentation"
+  ]
 }

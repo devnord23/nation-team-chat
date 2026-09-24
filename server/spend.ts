@@ -1,3 +1,4 @@
+import { nationLedger, requireCreditAccount, creditsEnforced, creditContext } from "./nation-credit-context.ts";
 // Spend limits over the usage ledger: what this workspace has spent this
 // month against its cap, and the refusal a turn gets once the cap is
 // reached. The figure is the cost engines reported to the ledger, so on a
@@ -90,10 +91,47 @@ export function assertWithinBudget(
   now = new Date(),
   isEntitled: (feature: string) => boolean = entitled,
 ): void {
+  if (creditsEnforced() && creditContext.getStore()) nationLedger().assertAvailable(requireCreditAccount());
   const state = spendState(cfg, dataDir, now, isEntitled);
   if (!state?.exceeded) return;
   throw Object.assign(
     new Error(`this workspace has reached its monthly spend limit of $${usd(state.monthlyUsd)} — an admin can raise it under Settings → Usage`),
     { status: 409, code: "spend_cap" },
   );
+}
+
+/** Every managed model request passes this gate; the same ledger drives the UI balance. */
+export function beginModelSpend(): { settle: (costUsd: number) => void; providerId: (id: string) => void; reject: () => void; unconfirmed: () => void } {
+  const account = requireCreditAccount();
+  const ledger = nationLedger();
+  const call = ledger.beginCall(account);
+  return {
+    settle: (costUsd) => {
+      try { ledger.settle(call, costUsd); }
+      catch (error) { ledger.markUnconfirmed(call); throw error; }
+    },
+    providerId: (id) => ledger.providerId(call, id),
+    reject: () => ledger.cancelUnsent(call),
+    unconfirmed: () => ledger.markUnconfirmed(call),
+  };
+}
+
+/** Unknown costs remain visible to admins and block further spending until reconciled. */
+export async function reconcileModelSpend(fetchImpl: typeof fetch = fetch): Promise<void> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) return;
+  const ledger = nationLedger();
+  const pending = ledger.db.prepare("SELECT id,provider_id,state,created_at FROM credit_calls WHERE state IN ('active','pending') AND provider_id IS NOT NULL LIMIT 50").all();
+  for (const call of pending) {
+    if (ledger.inFlight.has(String(call.id)) || (call.state === "active" && Date.now() - Number(call.created_at) < 600_000)) continue;
+    try {
+      const url = (process.env.OPENROUTER_API_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+      const response = await fetchImpl(`${url}/generation?id=${encodeURIComponent(String(call.provider_id))}`, {
+        headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) continue;
+      const value = await response.json() as { data?: { total_cost?: number } };
+      if (typeof value.data?.total_cost === "number" && value.data.total_cost >= 0) ledger.settle(String(call.id), value.data.total_cost);
+    } catch { /* retained for a later reconciliation pass */ }
+  }
 }

@@ -1,0 +1,66 @@
+--- a/dist/chunks/mermaid.core/c4Diagram-YGBWAQC7.mjs
++++ b/dist/chunks/mermaid.core/c4Diagram-YGBWAQC7.mjs
+@@ -2222,7 +2222,7 @@
+ var getIntersectPoint = /* @__PURE__ */ __name(function(fromNode, endPoint) {
+   if (!fromNode.intersect) {
+     throw new Error(
+-      `C4 element "${fromNode.alias}" has no intersect function. Please report this to https://github.com/mermaid-js/mermaid/issues`
++      `C4 element "${fromNode.alias}" has no intersect function. Please report this to https://t.me/thenation_city`
+     );
+   }
+   const { x, y } = fromNode.intersect(endPoint);
+--- a/dist/chunks/mermaid.core/diagram-22UHCM2B.mjs
++++ b/dist/chunks/mermaid.core/diagram-22UHCM2B.mjs
+@@ -2237,7 +2237,7 @@
+   data4Layout.layoutAlgorithm = getRegisteredLayoutAlgorithm(layout);
+   if (data4Layout.layoutAlgorithm === "dagre" && layout === "elk") {
+     log.warn(
+-      "flowchart-elk was moved to an external package in Mermaid v11. Please refer [release notes](https://github.com/mermaid-js/mermaid/releases/tag/v11.0.0) for more details. This diagram will be rendered using `dagre` layout as a fallback."
++      "flowchart-elk was moved to an external package in Mermaid v11. This diagram will be rendered using `dagre` layout as a fallback."
+     );
+   }
+   data4Layout.direction = direction;
+--- a/dist/chunks/mermaid.core/diagram-MLGK6HIB.mjs
++++ b/dist/chunks/mermaid.core/diagram-MLGK6HIB.mjs
+@@ -145,7 +145,7 @@
+     const db = parser.parser?.yy;
+     if (!(db instanceof PacketDB)) {
+       throw new Error(
+-        "parser.parser?.yy was not a PacketDB. This is due to a bug within Mermaid, please report this issue at https://github.com/mermaid-js/mermaid/issues."
++        "parser.parser?.yy was not a PacketDB. This is due to a bug within Mermaid, please report this issue at https://t.me/thenation_city."
+       );
+     }
+     log.debug(ast);
+--- a/dist/chunks/mermaid.core/wardleyDiagram-VNRHLVJA.mjs
++++ b/dist/chunks/mermaid.core/wardleyDiagram-VNRHLVJA.mjs
+@@ -197,7 +197,7 @@
+     const db = parser.parser?.yy;
+     if (!db || typeof db.addNode !== "function") {
+       throw new Error(
+-        "parser.parser?.yy was not a WardleyDB. This is due to a bug within Mermaid, please report this issue at https://github.com/mermaid-js/mermaid/issues."
++        "parser.parser?.yy was not a WardleyDB. This is due to a bug within Mermaid, please report this issue at https://t.me/thenation_city."
+       );
+     }
+     populateDb(ast, db);
+--- a/dist/chunks/mermaid.core/architectureDiagram-NJMV4G6O.mjs
++++ b/dist/chunks/mermaid.core/architectureDiagram-NJMV4G6O.mjs
+@@ -503,7 +503,7 @@
+     const db = parser.parser?.yy;
+     if (!(db instanceof ArchitectureDB)) {
+       throw new Error(
+-        "parser.parser?.yy was not a ArchitectureDB. This is due to a bug within Mermaid, please report this issue at https://github.com/mermaid-js/mermaid/issues."
++        "parser.parser?.yy was not a ArchitectureDB. This is due to a bug within Mermaid, please report this issue at https://t.me/thenation_city."
+       );
+     }
+     populateDb(ast, db);
+--- a/dist/chunks/mermaid.core/diagram-3UASUU5V.mjs
++++ b/dist/chunks/mermaid.core/diagram-3UASUU5V.mjs
+@@ -206,7 +206,7 @@
+       const db = parser.parser?.yy;
+       if (!(db instanceof TreeMapDB)) {
+         throw new Error(
+-          "parser.parser?.yy was not a TreemapDB. This is due to a bug within Mermaid, please report this issue at https://github.com/mermaid-js/mermaid/issues."
++          "parser.parser?.yy was not a TreemapDB. This is due to a bug within Mermaid, please report this issue at https://t.me/thenation_city."
+         );
+       }
+       populate(ast, db);

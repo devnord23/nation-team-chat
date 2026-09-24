@@ -30,7 +30,6 @@ Connected-account write access is required so **Disconnect** can revoke the upst
 Set the key in the server environment:
 
 ```sh
-COMPOSIO_API_KEY=ak_your_project_key pnpm dev:server
 ```
 
 The browser-only development UI can also save a key to the owner-only `~/.openmausbot/config.json` file. Using the environment variable is preferred for headless and shared development machines.

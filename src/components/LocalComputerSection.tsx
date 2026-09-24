@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Card, CommandLine } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
+import { apiUrl } from "@/state/store";
 
 type Action = "pull" | "run" | "start" | "stop" | "remove" | "recreate";
 
@@ -279,10 +280,10 @@ export interface ComputerActionPlan {
 }
 
 const computerInventoryPaths: Record<ComputerInventoryRequest, string> = {
-  status: "/api/local-computer",
-  "local-vms": "/api/local-computer/instances",
-  cloud: "/api/computers/boxes",
-  vps: "/api/computers/vps",
+  status: apiUrl("/api/local-computer"),
+  "local-vms": apiUrl("/api/local-computer/instances"),
+  cloud: apiUrl("/api/computers/boxes"),
+  vps: apiUrl("/api/computers/vps"),
 };
 
 /** Keep the observation-only Settings reads explicit and independently
@@ -294,7 +295,8 @@ export function computerInventoryRequest(
   return [computerInventoryPaths[inventory], { signal }];
 }
 
-function jsonPostRequest(url: string, body: unknown): ComputerApiRequest {
+function jsonPostRequest(rawUrl: string, body: unknown): ComputerApiRequest {
+  const url = apiUrl(rawUrl);
   return [url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -995,7 +997,7 @@ export function LocalComputerSection() {
   }, [refreshVpsInventory, vpsRefreshKey]);
 
   const post = async (action: Exclude<Action, "recreate">) => {
-    const response = await fetch(`/api/local-computer/${action}`, {
+    const response = await fetch(apiUrl(`/api/local-computer/${action}`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
@@ -1051,7 +1053,7 @@ export function LocalComputerSection() {
     setPolicyPending(true);
     setError(null);
     try {
-      const response = await fetch("/api/config", {
+      const response = await fetch(apiUrl("/api/config"), {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ localVm: { mode, maxInstances } }),
@@ -1454,8 +1456,8 @@ export function LocalComputerSection() {
         title={t("vm.safety.title")}
         subtitle={
           perBot
-            ? t("vm.safety.perBot", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
-            : t("vm.safety.shared", { path: status?.workspace_guest_path ?? "/home/cua/workspace" })
+            ? t("vm.safety.perBot", { path: status?.workspace_guest_path ?? "workspace" })
+            : t("vm.safety.shared", { path: status?.workspace_guest_path ?? "workspace" })
         }
       >
         {existing && (

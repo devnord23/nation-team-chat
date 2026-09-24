@@ -1,0 +1,11 @@
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -115,7 +115,7 @@
+ import {VFile} from 'vfile'
+ 
+ const changelog =
+-  'https://github.com/remarkjs/react-markdown/blob/main/changelog.md'
++  'https://www.npmjs.com/package/react-markdown'
+ 
+ /** @type {PluggableList} */
+ const emptyPlugins = []

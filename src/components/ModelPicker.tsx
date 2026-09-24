@@ -11,6 +11,7 @@ import type { EffortLevel } from "../../shared/wire";
 import type { ModelVariantOption } from "../../shared/runtime-events";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
 import { configuredModelInstances, isCustomOnly, splitEngineRail } from "@/lib/engine-rail";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { EngineSetup, EngineUpdateNotice, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -27,8 +28,22 @@ function modelLabel(instance: InstanceInfo | undefined, model: string): string {
   return instance?.models.options.find((option) => option.id === model)?.label ?? model;
 }
 
-function modelProvider(instance: InstanceInfo | undefined, model: string): string | undefined {
-  return instance?.models.options.find((option) => option.id === model)?.provider;
+/** Simple client-side check: does the model ID look like a Claude/Anthropic slug? */
+function looksLikeClaude(model: string): boolean {
+  return /^claude[/-]/i.test(model) || /^anthropic\//i.test(model) || /\/claude[/-]/i.test(model);
+}
+
+/**
+ * Model label for the public-facing UI (non-admin users).
+ * Claude/Anthropic-backed models are masked to "NATION API" so vendor
+ * identity is never surfaced to regular users. When no instance is found
+ * for a Claude model ID, the raw ID is also masked.
+ */
+function publicModelLabel(instance: InstanceInfo | undefined, model: string, admin: boolean): string {
+  if (admin) return modelLabel(instance, model);
+  if (instance?.driverKind === "claudeAgent") return "NATION API";
+  if (!instance && looksLikeClaude(model)) return "NATION API";
+  return modelLabel(instance, model);
 }
 
 export function engineStatus(instance: InstanceInfo): string {
@@ -106,7 +121,7 @@ export function EffortRow({
 }
 
 function variantLabel(option: ModelVariantOption): string {
-  return option.id === "default" ? "OpenCode default" : option.label;
+  return option.id === "default" ? "Default" : option.label;
 }
 
 /** ACP variant ids are opaque; their model/session declares the available choices. */
@@ -273,7 +288,7 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
     const claude = instance.driverKind === "claudeAgent";
     const target = claude ? claudeInstance ?? instance : instance;
     const selected = claude ? selectedInstance?.driverKind === "claudeAgent" : instance.instanceId === selectedInstance?.instanceId;
-    const label = claude ? "Claude" : instance.displayName;
+    const label = claude ? "NATION API" : instance.displayName;
     const attention = needsCli(target) || needsSignIn(target) || Boolean(target.snapshot.update);
     return (
       <button
@@ -292,9 +307,9 @@ export function ModelEngineRail({ instances, selectedInstance, claudeInstance, o
   };
   return (
     <div className="flex w-14 shrink-0 flex-col gap-1 overflow-y-auto border-r border-hairline/40 bg-panel p-2">
-      {subscription.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">Cloud</EngineGroupLabel>}
+      {subscription.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-0.5 text-center text-[9px]">VPS</EngineGroupLabel>}
       {subscription.map(railButton)}
-      {local.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">Local</EngineGroupLabel>}
+      {local.length > 0 && <EngineGroupLabel className="px-0 pb-0.5 pt-2 text-center text-[9px]">Local VM</EngineGroupLabel>}
       {local.map(railButton)}
     </div>
   );
@@ -323,7 +338,7 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
   );
 }
 
-export function ModelPicker({
+function AdminModelPicker({
   bot,
   threadId,
   className,
@@ -354,7 +369,14 @@ export function ModelPicker({
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
-  const pickerInstances = configuredModelInstances(state.instances);
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
+  const pickerInstances = configuredModelInstances(state.instances).filter(
+    (instance) => admin || instance.driverKind !== "claudeAgent",
+  );
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
     active?.models.options.find((option) => option.id === selection.model)?.variants?.find((option) => option.id === selection.variant)
       ?? { id: selection.variant, label: selection.variant },
@@ -542,25 +564,20 @@ export function ModelPicker({
         bot.busy
           ? t(threadId ? "model.threadBusy" : "model.busy")
           : active
-          ? `${active.displayName} · ${modelLabel(active, selection.model)}${
-              modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
-            }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
-          : selection.model
+          ? `NATION API · ${publicModelLabel(active, selection.model, admin)}${selectedVariantLabel ? ` · ${selectedVariantLabel}` : selection.effort ? ` · ${effortLabel(selection.effort)} effort` : ""}`
+          : "NATION API"
       }
     >
-      {active && <InstanceProviderMark instance={active} size={14} />}
+      {/* InstanceProviderMark hidden — third-party provider logos not shown in top bar */}
       {!contained && showActiveAccount && (
-        <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
+        <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">NATION API</span>
       )}
       <span className={cn("flex min-w-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
         <span className="max-w-[160px] truncate">
           {showActiveAccount && (
-            <span data-model-account className="text-ink-secondary">{active.displayName} · </span>
+            <span data-model-account className="text-ink-secondary">NATION API · </span>
           )}
-          {modelLabel(active, selection.model)}
-          {active && modelProvider(active, selection.model) && (
-            <span className="text-ink-secondary"> · {modelProvider(active, selection.model)}</span>
-          )}
+          {publicModelLabel(active, selection.model, admin)}
         </span>
         {/* outside the truncating span: a long model name must not be what
             hides the effort the header exists to surface */}
@@ -628,7 +645,12 @@ export function ModelPicker({
               <>
                 <div className="shrink-0 px-4 pb-2 pt-3.5">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-[14px] font-semibold text-ink">{railInstance.driverKind === "claudeAgent" ? "Claude" : railInstance.displayName}</div>
+                    <div className="flex min-w-0 flex-col">
+                      <div className="truncate text-[14px] font-semibold text-ink">NATION API</div>
+                      {state.config?.nationOpenrouter?.configured && (
+                        <div className="text-[11px] text-success/80">nation hold get free credit</div>
+                      )}
+                    </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
@@ -662,9 +684,9 @@ export function ModelPicker({
                   {railInstance.driverKind === "claudeAgent" && (
                     <ClaudeAccountSelect accounts={claudeAccounts} selectedId={railInstance.instanceId} onSelect={selectRail} />
                   )}
-                  {railInstance.snapshot.authenticated && railInstance.snapshot.account && (
+                  {railInstance.snapshot.authenticated && railInstance.snapshot.account?.organization && (
                     <p className="mt-1 break-words text-[11px] text-ink-secondary">
-                      {[railInstance.snapshot.account.email, railInstance.snapshot.account.organization].filter(Boolean).join(" · ")}
+                      {railInstance.snapshot.account.organization}
                     </p>
                   )}
                   <div className="mt-0.5 text-[11.5px] text-ink-secondary">
@@ -834,12 +856,14 @@ export function ModelPicker({
             ) : (
               <div className="px-4 py-5 text-[13px] text-ink-secondary">{t("model.noProviders")}</div>
             )}
-            <button type="button" onClick={() => {
-              setOpen(false);
-              dispatch({ type: "toggleAppSettings", open: true, section: "engines" });
-            }} className="shrink-0 border-t border-hairline/40 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
-              {t("settings.engines.title")}
-            </button>
+            {admin && (
+              <button type="button" onClick={() => {
+                setOpen(false);
+                dispatch({ type: "showAdmin" });
+              }} className="shrink-0 border-t border-hairline/40 px-4 py-2 text-left text-[12px] text-ink-secondary hover:bg-control/60 hover:text-ink">
+                {t("settings.engines.title")}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -864,4 +888,12 @@ export function ModelPicker({
       />
     </div>
   );
+}
+
+/** The private picker never mounts for a member, including direct navigation. */
+export function ModelPicker(props: Parameters<typeof AdminModelPicker>[0]) {
+  const { state } = useStore();
+  const admin = isProductAdmin({ isProductOwner: state.config?.isProductOwner,
+    pinRequired: state.config?.adminGate?.pinRequired, remoteClient: Boolean(window.ogb?.remoteClient) });
+  return admin ? <AdminModelPicker {...props} /> : <span title="NATION API" className="text-[12px] font-medium text-ink-secondary">NATION API</span>;
 }

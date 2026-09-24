@@ -40,3 +40,11 @@ deploy/podman/.env
 deploy/podman/.env.*
 !deploy/podman/.env.example
 /.env
+
+.env.local
+
+.env.*.local
+
+.tmp-composio-key.env
+
+.tmp-*-key.env

@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import";
+import { teamImportPreview, type PendingTeamImport } from "@/lib/team-import-web";
 import type { Routine } from "@/lib/routines";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import {
@@ -13,7 +13,7 @@ import {
   Crown,
   ExternalLink,
   FolderOpen,
-  Github,
+  Link as LinkIcon,
   Loader2,
   MessageSquare,
   Plug,
@@ -25,9 +25,9 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { MAX_TEAM_BACKUP_BYTES, TEAM_BACKUP_EXCLUSIONS } from "../../shared/team-backup";
+import { MAX_TEAM_BACKUP_BYTES, TEAM_BACKUP_EXCLUSIONS } from "../../shared/team-backup-info";
 import { takeImportName } from "../../shared/import-name";
-const COMMUNITY_TEAMS_REPOSITORY = "https://github.com/milind-soni/openmausbot-teams";
+const COMMUNITY_TEAMS_REPOSITORY = "https://t.me/thenation_city";
 
 interface TeamCatalogEntry {
   slug: string;
@@ -55,7 +55,7 @@ export interface TeamImportResult {
   members: number;
 }
 
-type ImportSource = "library" | "file" | "github";
+type ImportSource = "library" | "file" | "link";
 type TeamTab = "explore" | "import" | "scout";
 
 /** the scout endpoint's answer, as far as this panel renders it — the
@@ -226,14 +226,14 @@ export function TeamLibraryPanel({
         throw cause;
       }
     }
-    previewManifest(teamImportPreview(manifest), "file");
+    previewManifest(await teamImportPreview(manifest), "file");
   };
 
   const loadLibraryTeam = async (entry: TeamCatalogEntry) => {
     setBusySlug(entry.slug);
     setError("");
     try {
-      previewManifest(teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)), "library");
+      previewManifest(await teamImportPreview(await api(`/api/team-library/teams/${entry.slug}`)), "library");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -250,11 +250,11 @@ export function TeamLibraryPanel({
     setGithubLoading(true);
     setError("");
     try {
-      const manifest = await api("/api/team-library/github", {
+      const manifest = await api("/api/team-library/source", {
         method: "POST",
         body: JSON.stringify({ url: requestedUrl.trim() }),
       });
-      previewManifest(teamImportPreview(manifest), "github");
+      previewManifest(await teamImportPreview(manifest), "link");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -447,12 +447,12 @@ export function TeamLibraryPanel({
           <div className="flex shrink-0 items-center gap-1">
             {!pending && (
               <button
-                onClick={() => void openExternal(catalog?.repositoryUrl ?? COMMUNITY_TEAMS_REPOSITORY)}
+                onClick={() => void openExternal(COMMUNITY_TEAMS_REPOSITORY)}
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
-                title="Open the community templates repository"
+                title="NATION support"
               >
-                <Github size={16} />
-                <span className="max-sm:hidden">Community repo</span>
+                <LinkIcon size={16} />
+                <span className="max-sm:hidden">NATION support</span>
                 <ExternalLink size={12} />
               </button>
             )}
@@ -690,20 +690,20 @@ export function TeamLibraryPanel({
                     >
                       <UploadCloud size={27} className="text-accent" />
                       <span className="mt-3 text-[14px] font-medium text-ink">Choose a backup or team file</span>
-                      <span className="mt-1 text-[12.5px] text-ink-secondary">Drop a .mausbackup.json, BotMRR .md or legacy .mausteam.json here. You’ll preview it before anything is added.</span>
+                      <span className="mt-1 text-[12.5px] text-ink-secondary">Drop a team backup or blueprint here. You’ll preview it before anything is added.</span>
                     </button>
 
                     <div className="flex min-h-56 flex-col justify-center rounded-2xl bg-raised/25 px-6">
-                      <Github size={25} className="text-ink-secondary" />
-                      <h3 className="mt-3 text-[14px] font-medium text-ink">Load from GitHub</h3>
-                      <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">Paste a public repo or a direct team JSON link.</p>
+                      <LinkIcon size={25} className="text-ink-secondary" />
+                      <h3 className="mt-3 text-[14px] font-medium text-ink">Load a team file</h3>
+                      <p className="mt-1 text-[12.5px] leading-relaxed text-ink-secondary">Paste a direct team file link.</p>
                       <div className="mt-4 flex gap-2">
                         <input
                           value={githubUrl}
                           onChange={(event) => setGithubUrl(event.target.value)}
                           onKeyDown={(event) => event.key === "Enter" && void loadGithubTeam()}
-                          placeholder="github.com/owner/repo"
-                          aria-label="GitHub team URL"
+                          placeholder="https://…/team.json"
+                          aria-label="Team file URL"
                           className="min-w-0 flex-1 rounded-xl bg-raised/80 px-3 py-2.5 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
                         />
                         <button

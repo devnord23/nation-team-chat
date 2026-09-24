@@ -36,7 +36,7 @@ function controls() {
   const reset = nodes.find((node) => node.type === "button")!.props.onClick as () => void;
   return {
     upload: () => upload({ currentTarget: { files: [new File([png], "icon.png", { type: "image/png" })], value: "icon.png" } } as unknown as ChangeEvent<HTMLInputElement>),
-    select: () => select({ target: { value: "google" } } as ChangeEvent<HTMLSelectElement>),
+    select: () => select({ target: { value: "default" } } as ChangeEvent<HTMLSelectElement>),
     reset,
   };
 }
@@ -72,10 +72,10 @@ describe("provider icon operation ordering", () => {
     await refresh;
     ui.select();
     await vi.waitFor(() => expect(fixture.api).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(fixture.api.mock.calls[1][1].body).icon).toEqual({ kind: "preset", preset: "google" });
+    expect(JSON.parse(fixture.api.mock.calls[1][1].body).icon).toBeNull();
   });
 
-  it("unlocks after decode failure so a preset can still be saved", async () => {
+  it("unlocks after decode failure so the NATION default can be restored", async () => {
     const ui = controls();
     ui.upload();
     await vi.waitFor(() => expect(images).toHaveLength(1));
@@ -85,7 +85,7 @@ describe("provider icon operation ordering", () => {
       ui.select();
       expect(fixture.api).toHaveBeenCalledOnce();
     });
-    expect(JSON.parse(fixture.api.mock.calls[0][1].body).icon.preset).toBe("google");
+    expect(JSON.parse(fixture.api.mock.calls[0][1].body).icon).toBeNull();
   });
 
   it("unlocks after a failed save so reset can be retried", async () => {

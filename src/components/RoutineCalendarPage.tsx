@@ -58,7 +58,7 @@ import {
   intakeFiles,
   type Attachment,
 } from "@/lib/composer-attachments";
-import { MAUS_COLORS, type MausState } from "@/lib/mascot";
+import { NATION_COLORS, type NationState } from "@/lib/mascot";
 import {
   addDays,
   atLocalTime,
@@ -101,8 +101,8 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const INTERVAL_PRESETS = [5, 10, 15, 30, 60];
 const EVENT_DURATION_OPTIONS = Array.from({ length: 240 / CALENDAR_SLOT_MINUTES }, (_, index) => (index + 1) * CALENDAR_SLOT_MINUTES);
-const BOT_DRAG_TYPE = "application/x-openmaus-bot";
-const EVENT_DRAG_TYPE = "application/x-openmaus-calendar-event";
+const BOT_DRAG_TYPE = "application/x-nation-bot";
+const EVENT_DRAG_TYPE = "application/x-nation-calendar-event";
 
 type EventKind = "routine" | "call";
 type CalendarRecurrenceChoice = "none" | "daily" | "weekdays" | "weekly" | "custom";
@@ -241,7 +241,7 @@ function projectCalls(calls: CalendarCall[], from: number, to: number): CallOccu
   return items.sort((left, right) => left.at - right.at);
 }
 
-function statusState(status: RoutineRunStatus): MausState {
+function statusState(status: RoutineRunStatus): NationState {
   if (status === "running") return "working";
   if (status === "waiting") return "curious";
   if (status === "completed") return "proud";
@@ -394,7 +394,7 @@ function EventEditor({
   };
   const [routineTarget, setRoutineTarget] = useState<RoutineTarget>(existingRoutine?.target ?? "bot");
   const [groupId, setGroupId] = useState(existingRoutine?.groupId ?? "");
-  const [runOn, setRunOn] = useState<RoutineRunOn>(existingRoutine?.runOn ?? defaultRunOn ?? "maus");
+  const [runOn, setRunOn] = useState<RoutineRunOn>((existingRoutine?.runOn ?? defaultRunOn) === "cloud" ? "cloud" : "nation");
   const [attachments, setAttachments] = useState<Array<RoutineContextAttachment | CalendarCallAttachment>>(
     existingRoutine?.target === "room-goal" ? [] : existingRoutine?.attachments ?? existingCall?.attachments ?? [],
   );
@@ -477,7 +477,7 @@ function EventEditor({
       setGroupId("");
       return;
     }
-    setRunOn("maus");
+    setRunOn("nation");
     setAttachments([]);
     setAttachmentNotice("");
     const room = selectedRoom ?? rooms[0];
@@ -505,7 +505,7 @@ function EventEditor({
       const added = toContextAttachments(result.attachments);
       if (added.length) {
         setAttachments((current) => [...current, ...added].slice(0, 20));
-        if (runOn === "cloud") setRunOn("maus");
+        if (runOn === "cloud") setRunOn("nation");
       }
       if (result.notice) setAttachmentNotice(result.notice);
     } finally {
@@ -537,7 +537,7 @@ function EventEditor({
           target: routineTarget,
           botId: lockedBotId ?? botIds[0] ?? "",
           groupId: routineTarget === "room-goal" ? groupId : null,
-          runOn: routineTarget === "room-goal" ? "maus" : runOn,
+          runOn: routineTarget === "room-goal" ? "nation" : runOn,
           enabled: existingRoutine ? undefined : true,
           schedule: nextSchedule,
           durationMinutes,
@@ -704,7 +704,7 @@ function EventEditor({
               </div>
               {kind === "routine" && (
                 <p className="text-[11px] leading-relaxed text-ink-secondary">
-                  Runs while OpenMausBot is open on this computer — it cannot wake a sleeping Mac. A run missed by less than 12 hours still happens when the app is back; for 24/7, run OpenMausBot on a VPS.
+                  Runs while NATION Team is open on this computer — it cannot wake a sleeping Mac. A run missed by less than 12 hours still happens when the app is back; for 24/7, run NATION Team on a VPS.
                 </p>
               )}
               {isCronChoice(recurrence) && kind === "routine" && cron && <CronScheduleFields choice={recurrence} value={cronDraft} onChange={(draft) => { setCronDraft(draft); setCronChanged(true); }} runs={cron.runs} error={cron.error} />}
@@ -967,11 +967,11 @@ function EventEditor({
                 {isRoomGoal ? (
                   <div className="rounded-xl border border-accent/35 bg-accent/[0.07] p-3">
                     <div className="text-[12.5px] font-medium text-ink">Runs on this computer</div>
-                    <div className="mt-1 text-[11px] leading-relaxed text-ink-secondary">OpenMausBot keeps the group and its member hand-offs together for the full goal.</div>
+                    <div className="mt-1 text-[11px] leading-relaxed text-ink-secondary">NATION Team keeps the group and its member hand-offs together for the full goal.</div>
                   </div>
                 ) : <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setRunOn("maus")} className={cn("rounded-xl border p-3 text-left", runOn === "maus" ? "border-accent/60 bg-accent/10" : "border-hairline/50 bg-inset hover:bg-raised")}><div className="text-[12.5px] font-medium text-ink">Bot’s current setup</div><div className="mt-1 text-[11px] text-ink-secondary">Keeps its model and configured computer, including a self-hosted VPS.</div></button>
-                  <button type="button" disabled={!cloudReady || attachments.length > 0} onClick={() => setRunOn("cloud")} className={cn("rounded-xl border p-3 text-left disabled:cursor-not-allowed disabled:opacity-45", runOn === "cloud" ? "border-accent/60 bg-accent/10" : "border-hairline/50 bg-inset hover:bg-raised")}><div className="text-[12.5px] font-medium text-ink">Box-hosted agent</div><div className="mt-1 text-[11px] text-ink-secondary">Switches to the Box runner, not your VPS. OpenMausBot must stay running to launch it.</div></button>
+                  <button type="button" onClick={() => setRunOn("nation")} className={cn("rounded-xl border p-3 text-left", runOn === "nation" ? "border-accent/60 bg-accent/10" : "border-hairline/50 bg-inset hover:bg-raised")}><div className="text-[12.5px] font-medium text-ink">Bot’s current setup</div><div className="mt-1 text-[11px] text-ink-secondary">Keeps its model and configured computer, including a self-hosted VPS.</div></button>
+                  <button type="button" disabled={!cloudReady || attachments.length > 0} onClick={() => setRunOn("cloud")} className={cn("rounded-xl border p-3 text-left disabled:cursor-not-allowed disabled:opacity-45", runOn === "cloud" ? "border-accent/60 bg-accent/10" : "border-hairline/50 bg-inset hover:bg-raised")}><div className="text-[12.5px] font-medium text-ink">Box-hosted agent</div><div className="mt-1 text-[11px] text-ink-secondary">Switches to the Box runner, not your VPS. NATION Team must stay running to launch it.</div></button>
                 </div>}
               </div>
             </div>
@@ -1057,7 +1057,7 @@ function QuickComposer({
             name,
             prompt: description,
             botId: botIds[0],
-            runOn: "maus",
+            runOn: "nation",
             enabled: true,
             schedule: { type: "once", at: seed.at },
             durationMinutes,
@@ -1165,7 +1165,7 @@ function CalendarEventCard({
   const ownerBots = ownerIds.flatMap((id) => bots.find((bot) => bot.id === id) ?? []);
   const primary = ownerBots[0];
   const name = isCall ? item.call.name : run?.routineName ?? routine?.name ?? "Routine";
-  const color = isCall ? "#6d7cff" : primary ? MAUS_COLORS[primary.color] : "#666";
+  const color = isCall ? "#6d7cff" : primary ? NATION_COLORS[primary.color] : "#666";
   const [previewDuration, setPreviewDuration] = useState(item.durationMinutes);
   useEffect(() => setPreviewDuration(item.durationMinutes), [item.durationMinutes]);
   const status = run?.status;

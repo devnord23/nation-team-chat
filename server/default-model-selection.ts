@@ -8,29 +8,26 @@ interface SelectableInstance {
   capabilities?: { effortLevels?: readonly EffortLevel[]; modelVariants?: boolean };
 }
 
-/** A saved choice is intentional: an unavailable provider or removed model
- * sends new bots to setup instead of silently changing their provider. */
+/** Keep the configured route through lazy discovery; never select a computer engine implicitly. */
 export function selectDefaultModelSelection(
   instances: readonly SelectableInstance[],
   preferred?: ModelSelection,
 ): ModelSelection {
   if (preferred) {
     const instance = instances.find((candidate) => candidate.instanceId === preferred.instanceId);
-    if (
-      instance?.snapshot.state !== "available" ||
-      instance.snapshot.authenticated === false ||
-      (preferred.variant !== undefined && !instance.capabilities?.modelVariants) ||
-      !(instance.models.default === preferred.model || instance.models.options.some((model) => model.id === preferred.model))
-    ) {
-      return { instanceId: "", model: "" };
-    }
+    // The saved routing choice remains authoritative while an ACP catalog is
+    // warming up (Hermes can accept configured routes absent from discovery).
+    // Never replace it with an empty pair or a different provider.
+    if (!preferred.instanceId.trim() || !preferred.model.trim()) return { instanceId: "", model: "" };
     const selection = { ...preferred };
     // A saved effort can outlive driver support. Keep the intentional model,
     // but let the provider use its own effort default instead of failing turn 1.
-    if (selection.effort && !instance.capabilities?.effortLevels?.includes(selection.effort)) delete selection.effort;
+    if (selection.effort && !instance?.capabilities?.effortLevels?.includes(selection.effort)) delete selection.effort;
     return selection;
   }
-  const available = instances.filter((instance) => instance.snapshot.state === "available");
-  const pick = available.find((instance) => instance.driverKind === "claudeAgent") ?? available[0];
+  const available = instances.filter((instance) => instance.snapshot.state === "available" &&
+    instance.snapshot.authenticated !== false && !["claudeAgent", "boxAgent", "computer"].includes(instance.driverKind));
+  const pick = available.find((instance) => instance.driverKind === "nation-openrouter")
+    ?? available.find((instance) => instance.driverKind === "hermesAgent") ?? available[0];
   return { instanceId: pick?.instanceId ?? "", model: pick?.models.default ?? "" };
 }

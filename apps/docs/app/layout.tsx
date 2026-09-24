@@ -6,15 +6,15 @@ import './global.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://docs.openmausbot.com'),
+  metadataBase: new URL('https://thenation.city/swarm'),
   title: {
-    default: 'OpenMausBot Docs',
-    template: '%s · OpenMausBot Docs',
+    default: 'Nation Team Chat Docs',
+    template: '%s · Nation Team Chat Docs',
   },
-  description: 'Install, configure, and extend your local-first team of AI agents.',
+  description: 'Install, configure, and extend your Nation Team Chat workspace.',
   openGraph: {
-    title: 'OpenMausBot Docs',
-    description: 'Your own team of AI agents, in a chat app.',
+    title: 'Nation Team Chat Docs',
+    description: 'Persistent AI teammates sharing one durable computer.',
     type: 'website',
   },
   icons: {

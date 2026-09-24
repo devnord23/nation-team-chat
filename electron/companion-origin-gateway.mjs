@@ -158,7 +158,7 @@ export function companionOriginHealth(
         response.on("end", () => {
           if (response.statusCode !== 200) return finish(false);
           try {
-            finish(JSON.parse(Buffer.concat(chunks).toString("utf8"))?.app === "openmausbot");
+            finish(["nation-team-chat","openmausbot"].includes(JSON.parse(Buffer.concat(chunks).toString("utf8"))?.app));
           } catch {
             finish(false);
           }

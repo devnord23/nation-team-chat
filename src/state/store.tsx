@@ -1,3 +1,4 @@
+import { responseErrorMessage } from "../lib/api-error-message";
 // Server-backed store. The React app holds no transports of its own:
 // it dispatches typed commands over HTTP and folds the one SSE event
 // stream from the harness server into local state. The reducer stays
@@ -16,7 +17,7 @@ import {
 import type { CloudBackend, EffortLevel, ServerFrame } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
-import type { MausColor, MausMotion } from "@/lib/mascot";
+import type { NationColor, NationMotion } from "@/lib/mascot";
 import type { BotAvatarCrop } from "../../shared/bot-avatar";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
@@ -61,7 +62,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
   });
 }
 
-export type { MausColor } from "@/lib/mascot";
+export type { NationColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
 export interface OptionCardData {
@@ -176,7 +177,7 @@ export interface Message {
   /** Stable client identity for at-most-once chat POST retries. */
   sendId?: string;
   /** rooms: which member said this (sender attribution). */
-  from?: { botId: string; name: string; color: MausColor };
+  from?: { botId: string; name: string; color: NationColor };
   /** a user-role line another bot delivered into this conversation
    * (ask_bot, delegate_bot, start_thread): the words are that bot's, not
    * the person's. Rendered as the peer speaking — see lib/peer-message. */
@@ -184,7 +185,7 @@ export interface Message {
   /** emoji reactions; by = "user" or a member botId. */
   reactions?: Array<{ emoji: string; by: string }>;
   /** comm chips: "Messaged @X" linking to the bot⇄bot channel. */
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: MausColor };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: NationColor };
   /** thread chips: "Opened thread #Title on Bot" linking to that thread */
   threadRef?: { botId: string; threadId: string; title: string };
   /** sent while the bot was mid-turn; auto-sends when the turn settles.
@@ -355,7 +356,7 @@ export interface Bot {
   /** The SOUL.md mirror on disk differs from the record; the Soul editor offers apply/discard. */
   soulDrift?: boolean;
   notifications: boolean;
-  color: MausColor;
+  color: NationColor;
   mascotExpression?: string | null;
   /** Which body the bot wears. Unknown/absent values fall back to the cursor. */
   mascotBody?: MascotBodyId | null;
@@ -569,6 +570,18 @@ export interface ConfigStatus {
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
   localVm: { mode: "shared" | "per-bot"; maxInstances: number };
   opencodeGo?: { configured: boolean };
+  /** Nation OpenRouter integration — key stays server-side; client only sees the boolean. */
+  nationOpenrouter?: { configured: boolean; model: string };
+  /** Admin gate status — drives Settings visibility for engine and key sections. */
+  adminGate?: { pinRequired: boolean };
+  /**
+   * Server-authoritative owner flag. Set to true when auth.scopes includes
+   * "admin" (loopback/Electron or a paired admin session); false otherwise.
+   * When present, client-side isProductAdmin() trusts this over its own
+   * heuristics so that non-owner hosted-server users are never mistakenly
+   * granted admin UI access.
+   */
+  isProductOwner?: boolean;
   /** Voice. `configured` = the engine has what it needs (an ElevenLabs or
    * Fish Audio key, or a Chatterbox server address); `ready` = that AND a voice, which is
    * what it takes to actually speak. The key itself is never echoed back;
@@ -627,12 +640,11 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing"
+  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
   return {
-    xai: frame.xai,
     composio: frame.composio,
     box: frame.box,
     vps: frame.vps,
@@ -651,6 +663,9 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     edition: frame.edition,
     budgets: frame.budgets,
     billing: frame.billing,
+    nationOpenrouter: frame.nationOpenrouter,
+    adminGate: frame.adminGate,
+    isProductOwner: frame.isProductOwner,
   };
 }
 
@@ -782,7 +797,7 @@ export interface AppState {
   config: ConfigStatus | null;
   /** selected chat — a bot id OR a group id */
   selectedId: string;
-  activeView: "chat" | "team-map" | "routines";
+  activeView: "chat" | "team-map" | "routines" | "admin";
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
@@ -836,7 +851,7 @@ export interface AppState {
   mascotMotion: {
     botId: string;
     nonce: number;
-    kind: Exclude<MausMotion, "none">;
+    kind: Exclude<NationMotion, "none">;
   } | null;
   /** Queued follow-up lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
@@ -946,6 +961,7 @@ export type Action =
   | { type: "sections"; sections: string[] }
   | { type: "showRoutines"; section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter }
   | { type: "showTeamMap" }
+  | { type: "showAdmin" }
   | { type: "showChat" }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
@@ -1213,7 +1229,7 @@ function updateBot(state: AppState, botId: string, fn: (b: Bot) => Bot): AppStat
 function withMascotMotion(
   state: AppState,
   botId: string,
-  kind: Exclude<MausMotion, "none">,
+  kind: Exclude<NationMotion, "none">,
 ): AppState {
   return {
     ...state,
@@ -1369,6 +1385,18 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         activeView: "team-map",
+        settingsOpen: false,
+        computerOpen: false,
+        inspectorOpen: false,
+        appSettingsOpen: false,
+        pluginsOpen: false,
+      };
+    case "showAdmin":
+      // Deny silently if the server has told us this is not the owner.
+      if (state.config?.isProductOwner === false) return state;
+      return {
+        ...state,
+        activeView: "admin",
         settingsOpen: false,
         computerOpen: false,
         inspectorOpen: false,
@@ -1829,15 +1857,8 @@ export function reducer(state: AppState, action: Action): AppState {
         appSettingsOpen: open ? false : state.appSettingsOpen,
       };
     }
-    case "togglePlugins": {
-      const open = action.open ?? !state.pluginsOpen;
-      return {
-        ...state,
-        pluginsOpen: open,
-        pluginsSurface: action.surface ?? state.pluginsSurface,
-        ...(open ? { settingsOpen: false, appSettingsOpen: false, newBotOpen: false, shortcutsOpen: false } : {}),
-      };
-    }
+    case "togglePlugins":
+      return { ...state, pluginsOpen: false };
     case "botCreationPending":
       return { ...state, botCreationPending: action.on };
     case "toggleNewBot": {
@@ -2253,11 +2274,22 @@ export async function createBotWithRole(role?: BotRole, request: typeof api = ap
  * transcript window mounts. */
 export const MESSAGE_PAGE_SIZE = 200;
 
+/**
+ * Resolve a root-relative path against the app's base URL so API calls work
+ * whether the SPA is served at "/" (bare deployment) or "/swarm/" (proxied
+ * under nation-app). import.meta.env.BASE_URL is replaced at build time by
+ * Vite, so this has zero runtime overhead.
+ */
+export function apiUrl(path: string): string {
+  if (path.startsWith("/")) return import.meta.env.BASE_URL + path.slice(1);
+  return path;
+}
+
 export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
   // timeoutMs races the fetch against AbortSignal.timeout, combined with any
   // caller signal so either can cancel. Omitted means no behavior change.
   const { timeoutMs, signal, ...rest } = init ?? {};
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     headers: { "content-type": "application/json" },
     ...rest,
     signal: timeoutMs === undefined
@@ -2267,7 +2299,7 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
         : AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+  if (!res.ok) throw new ApiError(responseErrorMessage(body, res.headers.get("x-nation-error-schema")), res.status);
   return body;
 }
 
@@ -2620,7 +2652,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      fetch(apiUrl(`/api/bots/${botId}/cards/${messageId}`), {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
@@ -3574,7 +3606,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               (selectedTask?.unread || (!bot.tasks && bot.unread))) {
             if (selectedTask) selectedTask.unread = false;
             bot.unread = Boolean(bot.tasks?.some((task) => task.unread));
-            fetch(`/api/bots/${bot.id}/read`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: selected?.threadId }) }).catch(() => {});
+            fetch(apiUrl(`/api/bots/${bot.id}/read`), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ threadId: selected?.threadId }) }).catch(() => {});
           }
           rawDispatch({
             type: "botPatched",
@@ -3587,7 +3619,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // reading the selected room clears its badge immediately
           if (group.unread && group.id === stateRef.current.selectedId) {
             group.unread = false;
-            fetch(`/api/groups/${group.id}/read`, { method: "POST" }).catch(() => {});
+            fetch(apiUrl(`/api/groups/${group.id}/read`), { method: "POST" }).catch(() => {});
           }
           rawDispatch({ type: "groupPatched", group });
           break;

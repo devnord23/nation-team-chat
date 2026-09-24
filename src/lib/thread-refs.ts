@@ -131,7 +131,7 @@ export function resolveThreadRefs(text: string, threads: ThreadRefCandidate[], c
 }
 
 // ── canonical thread links ─────────────────────────────────────────────
-// openmausbot://thread/<id>?bot=<owner> is the one spelling a copied
+// nation://thread/<id>?bot=<owner> is the spelling of a new copied
 // reference has, in the clipboard and inside sent messages. The bot id is
 // optional when parsing — a bare link or a raw UUID resolves by preference
 // — but copy always emits it, so a paste round-trips to the exact thread.
@@ -143,7 +143,7 @@ export interface ThreadRefAddress {
   botId?: string;
 }
 
-const THREAD_URL_PREFIX = "openmausbot://thread/";
+const THREAD_URL_PREFIX = "nation://thread/";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ID_LIMIT = 256;
 
@@ -192,7 +192,7 @@ export function parseThreadRefUrl(value: string): ThreadRefAddress | null {
  * fails strict parsing. Markdown must never hand such a URL to the shell
  * as an external link, live or dead. */
 export function looksLikeThreadRefUrl(value: string): boolean {
-  return value.trim().toLowerCase().startsWith(THREAD_URL_PREFIX);
+  return /^(?!https?:)[a-z][a-z0-9+.-]*:\/\/thread\//i.test(value.trim());
 }
 
 /** A raw thread id on its own: the UUID form the server mints. */
@@ -392,7 +392,7 @@ export function threadTokenFromPaste(
 ): { token: string; ref: ResolvedThreadRef } | null {
   const trimmed = pasted.trim();
   if (!trimmed) return null;
-  const wrapped = /^\[((?:\\.|[^\\\]])*)\]\((openmausbot:\/\/thread\/[^()\s]*)\)$/.exec(trimmed);
+  const wrapped = /^\[((?:\\.|[^\\\]])*)\]\((nation:\/\/thread\/[^()\s]*)\)$/.exec(trimmed);
   const address = wrapped
     ? parseThreadRefUrl(wrapped[2])
     : parseThreadRefUrl(trimmed) ?? (isThreadUuid(trimmed) ? { threadId: trimmed } : null);

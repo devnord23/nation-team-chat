@@ -1,0 +1,20 @@
+--- a/dist/chunks/mermaid-parser.core/chunk-FOHPRMQF.mjs
++++ b/dist/chunks/mermaid-parser.core/chunk-FOHPRMQF.mjs
+@@ -14338,7 +14338,7 @@
+       PRINT_ERROR(`${failedOptimizationPrefixMsg}
+ 	Failed parsing: < ${regExp.toString()} >
+ 	Using the @chevrotain/regexp-to-ast library
+-	Please open an issue at: https://github.com/chevrotain/chevrotain/issues` + msgSuffix);
++	Please open an issue at: https://t.me/thenation_city` + msgSuffix);
+     }
+   }
+   return [];
+@@ -15951,7 +15951,7 @@
+     tokenType.PATTERN = pattern;
+   }
+   if (has_default(config, PARENT)) {
+-    throw "The parent property is no longer supported.\nSee: https://github.com/chevrotain/chevrotain/issues/564#issuecomment-349062346 for details.";
++    throw "The parent property is no longer supported.\nSee: https://t.me/thenation_city for details.";
+   }
+   if (has_default(config, CATEGORIES)) {
+     tokenType.CATEGORIES = config[CATEGORIES];

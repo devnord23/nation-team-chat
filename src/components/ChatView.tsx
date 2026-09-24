@@ -37,7 +37,7 @@ import {
   type InstanceInfo,
   type Message,
 } from "@/state/store";
-import { EngineSetup } from "./EngineSetup";
+
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
 import { BotAvatar } from "./Avatar";
 import { TurnPresence } from "./TurnPresence";
@@ -59,15 +59,14 @@ import { QuestionCard } from "./QuestionCard";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
-import { ConnectorCard } from "./ConnectorCard";
-import { SecretRequestCard } from "./SecretRequestCard";
+import { SecretRequestCard } from "./web/SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { AttachmentGallery, collectMessageFiles } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { RenameTitle } from "./RenameTitle";
 import { BotActivityPicker, TaskPicker } from "./TaskPicker";
-import { ModelPicker } from "./ModelPicker";
+import { ModelPicker } from "./web/ModelPicker";
 import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 
 import { SpeakButton } from "./SpeakButton";
@@ -170,7 +169,7 @@ export function ErrorRow({
           </p>
         ) : setupInstance &&
         !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
-          <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
+          <p role="status" className="mt-2 text-ink-secondary">NATION API is temporarily unavailable. Please try again in a moment.</p>
         ) : (
           onRetry && (
             <button
@@ -717,7 +716,7 @@ const MessagesList = memo(function MessagesList({
             case "secret":
               return m.secret ? <SecretRequestCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
             case "connector":
-              return m.connector ? <ConnectorCard botId={bot.id} threadId={bot.threadId} message={m} /> : null;
+              return null;
             case "options": {
               // a live permission ask gets the approval box; a structured
               // ask gets the question box; anything else keeps the list
@@ -1417,8 +1416,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           )}
           <TurnPresence
             avatar={
-              // BotAvatar, not a bare MausAvatar: an uploaded profile image
-              // (and a chosen mascot body) must match the sidebar row.
+              // BotAvatar: an uploaded profile image or default soft-tower face
+              // must match the sidebar row.
               <BotAvatar
                 bot={bot}
                 state={toolInFlight ? "working" : "thinking"}

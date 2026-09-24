@@ -51,7 +51,25 @@ jobs:
       - run: pnpm lint
       - run: pnpm check:electron
       - name: production UI build
-        run: pnpm exec vite build
+        run: pnpm exec vite build && pnpm brand-guard
+
+  nation-credits:
+    name: NATION credit and payment contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run server/nation-credits.test.ts server/nation-credits.e2e.test.ts server/drivers/openai-chat-tools.test.ts server/spend.test.ts server/avatar-image.test.ts server/request-auth.test.ts
+        env:
+          NATION_BRAND_CAPTURE_PATH: /tmp/nation-member-api.json
+      - run: node scripts/brand-guard.mjs /tmp/nation-member-api.json
+      - run: bash -n scripts/smoke-live.sh && node --check scripts/smoke-live.mjs
 
   vitest:
     # Admit the expensive runner fan-out only after the quick checks pass.
@@ -166,7 +184,7 @@ jobs:
     # above, so the requirement holds without a settings change. Once the
     # ruleset requires this gate directly, collapse the matrix to one job.
     name: typecheck + test (${{ matrix.os }})
-    needs: [static, vitest, packaged-server, windows-cua, electron-smokes]
+    needs: [static, nation-credits, vitest, packaged-server, windows-cua, electron-smokes]
     # Still report failed/skipped dependencies, but don't keep a superseded
     # workflow alive just to schedule its summary jobs.
     if: ${{ !cancelled() }}

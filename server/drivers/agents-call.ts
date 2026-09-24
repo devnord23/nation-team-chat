@@ -319,7 +319,7 @@ function routineFields(args: Json): { fields: Json; error?: string } {
   const runOn = destination(args.run_on ?? args.runOn);
   const timeoutMinutes = args.timeout_minutes ?? args.timeoutMinutes;
   if (runOn != null && runOn !== "maus" && runOn !== "cloud") {
-    return { fields, error: 'Use run_on="maus" for the bot’s current model and configured computer (including VPS), or run_on="box" only for the Box-hosted agent. Legacy "cloud" also means Box.' };
+    return { fields, error: `Use run_on="maus" for the bot's current model and configured computer (including VPS), or run_on="box" only for the Box-hosted agent. Legacy "cloud" also means Box.` };
   }
   if (timeoutMinutes != null && (
     typeof timeoutMinutes !== "number" || !Number.isInteger(timeoutMinutes) || timeoutMinutes < 5 || timeoutMinutes > 240
@@ -823,7 +823,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. Continue the task.` };
     }
     return {
-      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; OpenMausBot will resume the task after the user saves or declines. Never ask them to paste the key into chat.`,
+      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; Nation Team Chat will resume the task after the user saves or declines. Never ask them to paste the key into chat.`,
     };
   }
   if (name === "list_routines") {

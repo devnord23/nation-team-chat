@@ -1,5 +1,8 @@
 {
-  "title": "Mobile",
+  "title": "Stay connected",
   "icon": "Smartphone",
-  "pages": ["ios-companion", "android-control"]
+  "pages": [
+    "ios-companion",
+    "android-control"
+  ]
 }

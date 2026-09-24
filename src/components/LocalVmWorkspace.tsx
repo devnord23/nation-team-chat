@@ -14,7 +14,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { api, useStore, type Action, type Bot } from "@/state/store";
+import { api, apiUrl, useStore, type Action, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { transitionComputerControlLease } from "@/lib/computer-control";
 import {
@@ -75,7 +75,7 @@ async function readComputerControl(botId: string): Promise<LocalVmWorkspaceContr
 }
 
 function bestEffortRelease(botId: string, controlLeaseId: string) {
-  void fetch(`/api/bots/${botId}/computer/control`, {
+  void fetch(apiUrl(`/api/bots/${botId}/computer/control`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ action: "release", controlLeaseId }),
@@ -312,7 +312,7 @@ function LocalVmPane({
       if (bridge) await bridge.close(contextId).catch(() => {});
       if (!alive || !botId) return;
       if (!bridge) {
-        setError("The two-desktop workspace requires the OpenMausBot desktop app.");
+        setError("The two-desktop workspace requires the NATION Team desktop app.");
         return;
       }
       try {
@@ -363,7 +363,7 @@ function LocalVmPane({
         setError(
           cause instanceof Error && cause.message === "layout-unavailable"
             ? "The viewer area is not laid out yet. Retry after resizing the window."
-            : "OpenMausBot could not connect this Local VM viewer.",
+            : "NATION Team could not connect this Local VM viewer.",
         );
       }
     };
@@ -396,7 +396,7 @@ function LocalVmPane({
     if (!bridge || !bounds || !nativeState.open) return;
     void bridge
       .layout([{ contextId, bounds, visible: !obscured }])
-      .catch(() => setError("OpenMausBot could not position this Local VM viewer."));
+      .catch(() => setError("NATION Team could not position this Local VM viewer."));
   }, [contextId, nativeState.open, obscured]);
 
   useEffect(() => {
@@ -684,7 +684,7 @@ export function LocalVmWorkspace({
       setControlledBotId(null);
       return true;
     } catch {
-      setControlError("OpenMausBot could not hand control back. The workspace stayed open.");
+      setControlError("NATION Team could not hand control back. The workspace stayed open.");
       return false;
     } finally {
       controlBusyRef.current = false;

@@ -14,7 +14,7 @@ import * as tar from "tar";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { writeFileAtomic } from "./atomic.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
-import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
+import { workspaceClientPreferences } from "./workspace-client-preferences.ts";
 import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, portableWorkspaceConfig, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary } from "../shared/workspace-backup.ts";
 
@@ -31,9 +31,11 @@ const EXCLUDED = new Set([
   ".backups", "tools", "cache", ".cache", "tmp", ".tmp", "dist-native", "tunnel-runtime",
   ".openmausbot-server-child", "environment-id", "sessions.json", "tunnel-account.json",
   "team-computers.json",
+  "nation-credits.db", "nation-credits.db-wal", "nation-credits.db-shm",
   "openmausbot-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
 ]);
 const EXCLUSION_NOTES = [
+  "The financial credit ledger is preserved in place and must be backed up separately. Workspace restores cannot roll back balances or payment replay protection.",
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",
   "Saved credentials, provider and MCP connections, managed provider login homes and browser login profiles are not transferred. Destination connections are preserved; reconnect on a new device.",
   "Downloaded tools and caches; these can be installed again.",
@@ -380,8 +382,8 @@ function validateManifest(value: unknown): Manifest {
     Object.keys(value.summary).some((key) => !["format", "version", "id", "createdAt", "appVersion", "files", "directories", "bytes", "bots", "groups", "threads", "messages", "exclusions", "warnings"].includes(key)) || !record(value.clientState) ||
     !Object.values(value.clientState).every((item) => typeof item === "string") || !Array.isArray(value.entries) ||
     value.entries.length > MAX_WORKSPACE_BACKUP_FILES) throw new Error("Invalid or unsupported workspace backup metadata.");
-  if (Object.keys(value.clientState).some((key) => !WORKSPACE_BACKUP_CLIENT_KEYS.includes(key as typeof WORKSPACE_BACKUP_CLIENT_KEYS[number])) ||
-    Buffer.byteLength(JSON.stringify(value.clientState)) > 2 * 1024 ** 2) throw new Error("Invalid or oversized workspace client preferences.");
+  const clientState = workspaceClientPreferences(value.clientState as Record<string, string>);
+  if (Buffer.byteLength(JSON.stringify(clientState)) > 2 * 1024 ** 2) throw new Error("Invalid or oversized workspace client preferences.");
   for (const key of ["files", "directories", "bytes", "bots", "groups", "threads", "messages"] as const) {
     if (!Number.isSafeInteger(value.summary[key]) || (value.summary[key] as number) < 0) throw new Error("Invalid workspace backup summary.");
   }
@@ -411,7 +413,7 @@ function validateManifest(value: unknown): Manifest {
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) if (names.get(parts.slice(0, i).join("/")) !== "directory") throw new Error("A backup entry has an unsafe parent.");
   }
-  return value as unknown as Manifest;
+  return { ...value, clientState } as unknown as Manifest;
 }
 
 async function decryptArchive(inputPath: string, plaintext: string, password: string): Promise<void> {
@@ -530,7 +532,7 @@ export async function stageWorkspaceBackup(dataDir: string, archivePath: string,
     const versions = [manifest.summary.appVersion, options.currentAppVersion ?? ""].map((version) => /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)?.slice(1).map(Number));
     if (versions[0] && versions[1]) {
       for (let i = 0; i < 3; i++) {
-        if (versions[0][i] > versions[1][i]) throw new Error("This backup was made by a newer OpenMausBot version. Update the app before restoring it.");
+        if (versions[0][i] > versions[1][i]) throw new Error("This backup was made by a newer NATION version. Update the app before restoring it.");
         if (versions[0][i] < versions[1][i]) break;
       }
     }

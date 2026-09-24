@@ -75,11 +75,11 @@ const CREDENTIALS: Record<
     optional: true,
   },
   anthropic: {
-    labelKey: "keys.anthropic.label",
+    labelKey: "keys.primary.label",
     placeholder: "sk-ant-…",
-    descriptionKey: "keys.anthropic.desc",
+    descriptionKey: "keys.primary.desc",
     href: "https://console.anthropic.com/settings/keys",
-    linkLabelKey: "keys.anthropic.link",
+    linkLabelKey: "keys.primary.link",
     optional: true,
   },
   openaiCompat: {
@@ -91,11 +91,11 @@ const CREDENTIALS: Record<
     optional: true,
   },
   xai: {
-    labelKey: "keys.xai.label",
+    labelKey: "keys.media.label",
     placeholder: "xai-…",
-    descriptionKey: "keys.xai.desc",
+    descriptionKey: "keys.media.desc",
     href: "https://console.x.ai",
-    linkLabelKey: "keys.xai.link",
+    linkLabelKey: "keys.media.link",
     optional: true,
   },
 };
@@ -360,7 +360,7 @@ export function VpsConnection() {
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
         {t("keys.vps.descBefore")}
         <a
-          href="https://github.com/milind-soni/OpenMausBot/blob/main/docs/byo-vps.md"
+          href="https://t.me/thenation_city"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline"
@@ -398,8 +398,8 @@ export function VpsConnection() {
   );
 }
 
-/** The OpenAI-compatible engine's base URL: a setting next to its key, so
- * OpenRouter, Groq, Together or OpenAI itself are one field away. */
+/** The compatible API engine's base URL: a setting next to its key, so
+ * OpenRouter, Groq, Together, or another provider are one field away. */
 export function OpenAiCompatUrl() {
   const { state, dispatch } = useStore();
   const saved = state.config?.openaiCompat?.url ?? "";

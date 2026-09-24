@@ -33,7 +33,7 @@ import { GroupTaskPicker } from "./TaskPicker";
 import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
-import { SecretRequestCard } from "./SecretRequestCard";
+import { SecretRequestCard } from "./web/SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { GoalRunCard } from "./GoalRunCard";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";
@@ -541,40 +541,10 @@ function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: ()
 }
 
 
-type RoomSetupFields = {
-  setupPending?: boolean;
-  setupRequired?: boolean;
-  setupState?: "required" | "completed" | "skipped";
-  setupCompletedAt?: number | string | null;
-  setupSkippedAt?: number | string | null;
-};
-
 type RoomResponderMode = "lead" | "everyone" | "mentions";
 
 function setupResponderMode(responder: GroupDefaultResponder): RoomResponderMode {
   return responder.kind === "member" ? "lead" : responder.kind;
-}
-
-function roomNeedsSetup(group: Group): boolean {
-  if (group.dm || group.messages.length > 0) return false;
-  // SAFETY: setup fields are additive server metadata; the existing Group shape remains valid when absent.
-  const marker = group as Group & RoomSetupFields;
-  const hasSetupMarker =
-    Object.prototype.hasOwnProperty.call(marker, "setupCompletedAt") ||
-    Object.prototype.hasOwnProperty.call(marker, "setupSkippedAt");
-  // Legacy empty rooms omit both keys and remain immediately usable.
-  if (!hasSetupMarker) return false;
-  if (
-    marker.setupPending === false ||
-    marker.setupRequired === false ||
-    marker.setupState === "completed" ||
-    marker.setupState === "skipped" ||
-    marker.setupCompletedAt != null ||
-    marker.setupSkippedAt != null
-  ) {
-    return false;
-  }
-  return true;
 }
 
 function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
@@ -934,7 +904,7 @@ export function GroupView({ group }: { group: Group }) {
     [group.memberIds, state.bots],
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
-  const setupPending = !remoteClient && roomNeedsSetup(group);
+  const setupPending = false; // The first human message accepts optional room defaults.
 
   // Mascot stays while a member works; the finished reply pops in above it.
   const lastGroupMessage = group.messages.at(-1);

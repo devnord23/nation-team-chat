@@ -1,9 +1,9 @@
-appId: com.openmausbot.app
-productName: OpenMausBot
-artifactName: OpenMausBot-${version}-${arch}.${ext}
+appId: city.thenation.app
+productName: Nation Team Chat
+artifactName: NationTeamChat-${version}-${arch}.${ext}
 
 protocols:
-  - name: OpenMausBot package install
+  - name: Nation Team Chat
     schemes: [openmausbot]
 
 # In-app auto-update reads latest-mac.yml + the .zip (macOS) or latest.yml +
@@ -15,8 +15,8 @@ protocols:
 # stranded on its installed version.
 publish:
   - provider: github
-    owner: milind-soni
-    repo: OpenMausBot
+    owner: devnord23
+    repo: nation-team-chat
 
 directories:
   buildResources: build
@@ -124,7 +124,7 @@ dmg:
   # ${arch} is load-bearing: without it the x64 dmg silently overwrites
   # the arm64 one when both arches build (this section overrides both the
   # top-level and mac-level artifactName, so it must carry the arch itself)
-  artifactName: OpenMausBot-${version}-${arch}.dmg
+  artifactName: NationTeamChat-${version}-${arch}.dmg
 
 win:
   target:
@@ -160,7 +160,7 @@ nsis:
   # Versioned, like the .dmg. The README's /latest/download/ button needs a
   # STABLE filename, so ship a second copy named OpenMausBot-setup.exe on the
   # release — the same trick as OpenMausBot.dmg beside OpenMausBot-${version}.dmg.
-  artifactName: OpenMausBot-${version}-setup.${ext}
+  artifactName: NationTeamChat-${version}-setup.${ext}
 
 linux:
   target:

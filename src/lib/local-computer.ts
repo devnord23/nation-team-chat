@@ -48,17 +48,17 @@ export function localComputerDisabledReason({
       return "Wayland local control is currently limited to GNOME. Xorg remains available on supported desktops.";
     }
     if (!capabilities.localComputer.enabled) {
-      return "Enable the local control beta and complete the Cua Driver checks first.";
+      return "Enable the local control beta and complete the Computer control checks first.";
     }
-    return capabilities.localComputer.message ?? "Cua Driver is not ready for local control.";
+    return capabilities.localComputer.message ?? "Computer control is not ready for local control.";
   }
   if (capabilities.host.label === "Browser") {
     return "Local computer control requires the desktop app.";
   }
   if (capabilities.host.platform === "win32") {
-    return "The bundled Cua Driver could not start. Restart OpenMausBot and check Diagnostics if it still fails.";
+    return "The bundled Computer control could not start. Restart NATION Team and check Diagnostics if it still fails.";
   }
-  return "CUA Driver is not ready for local computer control.";
+  return "Computer control is not ready for local computer control.";
 }
 
 export function linuxAutoDescription(): string {
@@ -176,7 +176,7 @@ export function persistedComputerSelectionMatches({
   persistedBot: Pick<Bot, "computer" | "cloudBackend">;
 }): boolean {
   return persistedBot.computer === computer
-    && (persistedBot.cloudBackend ?? "box") === cloudBackend;
+    && (persistedBot.cloudBackend ?? "vps") === cloudBackend;
 }
 
 export function autoSelectsLocalComputer({

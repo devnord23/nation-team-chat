@@ -65,6 +65,15 @@ describe("default VPS command runner", () => {
     child.emit("close", 1, null);
   });
 
+  it("surfaces a clear Nation-branded message when docker binary is missing (ENOENT)", async () => {
+    const child = fakeChild();
+    const result = defaultRunner(["info"]);
+    const enoent = Object.assign(new Error("spawn docker ENOENT"), { code: "ENOENT" });
+    child.emit("error", enoent);
+    await expect(result).rejects.toThrow("Docker is not installed on the VPS or is not on the remote PATH");
+    child.emit("close", 1, null);
+  });
+
   it("escalates a timed-out command from SIGTERM to SIGKILL", async () => {
     vi.useFakeTimers();
     const child = fakeChild();

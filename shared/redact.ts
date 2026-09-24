@@ -27,7 +27,7 @@ const KEY_PREFIXES: RegExp[] = [
   /\bgsk_[A-Za-z0-9]{40,}/g, // groq
   /\bhf_[A-Za-z0-9]{30,}/g, // hugging face
   /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g, // github classic
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/g, // github fine-grained
+  /\b[a-z][a-z0-9]*_pat_[A-Za-z0-9_]{20,}/g, // github fine-grained
   /\bxox[abposr]-[A-Za-z0-9-]{20,}/g, // slack
   /\bAKIA[0-9A-Z]{16}\b/g, // aws access key id
   /\bAIza[0-9A-Za-z_-]{30,}/g, // google api key

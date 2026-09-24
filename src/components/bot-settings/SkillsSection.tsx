@@ -217,8 +217,8 @@ export function SkillsSection({ bot }: { bot: Bot }) {
         >
           <input
             className={inputCls}
-            placeholder="owner/repo or https://github.com/…/SKILL.md"
-            aria-label="Import a skill from GitHub"
+            placeholder="Link to a skill file"
+            aria-label="Import a skill"
             value={source}
             onChange={(e) => setSource(e.target.value)}
           />

@@ -26,7 +26,7 @@ import {
   PinOff,
   Plus,
   Search,
-  Puzzle,
+  ShieldCheck,
   Trash2,
   Users,
   X,
@@ -92,6 +92,7 @@ import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarMoreMenu } from "./SidebarMoreMenu";
 import { DesktopWorkspaceSwitcher } from "./DesktopWorkspaceSwitcher";
 import { profileInitials, SidebarProfileMenu } from "./SidebarProfileMenu";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { useShowThreads } from "@/lib/thread-preferences";
 import { AttentionThreadRows, crossBotAttentionThreads, SidebarBotActivity, sidebarBotActivityTasks } from "./SidebarBotActivity";
@@ -1527,6 +1528,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   });
   const [densityOpen, setDensityOpen] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<string[]>(() => loadCollapsedSections());
+  const admin = isProductAdmin({
+    remoteClient,
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
   const [sectionOrder, setSectionOrder] = useState<string[]>(() => loadSectionOrder());
   const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; place: SectionDropPlace } | null>(null);
@@ -1760,7 +1766,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (event.dataTransfer.types.includes(FOLDER_DRAG_TYPE)) return;
     event.preventDefault();
     const from =
-      event.dataTransfer.getData("application/x-openmausbot-sidebar-section") ||
+      event.dataTransfer.getData("application/x-nation-sidebar-section") ||
       event.dataTransfer.getData("text/plain") ||
       sectionDragRef.current.from;
     const over = sectionDragRef.current.over;
@@ -1988,6 +1994,12 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
       <DesktopWorkspaceSwitcher compact={density === "icons"} />
       <OrganizationIdentity compact={density === "icons"} />
+      {density !== "icons" && (
+        <div className="mx-3 mb-1 flex items-center gap-2.5 px-1">
+          <div className="flex size-6 items-center justify-center rounded-[5px] bg-accent text-[10px] font-bold text-accent-ink">N</div>
+          <span className="text-[13px] font-semibold tracking-tight text-ink">NATION Team</span>
+        </div>
+      )}
       {/* Search */}
       <div className={cn("pt-1 pb-3", density === "icons" ? "hidden" : "px-3")}>
         <div className="flex items-center gap-2 rounded-md border border-hairline/40 bg-inset/40 px-2.5 py-1.5 focus-within:border-accent/50">
@@ -2082,7 +2094,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     dragging={draggingSectionId === id}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("application/x-openmausbot-sidebar-section", id);
+                      event.dataTransfer.setData("application/x-nation-sidebar-section", id);
                       event.dataTransfer.setData("text/plain", id);
                       sectionDragRef.current = { from: id, over: null };
                       setDraggingSectionId(id);
@@ -2178,15 +2190,21 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-2 rounded-full bg-danger" />
             )}
           </button>
-          <button
-            onClick={() => dispatch({ type: "togglePlugins", open: true })}
-            className={cn("flex min-h-10 w-full items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}
-            aria-label={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-            title={density === "icons" ? t("sidebar.nav.connectedApps") : undefined}
-          >
-            <Puzzle size={20} className="text-ink-secondary" />
-            <span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span>
-          </button>
+          {admin && (
+            <button
+              onClick={() => dispatch({ type: "showAdmin" })}
+              aria-label="Admin"
+              title="Admin"
+              className={cn(
+                "flex min-h-10 w-full items-center rounded-xl py-2 text-left transition-colors",
+                density === "icons" ? "justify-center px-2" : "gap-3 px-3",
+                state.activeView === "admin" ? "bg-raised text-ink" : "text-ink hover:bg-raised/50",
+              )}
+            >
+              <ShieldCheck size={20} className={state.activeView === "admin" ? "text-accent" : "text-ink-secondary"} />
+              <span className={cn("flex-1 text-[14px]", density === "icons" && "hidden")}>Admin</span>
+            </button>
+          )}
           </>
         )}
         {density === "icons" && (
@@ -2217,13 +2235,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 ),
                 onSelect: () => dispatch({ type: "showRoutines" }),
               },
-              {
-                key: "plugins",
-                tourId: "nav-apps",
-                label: t("sidebar.nav.connectedApps"),
-                icon: <Puzzle size={18} />,
-                onSelect: () => dispatch({ type: "togglePlugins", open: true }),
-              },
+              ...(admin ? [{
+                key: "admin",
+                label: "Admin",
+                icon: <ShieldCheck size={18} />,
+                active: state.activeView === "admin",
+                onSelect: () => dispatch({ type: "showAdmin" }),
+              }] : []),
             ]}
           />
         )}

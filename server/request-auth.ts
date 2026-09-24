@@ -183,6 +183,9 @@ export function clearSessionCookie(name: string): string {
  * filter in the handler (bot and room edits: display fields only). Loopback
  * holds both scopes. */
 export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: RegExp; feature?: "sharedComputers" }> = [
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
+  { methods: ["GET"], path: /^\/api\/credits\/status$/ },
+  { methods: ["POST"], path: /^\/api\/credits\/(?:invoices|confirm|wallet\/(?:challenge|verify))$/ },
   // own session
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
   { methods: ["POST"], path: /^\/api\/auth\/stream-ticket$/ },
@@ -194,9 +197,11 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/shared-computers\/(?:connect|[\w-]+\/(?:poll|lease|result|disconnect))$/, feature: "sharedComputers" },
   // liveness, identity, the stream
   { methods: ["GET"], path: /^\/api\/health$/ },
-  { methods: ["GET"], path: /^\/api\/edition$/ },
+
   { methods: ["GET"], path: /^\/api\/brand$/ },
   { methods: ["GET"], path: /^\/api\/events$/ },
+  { methods: ["GET"], path: /^\/api\/instances$/ }, // public NATION projection only
+  { methods: ["POST"], path: /^\/api\/bots$/ }, // configured defaults only
   // reads: fleet, transcripts, search (no secrets in any of these)
   { methods: ["GET"], path: /^\/api\/bots$/ },
   { methods: ["GET"], path: /^\/api\/team-map$/ },

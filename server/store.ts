@@ -26,7 +26,7 @@ import type { GroupGoalRunCardData } from "../shared/group-goal-run.ts";
 import { isMentionBoundary, isMentionNameContinuation } from "../shared/mention-boundary.ts";
 import type { HandedState } from "./delta-context.ts";
 import type {
-  BotActivity, GroupDefaultResponder, GroupTask as GroupTaskRecord, MausColor,
+  BotActivity, GroupDefaultResponder, GroupTask as GroupTaskRecord, NationColor,
   OptionCardData, TaskClosedBy, TaskOpenedBy, TaskUsage, WireBot, WireGroup,
   WireMessage, WireTask, BotProject as BotProjectRecord,
 } from "../shared/wire.ts";
@@ -36,7 +36,7 @@ export type {
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
 } from "../shared/wire.ts";
 export type { GroupTask as GroupTaskRecord, BotProject as BotProjectRecord } from "../shared/wire.ts";
-export type { InstalledPlaybook, InstalledPackageMetadata, MausColor, MausExpression } from "../shared/wire.ts";
+export type { InstalledPlaybook, InstalledPackageMetadata, NationColor, NationExpression } from "../shared/wire.ts";
 
 
 /** One transcript line, serialized as stored — the shared wire shape. */
@@ -392,7 +392,7 @@ function tightenRegistryFile(file: string): void {
 }
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
 
-const COLORS: MausColor[] = [
+const COLORS: NationColor[] = [
   "green",
   "blue",
   "red",
@@ -403,6 +403,19 @@ const COLORS: MausColor[] = [
   "yellow",
   "teal",
   "coral",
+];
+
+/**
+ * The six NATION bot-face assets in public/bot-faces/, cycled across new bots
+ * in order so the roster gets variety out of the box.
+ */
+const BOT_FACES: Array<{ url: string; color: NationColor }> = [
+  { url: "/bot-faces/coordinator.svg", color: "green"  },
+  { url: "/bot-faces/researcher.svg",  color: "purple" },
+  { url: "/bot-faces/builder.svg",     color: "cyan"   },
+  { url: "/bot-faces/analyst.svg",     color: "yellow" },
+  { url: "/bot-faces/creator.svg",     color: "orange" },
+  { url: "/bot-faces/operator.svg",    color: "blue"   },
 ];
 
 /** Sections are persisted as display labels, so exact trimmed labels are
@@ -1013,7 +1026,7 @@ export class Store {
       detail: string;
       finishedAt: number;
     } | null,
-    fallbackDetail = "OpenMausBot restarted before this goal finished.",
+    fallbackDetail = "NATION restarted before this goal finished.",
     fallbackFinishedAt = Date.now(),
   ): number {
     const ownedThreadIds = new Set<string>();
@@ -1434,7 +1447,7 @@ export class Store {
     profile: Partial<
       Pick<
         BotRecord,
-        "name" | "title" | "description" | "soul" | "color" | "mascotExpression" | "mascotBody" | "modelSelection" | "section"
+        "name" | "title" | "description" | "soul" | "color" | "mascotExpression" | "mascotBody" | "modelSelection" | "section" | "computer" | "cloudBackend"
       >
     > = {},
     opts: {
@@ -1446,6 +1459,9 @@ export class Store {
     this.rememberSections([profile.section]);
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
     const section = sectionKey(profile.section);
+    // Cycle through the six bot-face assets for the first bots; fall back to
+    // the color wheel for any extras beyond the set.
+    const faceEntry = BOT_FACES[this.bots.length % BOT_FACES.length]!;
     const bot: BotRecord = {
       id: newId(),
       threadId: newId(),
@@ -1455,11 +1471,17 @@ export class Store {
       soul: profile.soul ?? "",
       soulHash: soulHash(profile.soul ?? ""),
       notifications: true,
-      color: profile.color ?? COLORS[this.bots.length % COLORS.length],
+      color: profile.color ?? faceEntry.color,
+      // Default avatar: circle-cropped bot-face SVG from public/bot-faces/.
+      // Bots with an explicit custom image or color override ignore this.
+      avatarUrl: `/bot-faces/${faceEntry.url.split("/").pop()!}`,
+      avatarCrop: "circle" as const,
       ...(profile.mascotExpression ? { mascotExpression: profile.mascotExpression } : {}),
       ...(profile.mascotBody ? { mascotBody: profile.mascotBody } : {}),
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
+      ...(profile.computer ? { computer: profile.computer } : {}),
+      ...(profile.cloudBackend ? { cloudBackend: profile.cloudBackend } : {}),
       resumeCursors: {},
       createdAt: Date.now(),
     };

@@ -5,7 +5,7 @@ import { api, useStore, type ConfigStatus } from "@/state/store";
 import { normalizeImageGenerationUrl, type AvatarImageProvider } from "../../shared/image-generation";
 
 const PROVIDERS = {
-  openai: { label: "OpenAI", keyLabel: "OpenAI image API key", credential: "openaiImageApiKey" },
+  openai: { label: "Image API", keyLabel: "Image API key", credential: "openaiImageApiKey" },
   xai: { label: "Grok (xAI)", keyLabel: "Grok API key", credential: "xaiApiKey" },
   custom: { label: "Custom", keyLabel: "Custom image API key", credential: "customImageApiKey" },
 } as const;
@@ -175,7 +175,7 @@ export function AvatarImageGenerator({
             />
           </label>
           <p className="text-[11px] leading-relaxed text-ink-secondary">
-            OpenAI-compatible Images API. localhost refers to the OpenMausBot server, including when you open this page remotely.
+            Compatible Images API. localhost refers to the NATION Team server, including when you open this page remotely.
           </p>
         </>
       )}
@@ -234,7 +234,7 @@ export function AvatarImageGenerator({
         </select>
       </label>
       <p className="mt-1.5 text-[11px] leading-relaxed text-ink-secondary">
-        {provider === "openai" ? "GPT Image 2 · low-quality square draft. Billed to your OpenAI API account."
+        {provider === "openai" ? "GPT Image 2 · low-quality square draft. Billed to your image API account."
           : provider === "xai" ? "Grok Imagine · API billing is separate from your Grok subscription."
             : "Connect a local router or image provider."}
         {" "}This connection is shared by all bot avatars.

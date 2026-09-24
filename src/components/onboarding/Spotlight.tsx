@@ -13,9 +13,8 @@
 // the card sits centred over the dimmed window.
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MausAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
-import type { MausState } from "@/lib/mascot";
+import type { NationState } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
 
 const PAD = 8;
@@ -60,7 +59,7 @@ interface Action {
 export function Spotlight({
   anchor,
   placement,
-  mascot = "curious",
+  mascot: _mascot = "curious",
   children,
   progress,
   primary,
@@ -69,7 +68,8 @@ export function Spotlight({
 }: {
   anchor: string | null;
   placement: "above" | "below" | "right";
-  mascot?: MausState;
+  /** Kept for API compatibility; visual expression is no longer rendered. */
+  mascot?: NationState;
   children: ReactNode;
   /** "Step 2 of 6", shown small under the text. */
   progress?: string;
@@ -231,11 +231,12 @@ export function Spotlight({
           )}
         >
           <div className="shrink-0 drop-shadow-[0_6px_14px_rgba(0,0,0,0.35)]">
-            <MausAvatar
-              color="green"
-              state={mascot}
-              size={38}
-              trackPointer={false}
+            <img
+              src="/nation-logo.svg"
+              alt="NATION"
+              width={38}
+              height={38}
+              style={{ display: "block", borderRadius: "9px" }}
             />
           </div>
           <div

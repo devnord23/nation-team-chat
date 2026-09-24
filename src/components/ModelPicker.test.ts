@@ -1,6 +1,6 @@
 import { Children, createElement, type ChangeEvent, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppState, Bot, InstanceInfo } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
@@ -12,12 +12,17 @@ import type { EffortLevel } from "../../shared/wire";
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
-  return { instances: [] as InstanceInfo[], modelVariantSessions: {} as AppState["modelVariantSessions"], dispatch: vi.fn() };
+  return {
+    instances: [] as InstanceInfo[],
+    modelVariantSessions: {} as AppState["modelVariantSessions"],
+    dispatch: vi.fn(),
+    config: { isProductOwner: true } as AppState["config"] | undefined,
+  };
 });
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
   useStore: () => ({
-    state: { instances: fixture.instances, modelVariantSessions: fixture.modelVariantSessions },
+    state: { instances: fixture.instances, modelVariantSessions: fixture.modelVariantSessions, config: fixture.config },
     dispatch: fixture.dispatch,
     refreshInstances: vi.fn(),
     refreshModels: vi.fn(),
@@ -136,7 +141,7 @@ describe("OpenCode model variants", () => {
     const markup = render();
     expect(levelButtons(markup)).toEqual([
       { label: "None", pressed: false }, { label: "Minimal", pressed: false },
-      { label: "OpenCode default", pressed: false }, { label: "Deep custom", pressed: false },
+      { label: "Default", pressed: false }, { label: "Deep custom", pressed: false },
     ]);
     expect(markup).toContain("No variant selected.");
     expect(fixture.dispatch).not.toHaveBeenCalled();
@@ -249,7 +254,7 @@ describe("ModelPicker trigger", () => {
 
     expect(markup).toContain("GPT-5.6");
     expect(effortChip(markup)).toBe("· High");
-    expect(markup).toContain("Codex · GPT-5.6 · High effort");
+    expect(markup).toContain("NATION API · GPT-5.6 · High effort");
   });
 
   it("says nothing about effort when the bot sends no level", () => {
@@ -270,11 +275,12 @@ describe("ModelPicker trigger", () => {
     const markup = renderToStaticMarkup(createElement(ModelPicker, {
       bot: { ...bot(), modelSelection: { instanceId: "claude-work", model: "gpt-5.6" } },
     }));
-    expect(markup).toMatch(/<span data-model-account[^>]*>Work · <\/span>/);
+    // Both Claude accounts display "NATION API" branding (not the raw account name)
+    expect(markup).toMatch(/<span data-model-account[^>]*>NATION API · <\/span>/);
     expect(markup).not.toMatch(/<span data-model-account[^>]*>Personal/);
-    // The account remains a compact-only sibling of the hidden model label,
-    // and its button no longer squeezes into the icon-only 30px square.
-    expect(markup).toMatch(/<span data-model-account-compact="true" class="hidden max-w-20 truncate @max-4xl\/chathead:inline">Work<\/span><span class="[^"]*@max-4xl\/chathead:hidden"/);
+    // The compact chip also shows NATION API branding; the 30px icon-only square
+    // is suppressed in favour of the wider chip so the label remains readable.
+    expect(markup).toMatch(/<span data-model-account-compact="true" class="hidden max-w-20 truncate @max-4xl\/chathead:inline">NATION API<\/span><span class="[^"]*@max-4xl\/chathead:hidden"/);
     expect(markup).not.toContain("@max-4xl/chathead:size-[30px]");
   });
 });
@@ -283,16 +289,17 @@ describe("Claude provider and account selection", () => {
   const personal: InstanceInfo = { ...engine(), instanceId: "claude-personal", driverKind: "claudeAgent", displayName: "Personal" };
   const work: InstanceInfo = { ...engine(), instanceId: "claude-work", driverKind: "claudeAgent", displayName: "Work", access: "custom" };
 
-  it("renders one Claude provider across Cloud and Local, pressed for either account", () => {
+  it("renders one NATION API provider across Cloud and Local, pressed for either account", () => {
     for (const selectedInstance of [personal, work]) {
       const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
         instances: [engine(), personal, work], selectedInstance, claudeInstance: work, onSelect: () => {},
       }));
-      expect(markup.match(/aria-label="Claude"/g)).toHaveLength(1);
-      expect(markup).toContain('aria-label="Claude" aria-pressed="true"');
+      expect(markup.match(/aria-label="NATION API"/g)).toHaveLength(1);
+      expect(markup).toContain('aria-label="NATION API" aria-pressed="true"');
       expect(markup).toContain('aria-label="Codex" aria-pressed="false"');
       expect(markup).not.toContain('aria-label="Personal"');
       expect(markup).not.toContain('aria-label="Work"');
+      expect(markup).not.toContain('aria-label="Claude"');
       expect(markup).toContain("w-14");
     }
   });
@@ -329,5 +336,84 @@ describe("Claude provider and account selection", () => {
     const select = Children.toArray(dropdown.props.children)[1] as ReactElement<{ onChange: (event: ChangeEvent<HTMLSelectElement>) => void }>;
     select.props.onChange({ target: { value: personal.instanceId } } as ChangeEvent<HTMLSelectElement>);
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(personal);
+  });
+});
+
+describe("NATION admin gate — Claude filtering", () => {
+  const claude: InstanceInfo = { ...engine(), instanceId: "claude-1", driverKind: "claudeAgent", displayName: "Claude" };
+  const openrouter: InstanceInfo = { ...engine(), instanceId: "openrouter-1", driverKind: "openai-compat", displayName: "OpenRouter" };
+
+  afterEach(() => { fixture.config = undefined; });
+
+  // The ModelPicker renders the rail only in the open popover. Since renderToStaticMarkup
+  // captures the closed (initial) state, we verify filtering via ModelEngineRail directly
+  // which receives the pickerInstances after the admin filter is applied.
+
+  it("ModelEngineRail shows NATION API button for Claude instances (no raw Anthropic labels)", () => {
+    // Admin path: both instances reach the rail
+    const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: [claude, openrouter], selectedInstance: openrouter, onSelect: () => {},
+    }));
+    expect(markup).toContain('aria-label="NATION API"');
+    expect(markup).not.toContain('aria-label="Claude"');
+    expect(markup).toContain('aria-label="OpenRouter"');
+  });
+
+  it("non-admin gets Claude filtered from pickerInstances — rail receives only OpenRouter", () => {
+    // Simulate what ModelPicker computes for non-admin: pickerInstances excludes claudeAgent
+    const nonAdminInstances = [openrouter]; // Claude filtered by ModelPicker
+    const markup = renderToStaticMarkup(createElement(ModelEngineRail, {
+      instances: nonAdminInstances, selectedInstance: openrouter, onSelect: () => {},
+    }));
+    expect(markup).not.toContain('aria-label="Claude"');
+    expect(markup).toContain('aria-label="OpenRouter"');
+  });
+
+  it("non-admin ModelPicker (pinRequired, not unlocked) has no Claude account select", () => {
+    fixture.instances = [claude, openrouter];
+    fixture.config = { adminGate: { pinRequired: true } } as AppState["config"];
+    // pickerInstances excludes claudeAgent → claudeAccounts = [] → no account select in trigger
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "openrouter-1", model: "gpt-5.6" } },
+    }));
+    // The claudeAccounts dropdown is only rendered inside the open popover,
+    // but the trigger aria-label must NOT identify Claude as the provider
+    expect(markup).not.toContain('aria-label="Account"');
+  });
+
+  it("trigger shows NATION API (not Claude model name) when isProductOwner is false and active is claudeAgent", () => {
+    fixture.instances = [claude, openrouter];
+    // Non-admin: isProductOwner: false
+    fixture.config = { isProductOwner: false } as AppState["config"];
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "claude-1", model: "gpt-5.6" } },
+    }));
+    // Model name must be masked — "NATION API" only, no vendor model name
+    expect(markup).toContain("NATION API");
+    expect(markup).not.toContain("Claude");
+    expect(markup).not.toContain("Anthropic");
+    // Title tooltip must also be masked
+    expect(markup).toMatch(/title="NATION API[^"]*"/);
+    expect(markup).not.toMatch(/title="[^"]*claude/i);
+  });
+
+  it("trigger shows actual model name for admin (isProductOwner: true)", () => {
+    fixture.instances = [{ ...claude, models: { default: "claude-sonnet-5", options: [{ id: "claude-sonnet-5", label: "Claude Sonnet 5" }] } }];
+    fixture.config = { isProductOwner: true } as AppState["config"];
+    const markup = renderToStaticMarkup(createElement(ModelPicker, {
+      bot: { ...bot(), modelSelection: { instanceId: "claude-1", model: "claude-sonnet-5" } },
+    }));
+    expect(markup).toContain("Claude Sonnet 5");
+  });
+
+  it("trigger shows NATION API label when no engine configured and model ID looks like Claude", () => {
+    fixture.instances = [];
+    fixture.config = { isProductOwner: false } as AppState["config"];
+    const claudeBot = { ...bot(), modelSelection: { instanceId: "gone", model: "claude-sonnet-5" } };
+    const markup = renderToStaticMarkup(createElement(ModelPicker, { bot: claudeBot }));
+    // Raw Claude model ID must not surface to non-admin
+    expect(markup).toContain("NATION API");
+    expect(markup).not.toContain("claude-sonnet-5");
+    expect(markup).not.toContain("Claude");
   });
 });

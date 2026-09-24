@@ -231,17 +231,8 @@ export function CodeBlock({ code, lang, streaming }: CodeBlockProps) {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const highlight = () => {
-      import("shiki")
-        .then((shiki) =>
-          shiki.codeToHtml(code, {
-            lang: lang || "text",
-            themes: {
-              light: "github-light-default",
-              dark: "github-dark-default",
-            },
-            defaultColor: "light-dark()",
-          }),
-        )
+      import("@/lib/code-highlight")
+        .then(({ highlightCode }) => highlightCode(code, lang))
         .then((out) => {
           if (!alive) return;
           if (highlightCache.size >= CACHE_MAX) {
@@ -637,7 +628,7 @@ export function markdownImageName(src: string, alt?: string): string {
   const supplied = alt?.trim();
   if (supplied) return supplied;
   try {
-    const path = decodeURIComponent(new URL(src, "https://openmausbot.invalid").pathname);
+    const path = decodeURIComponent(new URL(src, "https://nation.invalid").pathname);
     const name = path.split(/[\\/]/).filter(Boolean).at(-1)?.trim();
     if (name) return name;
   } catch {

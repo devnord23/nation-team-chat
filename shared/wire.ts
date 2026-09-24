@@ -54,14 +54,14 @@ export type CloudBackend = "box" | "vps";
  * person's seat they are the same "cloud computer" panel. */
 export type Surface = "cloud" | "vm" | "local" | "browser";
 
-export type MausColor =
+export type NationColor =
   | "green" | "blue" | "red" | "orange" | "purple" | "cyan" | "pink"
   | "yellow" | "teal" | "coral";
 
 /** The face a bot rests on, as one of the engine's state names. Kept as a
  * plain string rather than a union: bots saved under the app's earlier
  * ten-face vocabulary still carry those names. */
-export type MausExpression = string;
+export type NationExpression = string;
 
 /** What the bot is doing right now, as the harness sees it. */
 export type BotActivity = "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
@@ -203,8 +203,8 @@ export interface WireBot {
   /** The SOUL.md mirror differed from soul at the last turn dispatch. */
   soulDrift?: boolean;
   notifications: boolean;
-  color: MausColor;
-  mascotExpression?: MausExpression | null;
+  color: NationColor;
+  mascotExpression?: NationExpression | null;
   mascotBody?: MascotBodyId | null;
   /** App-owned attachment served as this bot's custom profile image;
    * always present on the wire, null when the bot has none. */

@@ -27,7 +27,7 @@ import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { PlaceChip } from "./PlaceChip";
 import { FullAccessWarning } from "./FullAccessWarning";
-import { ApprovalModeSelector } from "./ApprovalModeSelector";
+import { ApprovalModeSelector } from "./web/ApprovalModeSelector";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
 import {
   appendPastedText,

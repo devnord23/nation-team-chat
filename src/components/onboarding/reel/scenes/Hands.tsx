@@ -6,10 +6,23 @@
 // landing, the tool chip in the chat, and the reply.
 import { useEffect, useState } from "react";
 import { Check, ExternalLink, Hand, Loader2, MousePointer2, Settings2, X } from "lucide-react";
-import { MausAvatar } from "@/components/Avatar";
 import { cn } from "@/lib/cn";
 import { reducedMotion } from "@/lib/onboarding";
 import type { SceneProps } from "./OrbitingApps";
+
+/** Soft-tower face image used in demo scenes. */
+function FaceImg({ size }: { size: number }) {
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}bot-faces/coordinator.svg`}
+      alt=""
+      aria-hidden
+      width={size}
+      height={size}
+      style={{ width: size, height: size, borderRadius: "50%", flexShrink: 0 }}
+    />
+  );
+}
 
 const HANDS_MS = 6400;
 
@@ -66,7 +79,7 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
   const clicked = reached(phase, "clicked");
   const done = reached(phase, "done");
   const replied = reached(phase, "reply");
-  const busy = awake && !done;
+  const _awakeAndNotDone = awake && !done; void _awakeAndNotDone;
 
   return (
     <div className="relative flex h-full w-full overflow-hidden bg-inset" role="img" aria-label={label}>
@@ -78,8 +91,8 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-between border-b border-hairline/40 px-3 py-2">
             <div className="flex items-center gap-2">
-              <MausAvatar color="green" state={busy ? "working" : replied ? "proud" : "happy"} size={18} animated={!still} trackPointer={false} />
-              <span className="text-[12px] font-semibold text-ink">Maus</span>
+              <FaceImg size={18} />
+              <span className="text-[12px] font-semibold text-ink">NATION agent</span>
             </div>
             <span className={cn("flex size-6 items-center justify-center rounded-md transition-colors duration-300", panel ? "bg-raised text-accent" : "text-ink-secondary")}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
@@ -91,7 +104,7 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
             </div>
             {awake && (
               <div className="animate-rise flex items-start gap-2">
-                <MausAvatar color="green" state={busy ? "working" : "proud"} size={22} animated={!still} trackPointer={false} />
+                <FaceImg size={22} />
                 <div className="min-w-0">
                   <div className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-medium transition-colors duration-300", done ? "bg-success/15 text-success" : "bg-raised text-ink-secondary")}>
                     {done ? <Check size={10} strokeWidth={3} /> : <Loader2 size={10} className="animate-spin" />}
@@ -105,7 +118,7 @@ export function Hands({ playing, onCue, onEnded, label }: SceneProps) {
                 </div>
               </div>
             )}
-            <div className="mt-1 h-7 rounded-lg border border-hairline/40 bg-inset px-2.5 text-[10.5px] leading-7 text-ink-secondary">Message Maus</div>
+            <div className="mt-1 h-7 rounded-lg border border-hairline/40 bg-inset px-2.5 text-[10.5px] leading-7 text-ink-secondary">Message NATION</div>
           </div>
         </div>
 

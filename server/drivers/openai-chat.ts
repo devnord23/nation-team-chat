@@ -1,3 +1,5 @@
+import { beginModelSpend } from "../spend.ts";
+import { sponsorCreditThread } from "../nation-credit-context.ts";
 import type {
   DriverCreateInput,
   ModelCatalog,
@@ -27,6 +29,7 @@ export interface OpenAIChatMessage {
 interface Usage {
   input: number;
   output: number;
+  cost?: number;
 }
 
 interface Completion {
@@ -40,6 +43,7 @@ interface Completion {
 }
 
 interface CompletionJson {
+  id?: string;
   choices?: Array<{
     index?: number;
     message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown; reasoning_details?: unknown; tool_calls?: unknown; function_call?: unknown };
@@ -48,7 +52,7 @@ interface CompletionJson {
   }>;
   error?: unknown;
   base_resp?: { status_code?: unknown; status_msg?: unknown };
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
 }
 
 /** The message of a JSON error body a provider returned with HTTP 200.
@@ -96,7 +100,7 @@ interface RuntimeOptions<Config> {
 
 const usageFrom = (usage: CompletionJson["usage"]): Usage | null =>
   usage
-    ? { input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0 }
+    ? { input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0, ...(typeof usage.cost === "number" ? { cost: usage.cost } : {}) }
     : null;
 
 const asError = (value: unknown): Error =>
@@ -132,6 +136,12 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     onDelta?: (delta: string, kind: "assistant_text" | "reasoning_text") => void,
     tools: ChatToolDefinition[] = [],
   ): Promise<Completion> => {
+    const charge = options.driverKind === "nation-openrouter" ? beginModelSpend() : undefined;
+    let receivedCost: number | undefined;
+    const observeCost = (json: CompletionJson) => {
+      if (json.id) charge?.providerId(json.id);
+      if (typeof json.usage?.cost === "number" && Number.isFinite(json.usage.cost) && json.usage.cost >= 0) receivedCost = json.usage.cost;
+    };
     // Idle timer that is renewed on every received chunk during streaming
     const timeoutController = new AbortController();
     let idleTimer: NodeJS.Timeout | null = null;
@@ -159,12 +169,14 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         signal: activeSignal,
       });
       if (!response.ok) {
+        if ([400,401,402,403,404,422,429].includes(response.status)) charge?.reject();
         const body = await response.text().catch(() => "");
         throw new Error(`${options.httpErrorLabel} HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
       }
 
       if (!stream || response.headers.get("content-type")?.includes("application/json")) {
         const json = await response.json() as CompletionJson;
+        observeCost(json);
         const bodyError = providerError(json);
         if (bodyError) throw new ChatProtocolError(`provider returned a completion error: ${bodyError.slice(0, 200)}`);
         const message = json.choices?.[0]?.message;
@@ -224,6 +236,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           if (!atEof) malformedFrame = true;
           return false;
         }
+        observeCost(chunk);
         const chunkError = providerError(chunk);
         if (chunkError) throw new ChatProtocolError(`provider returned a streaming completion error: ${chunkError.slice(0, 200)}`);
         const choice = chunk.choices?.find((row) => row.index === undefined || row.index === 0);
@@ -286,6 +299,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       return { text, reasoning, usage, toolCalls: calls.finish(finishReason, malformedFrame), finishReason, protocolReasoning, protocolReasoningDetails: details.blocks };
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
+      if (charge) {
+        if (receivedCost !== undefined) charge.settle(receivedCost);
+        else charge.unconfirmed();
+      }
     }
   };
 
@@ -300,6 +317,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
 
   const sendTurn = async (turn: SendTurnInput) => {
     if (!options.apiKey) throw new Error(options.missingKeyError);
+    if (options.driverKind === "nation-openrouter") sponsorCreditThread(turn.threadId);
     if (active.has(turn.threadId)) throw new Error("a turn is already running on this thread");
 
     const turnId = newId();
@@ -348,6 +366,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       let tools: ChatToolSession | undefined;
       const usage: Usage = { input: 0, output: 0 };
       let hasUsage = false;
+      let totalCost: number | null = null;
       let ok = false;
       let stopReason: string | null = null;
       let failure: string | undefined;
@@ -405,6 +424,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           if (completion.usage) {
             usage.input += completion.usage.input;
             usage.output += completion.usage.output;
+            if (typeof completion.usage.cost === "number") totalCost = (totalCost ?? 0) + completion.usage.cost;
             hasUsage = true;
             emit({ ...base(turn.threadId, turnId), type: "thread.token-usage.updated", ...usage });
           }
@@ -500,7 +520,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
           emit({ ...base(turn.threadId, turnId), type: "runtime.error", message: failure, terminal: !abort.signal.aborted });
         }
         active.delete(turn.threadId);
-        emit({ ...base(turn.threadId, turnId), type: "turn.completed", ok, stopReason, cost: null,
+        emit({ ...base(turn.threadId, turnId), type: "turn.completed", ok, stopReason, cost: totalCost,
           ...(hasUsage && (options.includeUsageInCompleted || seenCalls.size) ? { usage } : {}),
           ...(denials.length ? { denials } : {}),
         });
@@ -524,7 +544,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       : { state: "unavailable", reason: options.unavailableReason },
     adapter: {
       provider: options.driverKind,
-      capabilities: { sessionModelSwitch: "in-session", customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false },
+      capabilities: { ...(options.driverKind === "nation-openrouter" ? { computerMcp: true, browserMcp: true, localComputerMcp: true } : {}), sessionModelSwitch: "in-session", customMcp: options.tools !== false, agentsMcp: options.tools !== false, composioMcp: options.tools !== false },
       sendTurn,
       interruptTurn: async (threadId, turnId) => {
         const turn = active.get(threadId);

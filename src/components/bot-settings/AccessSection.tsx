@@ -1,23 +1,21 @@
+import { isProductAdmin } from "@/lib/admin-gate";
 // Access: where this bot runs, its working folder, connected apps and
 // browser toggles, its webhooks, and the standing "always allowed" grants.
 // Works on/cloud backend/auto-start VPS, Working folder, Connected apps, and
 // Browser are moved verbatim from SettingsPanel.tsx; the connected-service
 // list, webhooks list, and always-allowed list (the first read-only view of
 // standing grants) are new.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { browserUnavailableReason } from "@/lib/feature-flags";
-import { FolderOpen, Plus } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 
 import { api, useStore, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { t } from "@/lib/i18n";
-import { mcpServersForBot, useMcpServers } from "@/lib/mcp-servers";
 import { shortPath } from "@/lib/short-path";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
 import { CloudBackendPicker } from "../CloudBackendPicker";
 import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { Switch } from "../SettingsPrimitives";
-import { preloadConnectedApps, type ConnectorInventory } from "../PluginsPanel";
 import { inputCls } from "./field";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 
@@ -102,80 +100,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   );
 }
 
-/** Which app-wide MCP servers this bot mounts. Absent list = all enabled
- * (the pre-existing behavior); the first switch flip writes an explicit
- * list so later additions in Plugins do not silently reach this bot. */
-function McpServersCard({ bot, patch }: { bot: Bot; patch: (patch: { mcpServers: string[] | null }) => void }) {
-  const { dispatch } = useStore();
-  const { servers, error, refresh } = useMcpServers();
-  const mounted = new Set((servers ? mcpServersForBot(servers, bot.mcpServers) : []).map((server) => server.name));
-  const usesAll = bot.mcpServers == null;
-
-  const toggle = (name: string) => {
-    if (!servers || bot.busy || error) return;
-    const current = usesAll ? servers.filter((server) => server.enabled).map((server) => server.name) : [...(bot.mcpServers ?? [])];
-    const next = current.includes(name) ? current.filter((item) => item !== name) : [...current, name];
-    patch({ mcpServers: next });
-  };
-  const openPlugins = () => {
-    dispatch({ type: "toggleSettings", open: false });
-    dispatch({ type: "togglePlugins", open: true, surface: "mcp" });
-  };
-
-  return (
-    <div className="rounded-xl bg-card p-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <div className="text-[15px] font-medium text-ink">{t("connectors.tab.mcp")}</div>
-          <div className="mt-0.5 text-[13px] text-ink-secondary">
-            {t("botAccess.mcpDescription")}
-          </div>
-        </div>
-      </div>
-      {error && (
-        <div role="alert" className="mt-3 text-[12px] text-danger">
-          {t("botAccess.mcpRefreshError")} <button type="button" onClick={() => void refresh()} className="underline">{t("connectors.action.retry")}</button>
-        </div>
-      )}
-      {servers === null ? !error && (
-        <div className="mt-3 text-[12px] text-ink-secondary">{t("mcp.loading")}</div>
-      ) : servers.length === 0 ? (
-        <div className="mt-3 rounded-lg bg-inset px-3 py-2 text-[12px] text-ink-secondary">{t("botAccess.mcpEmpty")}</div>
-      ) : (
-        <div className="mt-3 divide-y divide-hairline/40 overflow-hidden rounded-lg border border-hairline/40">
-          {servers.map((server) => (
-            <div key={server.name} className="flex items-center justify-between gap-3 px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-mono text-[12.5px] text-ink">{server.name}</div>
-                {!server.enabled && <div className="text-[11.5px] text-ink-secondary">{t("botAccess.mcpDisabled")}</div>}
-              </div>
-              <Switch
-                checked={mounted.has(server.name)}
-                disabled={!server.enabled || !!bot.busy || error}
-                aria-label={t("botAccess.mcpAllow", { name: server.name })}
-                onClick={() => toggle(server.name)}
-                className="disabled:cursor-not-allowed"
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="mt-3 flex items-center gap-2">
-        <button type="button" onClick={openPlugins} className="flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
-          <Plus size={14} /> {t("botAccess.mcpAdd")}
-        </button>
-        {!usesAll && servers && servers.length > 0 && (
-          <button type="button" disabled={!!bot.busy || error} onClick={() => { if (!bot.busy && !error) patch({ mcpServers: null }); }} className="rounded-lg px-2 py-2 text-[13px] text-ink-secondary hover:text-ink disabled:opacity-50">
-            {t("botAccess.mcpUseAll")}
-          </button>
-        )}
-      </div>
-      {bot.busy && <p className="mt-2 text-[12px] text-ink-secondary">{t("botAccess.mcpBusy")}</p>}
-    </div>
-  );
-}
-
-export function AccessSection({
+export function OwnerAccessSection({
   bot,
   derived,
 }: {
@@ -186,9 +111,6 @@ export function AccessSection({
   const {
     patch,
     canUseVps,
-    canUseConnectedApps,
-    connectedAppsConfigured,
-    connectedAppsEnabled,
     canUseBrowser,
     desktopBrowser,
     browserBlockedOnWindows,
@@ -202,26 +124,8 @@ export function AccessSection({
   } = derived;
   const browserInstallable = state.config?.browserEngine?.installable === true;
   const [localAutoWarning, setLocalAutoWarning] = useState<string | null>(null);
-  const [inventory, setInventory] = useState<ConnectorInventory | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void preloadConnectedApps().then((result) => {
-      if (!cancelled) setInventory(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const webhooks = state.webhooks.filter((webhook) => webhook.botId === bot.id);
   const alwaysAllow = bot.alwaysAllow ?? [];
-  const connectedSlugs = inventory?.authoritative
-    ? Object.entries(inventory.services)
-        .filter(([, status]) => status.connected)
-        .map(([slug]) => slug)
-    : [];
-
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-xl bg-card p-4">
@@ -275,7 +179,7 @@ export function AccessSection({
           <div className="mt-3 rounded-lg bg-inset px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-secondary">
             <span className="font-medium text-ink">Off means no screen.</span>{" "}
             This bot gets no computer and no built-in browser, so it cannot open a web page, click, or type
-            anywhere. Its connected apps, MCP servers, files and chat all still work.
+            anywhere. Its files and chat still work.
           </div>
         )}
         {(!bot.computer || bot.computer === "cloud") && (
@@ -287,7 +191,7 @@ export function AccessSection({
               </div>
             )}
             <CloudBackendPicker
-              value={bot.cloudBackend ?? "box"}
+              value={bot.cloudBackend ?? "vps"}
               vpsSupported={canUseVps}
               onChange={(backend) => patch({ cloudBackend: backend })}
             />
@@ -312,73 +216,13 @@ export function AccessSection({
 
       <WorkingFolder bot={bot} />
 
-      <div className="rounded-xl bg-card p-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-[15px] font-medium text-ink">Connected apps</div>
-            <div className="mt-0.5 text-[13px] text-ink-secondary">
-              {!connectedAppsConfigured
-                ? "Connect apps in App Settings before giving this bot access."
-                : !canUseConnectedApps
-                  ? "This bot's current engine cannot use connected apps."
-                  : connectedAppsEnabled
-                    ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
-                    : "Keep your connected apps unavailable to this bot."}
-            </div>
-          </div>
-          <Switch
-            checked={connectedAppsEnabled}
-            aria-label="Allow this bot to use connected apps"
-            disabled={
-              !connectedAppsEnabled && (!connectedAppsConfigured || !canUseConnectedApps)
-            }
-            onClick={() => patch({ composio: !connectedAppsEnabled })}
-            title={
-              !connectedAppsEnabled && !connectedAppsConfigured
-                ? "Connect apps in App Settings first"
-                : !connectedAppsEnabled && !canUseConnectedApps
-                  ? "This engine cannot use connected apps"
-                  : undefined
-            }
-            className="disabled:cursor-not-allowed"
-          />
-        </div>
-        {connectedAppsEnabled && inventory?.authoritative && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {connectedSlugs.length === 0 ? (
-              <span className="text-[11.5px] text-ink-secondary">No apps connected yet.</span>
-            ) : (
-              connectedSlugs.map((slug) => (
-                <span key={slug} className="rounded-full bg-inset px-2 py-0.5 text-[11px] text-ink-secondary">
-                  {slug}
-                </span>
-              ))
-            )}
-          </div>
-        )}
-        {connectedAppsEnabled && connectedAppsConfigured && (
-          <button
-            type="button"
-            onClick={() => {
-              dispatch({ type: "toggleSettings", open: false });
-              dispatch({ type: "togglePlugins", open: true, surface: "apps" });
-            }}
-            className="mt-3 flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover"
-          >
-            <Plus size={14} /> {t("botAccess.connectApp")}
-          </button>
-        )}
-      </div>
-
-      <McpServersCard bot={bot} patch={patch} />
-
       <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
         <div>
           <div className="text-[15px] font-medium text-ink">Browser</div>
           <div className="mt-0.5 text-[13px] text-ink-secondary">
             {!desktopBrowser
               ? browserBlockedOnWindows && !browserInstallable
-                ? "Not available on this Windows machine yet: install the browser engine with `openmausbot browser install`."
+                ? "Not available on this Windows machine yet: install the browser engine with `nation browser install`."
                 : browserUnavailableReason(state.config)
               : !browserFeature
                 ? "The built-in browser is switched off under App Settings → Experimental."
@@ -467,4 +311,12 @@ export function AccessSection({
       />
     </div>
   );
+}
+
+export function AccessSection(props: Parameters<typeof OwnerAccessSection>[0]) {
+  const { state } = useStore();
+  if (!isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) {
+    return <div className="rounded-xl bg-card p-4 text-ink"><h3 className="font-medium">NATION API</h3><p className="mt-2 text-sm text-ink-secondary">Your agent uses a NATION Isolated PC when available.</p></div>;
+  }
+  return <OwnerAccessSection {...props} />;
 }

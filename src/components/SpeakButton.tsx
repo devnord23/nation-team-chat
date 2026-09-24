@@ -11,7 +11,7 @@ import { t } from "@/lib/i18n";
  * becomes a stop button while this message is the one speaking — the same
  * button, because "speak" and "shut up" are the same intent twice.
  *
- * Without a key it stays visible but disabled, saying what it needs: a
+ * When voice is unavailable it stays visible but disabled: a
  * hidden button is a feature nobody discovers. */
 export function SpeakButton({
   text,
@@ -36,7 +36,7 @@ export function SpeakButton({
   const preparing = mine && speech.status === "preparing";
 
   const label = !configured
-    ? t((tts?.provider ?? "elevenlabs") === "elevenlabs" ? "chat.speak.needsKey" : "chat.speak.needsSetup")
+    ? t("chat.speak.unavailable")
     : !ready
       ? t("chat.speak.needsVoice")
     : mine

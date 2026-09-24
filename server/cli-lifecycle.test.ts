@@ -253,14 +253,14 @@ describe("CLI startup lifecycle", () => {
     const output = log.mock.calls.map(([line]) => line).join("\n");
     expect(output).toContain(`pairing code:  ${code}`);
     expect(output).toContain(`expires:       ${new Date(expiresAt).toLocaleTimeString()} (single use)`);
-    expect(output).toContain(`web browser:   ${pairingUrl}`);
+    expect(output).toContain(`open or scan:  ${pairingUrl}`);
     expect(output).toMatch(/[▀▄█]/);
     expect(output).toContain(`Or open ${origin}/pair on your phone and enter the code.`);
-    expect(output).toContain("On Android, open the OpenMausBot app and scan the QR with its pairing scanner.");
+    expect(output).toContain("On Android, scan the QR with Camera to open Nation Team Chat in your browser.");
     // The QR rendered for an Android phone must be the app-scheme invite, not
     // the https link its scanner rejects.
-    expect(output).toContain(qrToString(inviteUrl));
-    expect(output).not.toContain(qrToString(pairingUrl));
+    expect(output).toContain(qrToString(pairingUrl));
+    expect(output).not.toContain(inviteUrl);
     expect(output).toContain("client access: chat and approvals, not settings or pairing administration");
     expect(output).toContain("Scanning a QR does not mean the phone is paired.");
     expect(output).toContain("Waiting for you to connect on the phone.");

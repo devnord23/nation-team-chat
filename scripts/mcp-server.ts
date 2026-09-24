@@ -91,7 +91,7 @@ export async function probeBaseUrls(candidates: string[]): Promise<string> {
       const health = await fetchJson(`${candidate}/api/health`, {
         signal: AbortSignal.timeout(Math.min(requestTimeoutMs(), 2_000)),
       });
-      if (health?.app !== "openmausbot") {
+      if (!["nation-team-chat", "openmausbot"].includes(health?.app ?? "")) {
         failures.push(`${candidate} answered, but it was not OpenMausBot`);
         continue;
       }
@@ -795,7 +795,7 @@ export async function handleToolCall(
   switch (name) {
     case "get_system_health": {
       const res = await fetcher("/api/health");
-      if (res?.app !== "openmausbot") throw new Error("The configured endpoint is not an OpenMausBot server");
+      if (!["nation-team-chat", "openmausbot"].includes(res?.app ?? "")) throw new Error("The configured endpoint is not a Nation Team Chat server");
       return {
         status: "connected",
         endpoint: discoveredBaseUrl ?? OMB_BASE_URL,

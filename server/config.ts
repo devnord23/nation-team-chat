@@ -1,8 +1,9 @@
+import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 // Config + data dirs. One file, ~/.openmausbot/config.json, env fallbacks:
-//   { "xai": {"key":"xai-…"}, "composio": {"apiKey":"ak_…"}, "box": {"token":"…"},
-//     "instances": { "<instanceId>": {"driver":"grok", …} } }
-import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
+//   { "xai": {"key":"xai-â€¦"}, "composio": {"apiKey":"ak_â€¦"}, "box": {"token":"â€¦"},
+//     "instances": { "<instanceId>": {"driver":"grok", â€¦} } }
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { nationDataDir } from "./nation-compat.ts";
 import { join } from "node:path";
 import { z } from "zod";
 import { normalizeImageGenerationUrl, type ImageGenerationConfig } from "../shared/image-generation.ts";
@@ -277,15 +278,15 @@ const featureConfigSchema = z.object({
   browser: z.boolean().optional(),
   /** Opt-in computer sharing (a desktop lending folders, a terminal or
    * computer control to a workspace). Off until explicitly enabled; there is
-   * no Settings toggle — see sharedComputersEnabled. */
+   * no Settings toggle â€” see sharedComputersEnabled. */
   sharedComputers: z.boolean().optional(),
   /** Claude bots also load the MCP servers and connectors from this
-   * machine's own Claude Code setup (Plugins → MCP servers switch). Off by
+   * machine's own Claude Code setup (Plugins â†’ MCP servers switch). Off by
    * default: each extra tool costs tokens on every model call. */
   claudeUserMcp: z.boolean().optional(),
   /** LLM-generated titles for new bot threads. Off until explicitly
    * enabled; a one-shot that fails or answers junk leaves the first-message
-   * snippet in place — see llmThreadTitlesEnabled. */
+   * snippet in place â€” see llmThreadTitlesEnabled. */
   llmThreadTitles: z.boolean().optional(),
 });
 /** First-run progress. Kept in the workspace config rather than a browser so
@@ -530,12 +531,12 @@ export function browserProfileRoutingConflict(
     const foldedPartition = partitionId.toLowerCase();
     const existingPartitionOwner = partitionOwner.get(foldedPartition);
     if (existingPartitionOwner !== undefined && existingPartitionOwner !== index) {
-      return `browser profiles cannot share the durable session “${partitionId}”`;
+      return `browser profiles cannot share the durable session â€œ${partitionId}â€`;
     }
     partitionOwner.set(foldedPartition, index);
     const otherLogicalOwner = logicalOwner.get(foldedPartition);
     if (otherLogicalOwner !== undefined && otherLogicalOwner !== index) {
-      return `browser profile id “${profiles[otherLogicalOwner]!.id}” is already used by another durable session`;
+      return `browser profile id â€œ${profiles[otherLogicalOwner]!.id}â€ is already used by another durable session`;
     }
   }
   return null;
@@ -561,7 +562,7 @@ export function browserProfileReplacementConflict(
     !currentIds.has(profile.id)
     && removedPartitions.has(browserProfilePartitionId(profile).toLowerCase()));
   return reused
-    ? `browser profile “${reused.name}” cannot reuse a session that is being erased; delete it first, then add the new profile`
+    ? `browser profile â€œ${reused.name}â€ cannot reuse a session that is being erased; delete it first, then add the new profile`
     : null;
 }
 
@@ -586,7 +587,7 @@ export function parseStoredConfig(value: JsonValue): AppConfig {
   return parsed.data;
 }
 
-/** Exact old→canonical profile ids from #567's persisted config. Store
+/** Exact oldâ†’canonical profile ids from #567's persisted config. Store
  * hydration uses this to migrate bot references in the same write that
  * resets other transient bot state. Invalid/non-legacy config is inert. */
 export function loadBrowserProfileIdAliases(): ReadonlyMap<string, string> {
@@ -649,14 +650,14 @@ export function maxConcurrentBotThreads(cfg: { threads?: { maxConcurrentPerBot?:
 }
 
 /** Size cap for each per-thread events/ and native/ NDJSON log. Null (the
- * default) means unbounded growth — rotation is strictly opt-in (#1280). */
+ * default) means unbounded growth â€” rotation is strictly opt-in (#1280). */
 export function threadEventLogMaxBytes(cfg: AppConfig): number | null {
   const cap = cfg.threads?.eventLogMaxBytes;
   return typeof cap === "number" && Number.isFinite(cap) && cap > 0 ? cap : null;
 }
 
 /** Days a closed or archived bot thread's event logs survive before the
- * retention sweep removes them (#1280). Null — the default — keeps them
+ * retention sweep removes them (#1280). Null â€” the default â€” keeps them
  * forever. */
 export function threadEventLogRetentionDays(cfg: AppConfig): number | null {
   return cfg.threads?.eventLogRetentionDays ?? null;
@@ -700,12 +701,12 @@ export function sharedComputersEnabled(cfg: AppConfig): boolean {
 }
 
 /** Claude bots also see the MCP servers of this machine's own Claude Code
- * setup — the way Codex bots already read ~/.codex/config.toml. Off unless
- * the person switched it on under Plugins → MCP servers; the Claude driver
+ * setup â€” the way Codex bots already read ~/.codex/config.toml. Off unless
+ * the person switched it on under Plugins â†’ MCP servers; the Claude driver
  * then omits --strict-mcp-config while keeping skills, hooks and the
  * personal CLAUDE.md out. */
 export function claudeUserMcpEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.claudeUserMcp === true;
+  return CONNECTORS_ENABLED && cfg.features?.claudeUserMcp === true;
 }
 
 /** Opt-in generated titles for new bot threads: a cheap provider one-shot
@@ -743,21 +744,12 @@ export function providerReloadKeys(patch: object): string[] {
 }
 
 // OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
-export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
-const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
+export const DATA_DIR = nationDataDir();
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
-  // one-time migration from the pre-rename data dir — bots, transcripts,
-  // config and keys all carry over
-  if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
-    try {
-      renameSync(LEGACY_DATA_DIR, DATA_DIR);
-    } catch {
-      /* cross-device or busy — fall through to a fresh dir */
-    }
-  }
+  // The compatibility resolver reuses old data in place; no destructive migration.
   for (const dir of [DATA_DIR, EVENTS_DIR, NATIVE_DIR]) mkdirSync(dir, { recursive: true });
   migrateLegacyFeatureFlags();
 }
@@ -794,11 +786,11 @@ export function loadConfig(): AppConfig {
   try {
     cfg = parseStoredConfig(parseJson(readFileSync(join(DATA_DIR, "config.json"), "utf8")));
   } catch {
-    /* first run — env fallbacks below */
+    /* first run â€” env fallbacks below */
   }
   // Env wins over the file for every credential. The desktop shell keeps
   // these secrets OS-encrypted and hands them to this process as env at
-  // spawn, leaving config.json without the plaintext field — so the file
+  // spawn, leaving config.json without the plaintext field â€” so the file
   // value is the dev-mode (no desktop shell) fallback, not the primary.
   // Anything that saves a credential mid-session must keep process.env in
   // step (syncCredentialEnv below), or the value injected at boot would
@@ -818,6 +810,11 @@ export function loadConfig(): AppConfig {
   if (process.env.OPENAI_COMPAT_PROVIDER !== undefined) cfg.openaiCompat.provider = process.env.OPENAI_COMPAT_PROVIDER;
   cfg.composio = { ...cfg.composio };
   if (process.env.COMPOSIO_API_KEY !== undefined) cfg.composio.apiKey = process.env.COMPOSIO_API_KEY;
+  // Cloud VPS SSH config alias from gitignored .env.local (never commit the host secrets).
+  if (process.env.VPS_SSH_ALIAS !== undefined) {
+    const alias = process.env.VPS_SSH_ALIAS.trim();
+    cfg.vps = { ...cfg.vps, sshAlias: alias };
+  }
   cfg.box = { ...cfg.box };
   if (process.env.BOX_TOKEN !== undefined) cfg.box.token = process.env.BOX_TOKEN;
   cfg.opencodeGo = { ...cfg.opencodeGo };
@@ -840,7 +837,7 @@ export function loadConfig(): AppConfig {
 }
 
 /** After saveConfig() writes a credential, the running process's env must
- * follow the newest value — loadConfig() prefers env, so the secret injected
+ * follow the newest value â€” loadConfig() prefers env, so the secret injected
  * at boot would otherwise shadow the save until relaunch: the UI would show
  * "saved" while every turn still used the old key. An empty string means the
  * user cleared the credential, so the var is dropped and the (now empty)
@@ -879,7 +876,7 @@ export function syncCredentialEnv(patch: Partial<Omit<AppConfig, "threads">>): v
   }
 }
 
-/** Env names of every workspace credential this process may be holding —
+/** Env names of every workspace credential this process may be holding â€”
  * injected at boot by the desktop shell or exported by a developer. Spawned
  * engine CLIs must never inherit them: the one driver that consumes a given
  * secret receives it through instanceConfigs() narrowing, and to every other
@@ -955,7 +952,7 @@ export const PROVIDER_CREDENTIAL_ENV = [
 ] as const;
 
 /** Merge a partial config into ~/.openmausbot/config.json (secrets never
- * echoed back — callers report configured-or-not booleans only). */
+ * echoed back â€” callers report configured-or-not booleans only). */
 export function saveConfig(
   patch: Partial<Omit<AppConfig, "threads">> & { threads?: z.output<typeof threadsPatchSchema> },
   options: { replaceInstances?: boolean } = {},
@@ -1068,12 +1065,12 @@ export function saveConfig(
 }
 
 /** Set one instance's `config.cli` ("" clears the override back to the
- * driver default). Creating the instance entry is fine — a config-less
+ * driver default). Creating the instance entry is fine â€” a config-less
  * entry rides driver.defaultConfig(). Returns false for unknown instances
  * when the fleet is explicitly configured. The returned map must stay
  * PERSISTABLE: instanceConfigs() injects credential env into consuming
  * drivers' entries for the live fleet, so only their originally configured
- * environment is retained — otherwise saving an override would
+ * environment is retained â€” otherwise saving an override would
  * copy xai/box/opencodeGo secrets into the instances section of
  * config.json. */
 export function withInstanceCli(
@@ -1084,7 +1081,7 @@ export function withInstanceCli(
   const next: AppConfig = structuredClone(cfg);
   const map = persistableInstanceConfigs(next);
   // hasOwn, not truthiness: map is a plain object literal, so
-  // map["__proto__"] resolves to Object.prototype — truthy — and the
+  // map["__proto__"] resolves to Object.prototype â€” truthy â€” and the
   // assignment below would poison EVERY object in the process (instanceId
   // comes off the URL, where `__proto__` passes the route's [\w.-]+ regex)
   if (!Object.hasOwn(map, instanceId)) return { ok: false, config: cfg };
@@ -1147,15 +1144,15 @@ function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string
 }
 
 // Default fleet: one instance per built-in driver (upstream
-// defaultInstanceIdForDriver — instanceId defaults to the driver kind).
+// defaultInstanceIdForDriver â€” instanceId defaults to the driver kind).
 // Config-file keys are injected as per-instance environment so drivers
-// see them without needing real process env vars — but only into the
+// see them without needing real process env vars â€” but only into the
 // driver that consumes each key (injectedEnvironment above).
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // The default `grok` instance rides the `grokAgent` driver, not the API-key
   // one: like claude and codex it needs no credential from us, just the CLI
   // installed and logged in (it shows up unavailable otherwise). The API-key
-  // `grok` driver stays registered but out of the default fleet — that key is
+  // `grok` driver stays registered but out of the default fleet â€” that key is
   // a credential Milind doesn't want to manage; an `instances` entry brings
   // it back anytime.
   //
@@ -1165,7 +1162,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   // (developers.googleblog.com, "transitioning Gemini CLI to Antigravity
   // CLI"), so a default `gemini` instance could only ever show unavailable.
   // The driver stays registered for enterprise licences, which keep Gemini
-  // CLI — `{"instances": {"gemini": {"driver": "geminiAgent"}}}` restores it.
+  // CLI â€” `{"instances": {"gemini": {"driver": "geminiAgent"}}}` restores it.
   const DEFAULT_FLEET: InstanceConfigMap = {
     grok: { driver: "grokAgent" },
     kimi: { driver: "kimiAgent" },
@@ -1206,6 +1203,13 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
       if (!Object.hasOwn(map, id)) map[id] = { ...entry };
     }
   }
+  // Auto-provision the Nation OpenRouter engine when OPENROUTER_API_KEY is set
+  // server-side. This gives all paired users the NATION API model picker (VPS
+  // rail, curated catalog) without any key-paste step. A product config that
+  // already has "nationApi" keeps its explicit entry unchanged.
+  if (process.env.OPENROUTER_API_KEY?.trim() && !Object.hasOwn(map, "nationApi")) {
+    map.nationApi = { driver: "nation-openrouter", displayName: "NATION API" };
+  }
   for (const [id, sourceEntry] of Object.entries(map)) {
     // instanceConfigs() builds a transient runtime map. Never mutate the
     // caller's persisted entries while injecting workspace defaults: doing so
@@ -1243,11 +1247,11 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   return map;
 }
 
-// ── user-configured MCP servers ─────────────────────────────────────────
+// â”€â”€ user-configured MCP servers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // config.json: { "mcpServers": { "notes": { "command": "npx", "args":
-// ["-y", "@x/notes-mcp"], "env": { "NOTES_TOKEN": "…" } },
-//                                "docs": { "type": "http", "url": "https://…/mcp",
-// "headers": { "Authorization": "Bearer …" } } } }
+// ["-y", "@x/notes-mcp"], "env": { "NOTES_TOKEN": "â€¦" } },
+//                                "docs": { "type": "http", "url": "https://â€¦/mcp",
+// "headers": { "Authorization": "Bearer â€¦" } } } }
 // Validate-with-skip so one bad entry never takes the fleet down, and each
 // skip is logged once with a sentence that teaches.
 
@@ -1258,10 +1262,10 @@ function skipMcpEntry(name: string, why: string): void {
   const key = `${name}: ${why}`;
   if (reportedMcpSkips.has(key)) return;
   reportedMcpSkips.add(key);
-  console.error(`mcpServers.${JSON.stringify(name)} skipped — ${why}`);
+  console.error(`mcpServers.${JSON.stringify(name)} skipped â€” ${why}`);
 }
 
-/** The validated, normalized custom servers from config — or {}. */
+/** The validated, normalized custom servers from config â€” or {}. */
 export function customMcpServers(cfg: AppConfig, only?: string[]): Record<string, CustomMcpServer> {
   const out: Record<string, CustomMcpServer> = {};
   for (const [name, raw] of Object.entries(cfg.mcpServers ?? {})) {
@@ -1270,7 +1274,7 @@ export function customMcpServers(cfg: AppConfig, only?: string[]): Record<string
     if (only && !only.includes(name)) continue;
     const parsed = parseStoredMcpServer(name, raw);
     if (!parsed.ok) {
-      skipMcpEntry(name, `${parsed.error} Expected { "command": "npx", "args": [...], "env": { ... } } or { "type": "http", "url": "https://…", "headers": { ... } }`);
+      skipMcpEntry(name, `${parsed.error} Expected { "command": "npx", "args": [...], "env": { ... } } or { "type": "http", "url": "https://â€¦", "headers": { ... } }`);
       continue;
     }
     if (!parsed.server.enabled) continue;

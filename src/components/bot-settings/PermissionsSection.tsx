@@ -17,7 +17,7 @@ import { Crown } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useStore, type Bot } from "@/state/store";
 import type { ApprovalMode } from "../../../shared/approval-mode";
-import { ApprovalModeSelector } from "../ApprovalModeSelector";
+import { ApprovalModeSelector } from "../web/ApprovalModeSelector";
 import { FullAccessWarning } from "../FullAccessWarning";
 import { LocalComputerAutoWarning } from "../LocalComputerAutoWarning";
 import { Switch } from "../SettingsPrimitives";

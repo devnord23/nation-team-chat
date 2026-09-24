@@ -11,15 +11,6 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { useStore } from "@/state/store";
 
-const APP_LABELS: Record<string, string> = {
-  gmail: "Gmail",
-  github: "GitHub",
-  discord: "Discord",
-  slack: "Slack",
-  googlecalendar: "Calendar",
-  notion: "Notion",
-  linear: "Linear",
-};
 
 export function NewBotDialog() {
   const { state, dispatch } = useStore();
@@ -128,15 +119,6 @@ export function NewBotDialog() {
             >
               <span className="text-[14px] font-medium text-ink">{role.title}</span>
               <span className="text-[12.5px] leading-relaxed text-ink-secondary">{role.description}</span>
-              {role.apps.length > 0 && (
-                <span className="mt-auto flex flex-wrap gap-1 pt-1">
-                  {role.apps.map((slug) => (
-                    <span key={slug} className="rounded-full bg-inset px-2 py-0.5 text-[11px] text-ink-secondary">
-                      {APP_LABELS[slug] ?? slug}
-                    </span>
-                  ))}
-                </span>
-              )}
             </button>
           ))}
         </div>

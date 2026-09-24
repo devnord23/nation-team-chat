@@ -1,0 +1,30 @@
+Combined release candidate d8fab572acd9fa21795b7490387c906410ca4abc
+Independent verification date: 2026-09-24
+
+PASS pnpm install --frozen-lockfile --ignore-scripts
+PASS pnpm build (frontend/server TypeScript, Vite, strict asset guard)
+PASS brand-guard frontend: 88 files, 0 matches
+PASS brand-guard frontend plus captured member API: 89 files, 0 matches
+PASS final ledger/payment and HTTP fixtures: 18 tests in 3 files
+PASS founder-provided treasury checksum and Base-only creditChains configuration
+
+The source-wide zero-hit requirement is not claimed. Readable compatibility
+aliases, source-only adapters, historical documentation, dependency metadata
+and the guard's own terms remain. No fresh whole-source count was generated.
+The earlier 911/917/1149 asset counts describe old candidates, not this build.
+
+Browser and live deployment smoke are pending. No real token transfer, paid
+model request, PR merge or production deployment occurred in this verification.
+See branding-audit.md and credits-and-smoke.md for scope and retained evidence.
+
+Follow-up candidate dcea19e562bc08a1d6467b45cc4ac9e516747d00:
+PASS neutral hosted voice tooltip build at 1647c65b: 88 assets / 0 matches
+PASS current server/frontend TypeScript
+PASS owner-routing regression included in 18 tests / 3 files / 7.87s
+PASS current assets plus updated member API capture: 89 files / 0 matches
+PASS Brave chat send, NATION API response, JS highlighting, Mermaid flowchart
+PASS Brave hosted settings, voice-unavailable hint, owner credit report
+PASS browser-driven owner ledger: cost 100000 microdollars, deduction 0
+
+Live payment/member wallet signing and managed desktop wallpaper remain unverified.
+GitHub reports no check runs for the draft; no claim of passing hosted CI is made.

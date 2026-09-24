@@ -14,7 +14,7 @@ export function CodexAccountSettings({ instance }: { instance: InstanceInfo }) {
   const [busy, setBusy] = useState<"check" | "signOut" | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const email = instance.snapshot.account?.email;
+  // Email deliberately not shown in the UI — identify by organization or generic label only.
   const canSignOut = instance.authentication?.signOut === true;
   const assigned = state.bots.filter((bot) => bot.modelSelection.instanceId === instance.instanceId).length;
 
@@ -50,7 +50,7 @@ export function CodexAccountSettings({ instance }: { instance: InstanceInfo }) {
         <span className="flex min-w-0 items-center gap-1.5 break-words text-success">
           <Check size={13} className="shrink-0" />
           {t("engineSetup.device.connectedAccount")}
-          {email && <span className="text-ink-secondary">· {email}</span>}
+          {instance.snapshot.account?.organization && <span className="text-ink-secondary">· {instance.snapshot.account.organization}</span>}
         </span>
         <button type="button" onClick={() => void check()} disabled={busy !== null} className="flex items-center gap-1 text-ink-secondary hover:text-ink disabled:opacity-50">
           <RefreshCw size={12} className={cn(busy === "check" && "animate-spin")} />{t("engines.account.check")}

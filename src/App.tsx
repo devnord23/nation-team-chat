@@ -1,6 +1,7 @@
+import { NationCredits } from "@/components/NationCredits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { StoreProvider, useStore } from "@/state/store";
+import { StoreProvider, apiUrl, useStore } from "@/state/store";
 import { WelcomeFlow } from "@/components/onboarding/WelcomeFlow";
 import { FirstConversationTour } from "@/components/onboarding/FirstConversationTour";
 import { GuidedTour } from "@/components/onboarding/GuidedTour";
@@ -13,7 +14,6 @@ import { GroupView } from "@/components/GroupView";
 import { BotSettingsDialog } from "@/components/BotSettingsDialog";
 import { RemoteAgentSettingsPanel } from "@/components/RemoteAgentSettingsPanel";
 import { NewBotDialog } from "@/components/NewBotDialog";
-import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import { ComputerPanel } from "@/components/ComputerPanel";
 import { RemoteDesktopPanel } from "@/components/remote-desktop-panel";
 import { InspectorPanel } from "@/components/InspectorPanel";
@@ -28,8 +28,10 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { LocalVmWorkspace } from "@/components/LocalVmWorkspace";
 import { TeamMapPage } from "@/components/TeamMapPage";
+import { NationAdminPage } from "@/components/NationAdminPage";
 import { setLocale } from "@/lib/i18n";
 import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { isProductAdmin } from "@/lib/admin-gate";
 
 function Shell() {
   const { state, dispatch } = useStore();
@@ -79,7 +81,7 @@ function Shell() {
   // the panel hands off to this and back)
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const previousViewRef = useRef(state.activeView);
-  const calendarOriginRef = useRef<"chat" | "team-map">("chat");
+  const calendarOriginRef = useRef<"chat" | "team-map" | "admin">("chat");
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
   const calendarFocus = state.activeView === "routines";
@@ -133,14 +135,6 @@ function Shell() {
     window.ogb?.setUnreadCount?.(unreadCount);
   }, [unreadCount]);
 
-  // Warm connected-account state as soon as the local server is available.
-  // The modal then opens with the correct Connect/Add account buttons and
-  // quietly revalidates instead of rediscovering every account from scratch.
-  useEffect(() => {
-    if (!state.connected) return;
-    void preloadConnectedApps().catch(() => {});
-  }, [state.connected]);
-
   // Picking a conversation closes the drawer: on a phone the chat is what you
   // asked for, and leaving the list up would hide it. Watching activeView too
   // catches re-selecting the bot that is already current from another view —
@@ -157,6 +151,13 @@ function Shell() {
     }
     previousViewRef.current = state.activeView;
   }, [state.activeView]);
+
+  // Eject from admin view if the server-provided owner flag revokes access.
+  useEffect(() => {
+    if (state.activeView === "admin" && state.config?.isProductOwner === false) {
+      dispatch({ type: "showChat" });
+    }
+  }, [state.activeView, state.config?.isProductOwner, dispatch]);
 
   useEffect(() => {
     if (
@@ -181,6 +182,10 @@ function Shell() {
   const closeCalendar = useCallback(() => {
     if (calendarOriginRef.current === "team-map") {
       dispatch({ type: "showTeamMap" });
+      return;
+    }
+    if (calendarOriginRef.current === "admin") {
+      dispatch({ type: "showAdmin" });
       return;
     }
     dispatch({ type: "select", id: state.selectedId });
@@ -213,7 +218,7 @@ function Shell() {
     return window.ogb?.desktopViewer?.onState((viewer) => {
       if (viewer.open || !viewer.contextId) return;
       const botId = viewer.contextId;
-      void fetch(`/api/bots/${botId}/computer/control`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/control`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "release" }),
@@ -223,7 +228,7 @@ function Shell() {
           if (snap) dispatch({ type: "computerControl", botId, held: snap.held === true, helpReason: snap.helpReason ?? null });
         })
         .catch(() => {});
-      void fetch(`/api/bots/${botId}/computer/viewer-close`, {
+      void fetch(apiUrl(`/api/bots/${botId}/computer/viewer-close`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
@@ -235,6 +240,7 @@ function Shell() {
     <div className="flex h-full flex-col">
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
+      <NationCredits />
       <div className="relative flex min-h-0 flex-1">
       {!calendarFocus && <button
         type="button"
@@ -260,7 +266,13 @@ function Shell() {
           menuButtonRef.current?.focus();
         }}
       />}
-      {state.activeView === "team-map" ? (
+      {state.activeView === "admin" && isProductAdmin({
+        remoteClient: Boolean(window.ogb?.remoteClient),
+        pinRequired: state.config?.adminGate?.pinRequired,
+        isProductOwner: state.config?.isProductOwner,
+      }) ? (
+        <NationAdminPage />
+      ) : state.activeView === "team-map" ? (
         <TeamMapPage />
       ) : state.activeView === "routines" ? (
         <RoutinesPage onBack={closeCalendar} onOpenRoom={openCalendarRoom} />
@@ -278,15 +290,25 @@ function Shell() {
       ) : bot ? (
         <ChatView bot={bot} />
       ) : (
-        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
-          <Loader2 size={20} className="animate-spin" />
-          <div className="text-[14px]">
-            {state.connected ? "No bots yet" : "Connecting to the bot server…"}
-          </div>
-          {!state.connected && (
-            <div className="text-[12px]">
-              Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
-            </div>
+        <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 bg-app px-6 text-ink-secondary">
+          {state.connected ? (
+            <>
+              <div className="flex size-12 items-center justify-center rounded-xl bg-accent text-[20px] font-bold text-accent-ink">N</div>
+              <div className="text-center">
+                <div className="text-[17px] font-semibold text-ink">Your AI team is ready</div>
+                <div className="mt-1 text-[13px]">Create your first bot to start chatting with your AI teammates.</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              <div className="text-center">
+                <div className="text-[14px]">Connecting to the bot server…</div>
+                <div className="mt-1 text-[12px]">
+                  Start it with <code className="rounded bg-raised px-1.5 py-0.5">pnpm dev:server</code>
+                </div>
+              </div>
+            </>
           )}
         </main>
       )}
@@ -314,7 +336,6 @@ function Shell() {
       )}
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
-      {state.pluginsOpen && <PluginsPanel />}
       {state.newBotOpen && <NewBotDialog />}
       {state.shortcutsOpen && (
         <KeyboardShortcutsModal
