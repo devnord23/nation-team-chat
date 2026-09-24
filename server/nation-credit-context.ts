@@ -28,6 +28,12 @@ export function requireCreditAccount(): CreditAccount {
   if (!account) throw creditError("Sign in to use your NATION credit.", 403);
   return account;
 }
+/** The account a thread's turns run for (its credit sponsor), if recorded. */
+export function threadSponsorId(threadId: string): string | undefined {
+  if (!creditsEnforced()) return undefined;
+  const row = nationLedger().db.prepare("SELECT user_id FROM credit_sponsors WHERE thread_id=?").get(threadId);
+  return row ? String(row.user_id) : undefined;
+}
 /** Persist the sponsor of a thread so continuations cannot become free anonymous calls. */
 export function sponsorCreditThread(threadId: string): CreditAccount | undefined {
   if (!creditsEnforced()) return undefined;

@@ -1,6 +1,6 @@
 import { publicRoutineInput } from "./public-routine-input.ts";
 import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
-import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
+import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId } from "./nation-credit-context.ts";
 import type { CreditAccount } from "./nation-credits.ts";
 import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
@@ -18653,6 +18653,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // A paired device on a single-user install could always poll a card's
       // status (upstream behaviour); authorizing stays the owner's.
       const cardIdentity = m[3] === "status" && !connectorsMultiUser() ? connectorIdentityFor(creditContext.getStore()) : requestConnectorIdentity(auth);
+      // Hosted: a card belongs to the account its thread runs for. Another
+      // member may not poll it, authorize it, resume it or dismiss it: each
+      // would rewrite that member's card or restart their turn. Fail closed
+      // when the thread's account is unknown.
+      if (connectorsMultiUser() && threadSponsorId(threadId) !== creditContext.getStore()?.id) {
+        return json(res, 403, { error: "This connection request belongs to another person." });
+      }
       if ((m[3] === "authorize" || m[3] === "status") && !connectorsUsable(cardIdentity)) {
         return json(res, cardIdentity === "denied" ? 403 : 503, { error: cardIdentity === "denied"
           ? "Sign in with your NATION account to connect apps."

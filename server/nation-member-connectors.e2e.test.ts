@@ -20,6 +20,7 @@ const ALICE = "alice@example.test";
 const BOB = "bob@example.test";
 const PROJECT_KEY = "ak_hosted_fixture_only";
 const MODEL_KEY = "nation_fixture_key_only";
+const TEST_CAPABILITY = "member-connectors-test-capability-key";
 
 type Account = { id: string; toolkit: string; status: string };
 const TOOLS: Record<string, { name: string; result: (user: string) => string }> = {
@@ -36,6 +37,8 @@ it("hosted members connect and use only their own apps through NATION API", asyn
   const modelRequests: Array<{ auth: string; model: string; tools: string[]; body: any }> = [];
   let origin = "";
   let accountSeq = 0;
+  /** Every provider-side mutation (OAuth link minted, account deleted), by Composio user. */
+  const providerMutations: Array<{ kind: "link" | "delete"; user: string }> = [];
   let callSeq = 0;
   const accountsOf = (user: string) => accounts.get(user) ?? accounts.set(user, []).get(user)!;
 
@@ -101,6 +104,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
         const user = sessions.get(m[1])!;
         const account = { id: `ca_${++accountSeq}`, toolkit: body.toolkit, status: "INITIATED" };
         accountsOf(user).push(account);
+        providerMutations.push({ kind: "link", user });
         return json({ redirect_url: `${origin}/oauth/${user}/${account.id}` });
       }
       if (path === "/api/v3.1/connected_accounts") {
@@ -108,7 +112,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       }
       m = path.match(/^\/api\/v3\.1\/connected_accounts\/(ca_\d+)$/);
       if (m && req.method === "DELETE") {
-        for (const list of accounts.values()) { const i = list.findIndex((a) => a.id === m![1]); if (i >= 0) list.splice(i, 1); }
+        for (const [user, list] of accounts) { const i = list.findIndex((a) => a.id === m![1]); if (i >= 0) { list.splice(i, 1); providerMutations.push({ kind: "delete", user }); } }
         return json({});
       }
     }
@@ -134,12 +138,13 @@ it("hosted members connect and use only their own apps through NATION API", asyn
   origin = "http://127.0.0.1:" + (provider.address() as { port: number }).port;
   const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, [], undefined,
     origin, undefined, { providerApi: origin, memberEmails: [ALICE, BOB],
-      modelRoutes: { fast: "openai/fast-fixture", standard: "openai/standard-fixture", strong: "openai/strong-fixture" } });
+      modelRoutes: { fast: "openai/fast-fixture", standard: "openai/standard-fixture", strong: "openai/strong-fixture" } },
+    TEST_CAPABILITY);
   const memberResponses: string[] = [];
-  const request = async (path: string, init: { method?: string; body?: unknown; cookie?: string } = {}) => {
+  const request = async (path: string, init: { method?: string; body?: unknown; cookie?: string; headers?: Record<string, string> } = {}) => {
     const response = await fetch(fixture.info.url + path, {
       method: init.method ?? "GET",
-      headers: { "content-type": "application/json", ...(init.cookie ? { cookie: init.cookie } : {}) },
+      headers: { "content-type": "application/json", ...(init.cookie ? { cookie: init.cookie } : {}), ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     });
     const text = await response.text();
@@ -326,6 +331,65 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect((await wait(bot.id, bobThread)).status).toBe("settled");
     expect(modelRequests.at(-1)!.tools.some((name) => name.includes("gmail"))).toBe(false);
     expect(mcpCalls.length).toBe(callsBefore);
+
+    // ── Cross-member connection cards ─────────────────────────────────
+    // A real card in Bob's thread, filed through the connection-request path.
+    const capability = (await request("/api/testing/internal-capability", { method: "POST",
+      body: { botId: bot.id, threadId: bobThread, kind: "connectors" }, headers: { "x-openmausbot-test-capability": TEST_CAPABILITY } })).body;
+    const filed = await fetch(fixture.info.url + "/api/internal/connectors/request", { method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${capability.token}` },
+      body: JSON.stringify({ botId: bot.id, threadId: bobThread, resumeKey: "bob-card-resume-1", items: [{ slug: "notion" }] }) });
+    expect(filed.status, await filed.clone().text()).toBe(200);
+    const [bobConnectorCard] = (await filed.json() as any).messageIds;
+    const cardPath = (action: string) => `/api/bots/${bot.id}/connector-cards/${bobConnectorCard}/${action}`;
+    const cardState = async () => (await messages(bobThread, bob)).find((item) => item.id === bobConnectorCard)?.connector;
+    const cardBefore = await cardState();
+    const mutationsBefore = providerMutations.length;
+    // Alice may not poll, authorize, resume or dismiss Bob's card...
+    for (const [action, method] of [["status", "GET"], ["authorize", "POST"], ["resume", "POST"], ["dismiss", "POST"]] as const) {
+      const response = await request(method === "GET" ? `${cardPath(action)}?threadId=${bobThread}` : cardPath(action),
+        { method, cookie: alice, ...(method === "POST" ? { body: { threadId: bobThread } } : {}) });
+      expect.soft(response.status, `Alice ${action} on Bob's card: HTTP status`).toBe(403);
+      expect.soft(providerMutations.length, `Alice ${action} on Bob's card: provider mutations`).toBe(mutationsBefore);
+    }
+    // ...and Bob's card is exactly as it was.
+    expect(await cardState()).toEqual(cardBefore);
+    // Bob can use his own card, and it acts in his scope only.
+    expect((await request(`${cardPath("status")}?threadId=${bobThread}`, { cookie: bob })).status).toBe(200);
+    const bobAuthorize = await request(cardPath("authorize"), { method: "POST", body: { threadId: bobThread }, cookie: bob });
+    expect(bobAuthorize.status, JSON.stringify(bobAuthorize.body)).toBe(200);
+    expect(providerMutations.at(-1)).toEqual({ kind: "link", user: mcpCalls.find((call) => call.tool === "GITHUB_LIST_ISSUES")!.user });
+
+    // ── Client-supplied flags never elevate a member ──────────────────
+    // Forged desktop-owner / companion / proxy headers and a forged local
+    // unlock cookie, on install config, another member's account, MCP servers
+    // and admin session minting: all still refused, nothing reaches the provider.
+    const forged = {
+      "x-openmausbot-desktop-owner": "1", "x-openmausbot-companion": "1", "x-openmausbot-companion-auth": "forged",
+      "x-openmausbot-companion-device": "forged-device", "x-forwarded-for": "127.0.0.1", "x-nation-admin": "1",
+    };
+    const forgedCookie = `${alice}; nation.adminUnlocked=1; nation_admin=1`;
+    const aliceGmailId = (await request("/api/connectors?services=gmail", { cookie: alice })).body.services.gmail.accounts[0].id;
+    const forgedBefore = providerMutations.length;
+    for (const [path, method, body, expected] of [
+      ["/api/config", "PUT", { composio: { apiKey: "ak_forged_attempt" } }, 403],
+      ["/api/mcp/servers", "POST", { name: "forged" }, 403],
+      ["/api/admin/model-routing", "GET", undefined, 403],
+      ["/api/auth/pairing", "POST", { scopes: ["admin"], label: "forged" }, 403],
+      [`/api/bots/${bot.id}`, "PATCH", { composio: true }, 403],
+    ] as const) {
+      const response = await request(path, { method, body, cookie: forgedCookie, headers: forged });
+      expect.soft(response.status, `forged ${method} ${path}`).toBe(expected);
+    }
+    // a forged request against Bob's account still acts only in Alice's scope
+    const bobGithubId = (await request("/api/connectors?services=github", { cookie: bob })).body.services.github.accounts[0].id;
+    expect((await request(`/api/connectors/github/accounts/${bobGithubId}`, { method: "DELETE", cookie: forgedCookie, headers: forged })).body).toEqual({ removed: 0 });
+    expect(providerMutations.length).toBe(forgedBefore);
+    expect((await request("/api/connectors?services=github", { cookie: bob })).body.services.github).toMatchObject({ connected: true });
+    // Alice reading "github" sees her own (unconnected) state, never Bob's
+    expect((await request("/api/connectors?services=github", { cookie: alice })).body.services.github).toMatchObject({ connected: false, accounts: [] });
+    expect((await request("/api/config", { cookie: forgedCookie, headers: forged })).body.isProductOwner).toBe(false);
+    expect(aliceGmailId).toMatch(/^ca_/);
 
     // F. bot access OFF: no connector tools mount, nothing executes
     await owner(`/api/bots/${bot.id}`, "PATCH", { composio: false });

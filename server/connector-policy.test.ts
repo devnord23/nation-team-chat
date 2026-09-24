@@ -61,7 +61,15 @@ describe("connected-app access", () => {
       const status = await call(`/api/bots/${bot.id}/connector-cards/${cardId}/status?threadId=${bot.threadId}`, "GET", undefined, member.token);
       expect(status.status).toBe(200);
       expect(await status.json()).toMatchObject({ connected: true });
-      // refused: reading or managing the install's accounts and configuration
+      // refused: reading or managing the install's accounts and configuration.
+      // Each refusal is checked twice: the HTTP answer, and the provider's own
+      // mutation log (a refused call must never reach the connection service).
+      const refuse = async (label: string, request: Promise<Response>, expected: number) => {
+        const before = mutations();
+        const response = await request;
+        expect.soft(response.status, `${label}: HTTP status`).toBe(expected);
+        expect.soft(mutations(), `${label}: provider mutations`).toBe(before);
+      };
       for (const [path, method, body] of [
         ["/api/connectors/catalog", "GET", undefined],
         ["/api/connectors/connected", "GET", undefined],
@@ -75,8 +83,23 @@ describe("connected-app access", () => {
         [`/api/bots/${bot.id}`, "PATCH", { composio: true }],
         ["/api/config", "PUT", { composio: { apiKey: "untrusted" }, box: { token: "untrusted" } }],
         ["/api/config", "PATCH", { composio: { apiKey: "untrusted" } }],
-      ] as const) expect((await call(path, method, body, member.token)).status, `${method} ${path}`).toBe(403);
-      // none of the refused calls reached the connection service
+      ] as const) await refuse(`paired client ${method} ${path}`, call(path, method, body, member.token), 403);
+
+      // Unauthenticated and forged callers: a revoked/invalid session, and a
+      // request that arrives through a proxy with no session at all.
+      for (const [path, method, body] of [
+        ["/api/connectors/gmail/authorize", "POST", {}],
+        ["/api/connectors/gmail/accounts/ca_owner", "DELETE", undefined],
+        ["/api/config", "PUT", { composio: { apiKey: "untrusted" } }],
+      ] as const) {
+        await refuse(`invalid session ${method} ${path}`, call(path, method, body, "omb_sess_invalid"), 401);
+        await refuse(`proxied, no session ${method} ${path}`, call(path, method, body, undefined, { "x-forwarded-for": "203.0.113.9" }), 403);
+      }
+      // a client cannot mint itself an admin session either
+      await refuse("paired client mints an admin pairing", call("/api/auth/pairing", "POST", { scopes: ["admin"], label: "elevate" }, member.token), 403);
+      // the owner's key is untouched by every refused config write
+      expect((await call("/api/connectors/catalog").then((r) => r.json()) as any).configured).toBe(true);
+
       expect(mutations()).toBe(ownerMutations);
       // and the member's config view carries no connector configuration detail
       const memberConfig = await (await call("/api/config", "GET", undefined, member.token)).json() as any;
