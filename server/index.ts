@@ -1460,17 +1460,37 @@ function connectorIdentityFor(account: CreditAccount | null | undefined): Connec
 const turnConnectorIdentities = new Map<string, ConnectorIdentity>();
 const turnConnectorKey = (threadId: string, generation: string) => `${threadId}\0${generation}`;
 function bindTurnConnectorIdentity(threadId: string, generation: string): ConnectorIdentity {
-  const identity = connectorIdentityFor(creditContext.getStore());
+  const identity = connectorSuppressedThreads.delete(threadId) ? "denied" : connectorIdentityFor(creditContext.getStore());
   turnConnectorIdentities.set(turnConnectorKey(threadId, generation), identity);
   return identity;
 }
 function turnConnectorIdentity(threadId: string, generation: string): ConnectorIdentity {
-  return turnConnectorIdentities.get(turnConnectorKey(threadId, generation)) ?? "denied";
+  // null (the install identity) is a real answer; only an unbound turn is denied.
+  const key = turnConnectorKey(threadId, generation);
+  return turnConnectorIdentities.has(key) ? turnConnectorIdentities.get(key)! : "denied";
 }
 function forgetTurnConnectorIdentities(threadId: string, generation?: string): void {
   if (generation !== undefined) { turnConnectorIdentities.delete(turnConnectorKey(threadId, generation)); return; }
   for (const key of turnConnectorIdentities.keys()) if (key.startsWith(`${threadId}\0`)) turnConnectorIdentities.delete(key);
 }
+/** A message queued while its thread is busy is dispatched later, from
+ * whatever turn happens to settle. Remember who queued it, so its turn is
+ * billed to — and uses the connected apps of — that sender, never whoever
+ * ran the previous turn. A batch mixing members gets no connected apps. */
+const queuedSenderAccounts = new Map<string, CreditAccount | null>();
+const connectorSuppressedThreads = new Set<string>();
+function rememberQueuedSender(queueId: string): void {
+  queuedSenderAccounts.set(queueId, creditContext.getStore() ?? null);
+}
+function runAsQueuedSenders<T>(threadId: string, queueIds: Array<string | undefined>, run: () => T): T {
+  const known = queueIds.filter((id): id is string => id !== undefined && queuedSenderAccounts.has(id));
+  const accounts = known.map((id) => queuedSenderAccounts.get(id)!);
+  for (const id of known) queuedSenderAccounts.delete(id);
+  if (!accounts.length) return run();
+  if (new Set(accounts.map((account) => account?.id ?? "")).size > 1) connectorSuppressedThreads.add(threadId);
+  return creditContext.run(accounts.at(-1)!, run);
+}
+
 /** Connected apps are usable for this identity (backend healthy and scoped). */
 function connectorsUsable(identity: ConnectorIdentity): identity is composio.ConnectorPrincipal | null {
   return identity !== "denied" && CONNECTORS_ENABLED && composio.configured(cfg, identity);
@@ -6018,9 +6038,10 @@ function drainQueuedSends() {
     // from duplicating the last one, and excludeIds drops every drained
     // line from the transcript-replay so they are not also in `prompt`.
     new Promise<void>((resolve, reject) => {
-      void startTurn(botId, prompt, {
+      const drained = store.messagesFor(threadId).filter((message) => excludeIds.includes(message.id));
+      void runAsQueuedSenders(threadId, drained.map((message) => message.queueId), () => startTurn(botId, prompt, {
         threadId, userMessage, excludeMessageIds: excludeIds, unattended, onTurnSettled: resolve,
-      }).catch((err) => {
+      })).catch((err) => {
         store.appendMessage(threadId, {
           role: "bot", kind: "activity",
           tool: {
@@ -6051,6 +6072,7 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
       sender,
     });
+    rememberQueuedSender(queued.id);
     return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason };
   }
   const message = await startTurn(botId, text, { threadId, replyTo, sendId, sender });
@@ -9929,7 +9951,8 @@ function drainQueuedChannelSends(): void {
         : Boolean(group && store.groupTaskByThread(group.id, threadId));
       if (!group || !ownsThread) return;
       try {
-        startGroupTurn(groupId, text, resolveReplyTarget(threadId, replyToId), sendId, mode, id, { via, threadId, sender });
+        runAsQueuedSenders(threadId, [id], () =>
+          startGroupTurn(groupId, text, resolveReplyTarget(threadId, replyToId), sendId, mode, id, { via, threadId, sender }));
       } catch (error) {
         if (!store.messagesFor(threadId).some((message) => message.queueId === id && message.role === "user")) {
           store.appendMessage(threadId, { role: "user", kind: "text", text, replyToId, sendId, channelMode: mode, queueId: id, via, sender });
@@ -14884,6 +14907,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               via,
               sender: messageSender(auth),
             });
+            rememberQueuedSender(queued.id);
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
           const message = startGroupTurn(current.id, text, replyTo, sendId, channelMode, undefined, { via, sender: messageSender(auth) });
@@ -16422,6 +16446,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
               sender: messageSender(auth),
             });
+            rememberQueuedSender(queued.id);
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
           return startOrQueueDirectMessage(bot.id, threadId, text, replyTo, sendId, messageSender(auth));
