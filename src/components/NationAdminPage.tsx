@@ -130,7 +130,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 export function NationAdminPage({ config }: { config: NationAdminConfig | null }) {
-  const [tab, setTab] = useState<TabId>(() => window.location.hash === "#integrations" ? "integrations" : "openrouter");
+  const [tab, setTab] = useState<TabId>(() => window.location?.hash === "#integrations" ? "integrations" : "openrouter");
 
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
