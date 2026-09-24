@@ -1,6 +1,7 @@
 import { publicRoutineInput } from "./public-routine-input.ts";
 import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced } from "./nation-credit-context.ts";
+import type { CreditAccount } from "./nation-credits.ts";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
@@ -538,6 +539,8 @@ const sessions = new SessionRegistry({
   portalMembership: hostedWorkspaceConfiguration()?.portalMembership === true,
 });
 const sharedComputers = new SharedComputers(id => sessions.isLive(id));
+// Non-secret map of each NATION account's connected-apps Session id.
+composio.setPrincipalSessionFile(join(DATA_DIR, "connector-accounts.json"));
 const SESSION_COOKIE = sessionCookieName(PORT, ENVIRONMENT_ID);
 const HOSTED_WORKSPACE = hostedWorkspaceConfigured();
 let workspaceAccess: WorkspaceAccess | null = null;
@@ -864,6 +867,7 @@ function mintInternalCapability(capability: Omit<InternalCapability, "orphanExpi
 }
 
 function revokeInternalCapabilityGeneration(threadId: string, generation: string): void {
+  forgetTurnConnectorIdentities(threadId, generation);
   for (const [token, capability] of internalCapabilities) {
     if (capability.threadId === threadId && capability.generation === generation) {
       internalCapabilities.delete(token);
@@ -877,6 +881,7 @@ function revokeInternalCapabilityGeneration(threadId: string, generation: string
 
 function revokeInternalCapabilitiesForThread(threadId: string): void {
   computerSelectionTurns.delete(threadId);
+  forgetTurnConnectorIdentities(threadId);
   const generation = activeInternalGenerationByThread.get(threadId);
   if (generation) revokeInternalCapabilityGeneration(threadId, generation);
   // Defensive cleanup for any generation orphaned before exact ownership was
@@ -889,6 +894,7 @@ function revokeInternalCapabilitiesForThread(threadId: string): void {
 
 function revokeAllInternalCapabilities(): void {
   computerSelectionTurns.clear();
+  turnConnectorIdentities.clear();
   internalCapabilities.clear();
   activeInternalGenerationByThread.clear();
   internalGenerationByProviderTurn.clear();
@@ -1433,7 +1439,46 @@ function phoneIntegration() {
   return { command: process.execPath, args: [phoneProxyPath], env };
 }
 
+// ── whose connected apps? ──────────────────────────────────────────────
+// A desktop install is one person, so its connected apps are the install's.
+// A hosted NATION workspace is many accounts sharing one backend project, so
+// each account connects and uses only its own apps. The operator keeps the
+// installation identity (and therefore any connections made before hosting).
+type ConnectorIdentity = composio.ConnectorPrincipal | null | "denied";
+function connectorsMultiUser(): boolean {
+  return creditsEnforced() || HOSTED_WORKSPACE;
+}
+function connectorIdentityFor(account: CreditAccount | null | undefined): ConnectorIdentity {
+  if (!connectorsMultiUser()) return null;
+  if (!account) return "denied";
+  if (account.exempt) return null;
+  if (!account.verified) return "denied";
+  return { accountId: account.id };
+}
+/** The identity a turn was dispatched under, fixed at mount so a second
+ * member posting mid-turn cannot redirect the running turn's tool calls. */
+const turnConnectorIdentities = new Map<string, ConnectorIdentity>();
+const turnConnectorKey = (threadId: string, generation: string) => `${threadId}\0${generation}`;
+function bindTurnConnectorIdentity(threadId: string, generation: string): ConnectorIdentity {
+  const identity = connectorIdentityFor(creditContext.getStore());
+  turnConnectorIdentities.set(turnConnectorKey(threadId, generation), identity);
+  return identity;
+}
+function turnConnectorIdentity(threadId: string, generation: string): ConnectorIdentity {
+  return turnConnectorIdentities.get(turnConnectorKey(threadId, generation)) ?? "denied";
+}
+function forgetTurnConnectorIdentities(threadId: string, generation?: string): void {
+  if (generation !== undefined) { turnConnectorIdentities.delete(turnConnectorKey(threadId, generation)); return; }
+  for (const key of turnConnectorIdentities.keys()) if (key.startsWith(`${threadId}\0`)) turnConnectorIdentities.delete(key);
+}
+/** Connected apps are usable for this identity (backend healthy and scoped). */
+function connectorsUsable(identity: ConnectorIdentity): identity is composio.ConnectorPrincipal | null {
+  return identity !== "denied" && CONNECTORS_ENABLED && composio.configured(cfg, identity);
+}
+
 function connectedAppsIntegration(botId: string, threadId: string, generation: string) {
+  const identity = bindTurnConnectorIdentity(threadId, generation);
+  if (!connectorsUsable(identity)) return Promise.resolve(null);
   const token = mintInternalCapability({
     botId,
     threadId,
@@ -1449,7 +1494,7 @@ function connectedAppsIntegration(botId: string, threadId: string, generation: s
     commsToken: token,
     botId,
     threadId,
-  });
+  }, identity);
 }
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ computer control (who is driving) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
@@ -1918,11 +1963,14 @@ function previewSystemPrompt(bot: BotRecord) {
  * sentence builder. The phones (step 5) and the web settings dialog both
  * read this same route, so they can never disagree about what a bot does. */
 async function botOverview(bot: BotRecord): Promise<BotOverview> {
-  const connectedApps = await connectedAppsFacts(
-    (CONNECTORS_ENABLED && composio.configured(cfg)),
-    composio.connectorAvailability(cfg),
-    () => composio.connectedServices(cfg),
-  );
+  const overviewIdentity = connectorIdentityFor(creditContext.getStore());
+  const connectedApps = overviewIdentity === "denied"
+    ? await connectedAppsFacts(false, "unconfigured", async () => ({}))
+    : await connectedAppsFacts(
+      connectorsUsable(overviewIdentity),
+      composio.connectorAvailability(cfg, undefined, overviewIdentity),
+      () => composio.connectedServices(cfg, overviewIdentity),
+    );
   const engine = registry.get(bot.modelSelection.instanceId)?.adapter.capabilities ?? null;
   const sectionPeers = reachablePeers(store.bots, bot).length;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -11003,6 +11051,9 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     rooms: status.rooms,
     threads: { maxConcurrentPerBot: status.threads.maxConcurrentPerBot },
     vps: { configured: status.vps.configured },
+    // Whether a member can connect their own apps here. The same for every
+    // member (a per-account backend is available or not); never the mode.
+    composio: { configured: CONNECTORS_ENABLED && (!connectorsMultiUser() || composio.configured(cfg, { accountId: "member" })) && composio.configured(cfg) },
     tts: { configured: status.tts.configured },
     features: { browser: status.features.browser, showToolCalls: status.features.showToolCalls,
       skillAuthoring: status.features.skillAuthoring, sharedComputers: status.features.sharedComputers },
@@ -13331,7 +13382,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // Re-read the live bot immediately before relay so turning Connected
         // Apps off wins over a request that authenticated under the old value.
         const currentSender = store.bot(internalCapability.botId);
-        if (!currentSender || currentSender.composio === false || !(CONNECTORS_ENABLED && composio.configured(cfg))) {
+        const identity = turnConnectorIdentity(internalCapability.threadId, internalCapability.generation);
+        if (!currentSender || currentSender.composio === false || !connectorsUsable(identity)) {
           return json(res, 403, { error: "connected apps are not enabled for this bot" });
         }
         const upstream = await composio.relayMcp(
@@ -13340,6 +13392,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           Array.isArray(req.headers["mcp-session-id"])
             ? req.headers["mcp-session-id"][0]
             : req.headers["mcp-session-id"],
+          identity,
         );
         const headers: Record<string, string> = {
           "content-type": upstream.contentType,
@@ -13460,10 +13513,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!owner) return json(res, 403, { error: "conversation does not belong to this bot" });
         if (!/^[\w-]{8,100}$/.test(resumeKey)) return json(res, 400, { error: "invalid resume key" });
         if (!items.length || items.length > 12) return json(res, 400, { error: "one to twelve valid connection requests are required" });
-        if (!(CONNECTORS_ENABLED && composio.configured(cfg)) || owner.bot.composio === false) {
+        const requestIdentity = turnConnectorIdentity(internalCapability.threadId, internalCapability.generation);
+        if (!connectorsUsable(requestIdentity) || owner.bot.composio === false) {
           return json(res, 409, { error: "connected apps are not enabled for this bot" });
         }
-        const connectionState: Record<string, { connected?: boolean }> = await composio.connectionStatus(cfg, slugs).catch(() => ({}));
+        const connectionState: Record<string, { connected?: boolean }> = await composio.connectionStatus(cfg, slugs, requestIdentity).catch(() => ({}));
         requireActiveInternalCapability();
         const messageIds: string[] = [];
         for (const item of items) {
@@ -18383,52 +18437,64 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ connectors (Composio) Ã¢â€â‚¬Ã¢â€â‚¬
-    if (method === "GET" && path === "/api/connectors/catalog") {
-      const { cards, source, pagination } = await composio.listToolkits(cfg);
-      return json(res, 200, {
-        configured: (CONNECTORS_ENABLED && composio.configured(cfg)),
-        mode: composio.connectionMode(cfg),
-        source,
-        cards,
-        ...(pagination ? { pagination } : {}),
-      });
-    }
-    if (method === "GET" && path === "/api/connectors/connected") {
-      const availability = composio.connectorAvailability(cfg);
-      if (availability !== "configured") {
-        // `credentialStore` is what stops the panel treating this empty list
-        // as authoritative: an unreadable store means we do not KNOW what is
-        // connected, which is not the same as knowing nothing is.
+    // Every connector route acts for the requesting NATION account only.
+    // "configured" answers one question — can this account connect apps
+    // here — so a healthy backend with nothing connected yet is not
+    // reported as unconfigured, and a member never sees the owner's list.
+    if (path === "/api/connectors" || path.startsWith("/api/connectors/")) {
+      const identity = connectorIdentityFor(creditContext.getStore());
+      if (identity === "denied") return json(res, 403, { error: "Sign in with your NATION account to connect apps." });
+      const usable = connectorsUsable(identity);
+      const member = identity !== null;
+      if (method === "GET" && path === "/api/connectors/catalog") {
+        const { cards, source, pagination } = await composio.listToolkits(cfg);
         return json(res, 200, {
-          configured: false,
-          credentialStore: availability === "unreadable" ? "unavailable" : "ok",
-          services: {},
+          configured: usable,
+          // members get availability, not the backend's operating mode
+          mode: member ? (usable ? "self-hosted" : "unavailable") : composio.connectionMode(cfg),
+          source,
+          cards,
+          ...(pagination ? { pagination } : {}),
         });
       }
-      return json(res, 200, { configured: true, credentialStore: "ok", services: await composio.connectedServices(cfg) });
-    }
-    if (method === "GET" && path === "/api/connectors") {
-      const services = (url.searchParams.get("services") ?? "").split(",").filter(Boolean);
-      const availability = composio.connectorAvailability(cfg);
-      if (availability !== "configured") {
-        return json(res, 200, {
-          configured: false,
-          credentialStore: availability === "unreadable" ? "unavailable" : "ok",
-          services: {},
-        });
+      if (method === "GET" && path === "/api/connectors/connected") {
+        const availability = usable ? "configured" : composio.connectorAvailability(cfg, undefined, identity);
+        if (availability !== "configured") {
+          // `credentialStore` is what stops the panel treating this empty list
+          // as authoritative: an unreadable store means we do not KNOW what is
+          // connected, which is not the same as knowing nothing is.
+          return json(res, 200, {
+            configured: false,
+            credentialStore: availability === "unreadable" ? "unavailable" : "ok",
+            services: {},
+          });
+        }
+        return json(res, 200, { configured: true, credentialStore: "ok", services: await composio.connectedServices(cfg, identity) });
       }
-      const status = await composio.connectionStatus(cfg, services.length ? services : composio.CURATED_SLUGS);
-      return json(res, 200, { configured: true, services: status });
+      if (method === "GET" && path === "/api/connectors") {
+        const services = (url.searchParams.get("services") ?? "").split(",").filter(Boolean);
+        if (!usable) {
+          const availability = composio.connectorAvailability(cfg, undefined, identity);
+          return json(res, 200, {
+            configured: false,
+            credentialStore: availability === "unreadable" ? "unavailable" : "ok",
+            services: {},
+          });
+        }
+        const status = await composio.connectionStatus(cfg, services.length ? services : composio.CURATED_SLUGS, identity);
+        return json(res, 200, { configured: true, services: status });
+      }
+      if (!usable) return json(res, 503, { error: "Connected apps are temporarily unavailable." });
+      m = path.match(/^\/api\/connectors\/([\w-]+)\/authorize$/);
+      if (m && method === "POST") {
+        const body = await readBody(req);
+        return json(res, 200, await composio.authorizeService(cfg, m[1], body.alias, identity));
+      }
+      m = path.match(/^\/api\/connectors\/([\w-]+)\/accounts\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
+      if (m && method === "DELETE") return json(res, 200, await composio.removeAccount(cfg, m[1], m[2], identity));
+      m = path.match(/^\/api\/connectors\/([\w-]+)$/);
+      if (m && method === "DELETE") return json(res, 200, await composio.removeService(cfg, m[1], identity));
     }
-    m = path.match(/^\/api\/connectors\/([\w-]+)\/authorize$/);
-    if (m && method === "POST") {
-      const body = await readBody(req);
-      return json(res, 200, await composio.authorizeService(cfg, m[1], body.alias));
-    }
-    m = path.match(/^\/api\/connectors\/([\w-]+)\/accounts\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/);
-    if (m && method === "DELETE") return json(res, 200, await composio.removeAccount(cfg, m[1], m[2]));
-    m = path.match(/^\/api\/connectors\/([\w-]+)$/);
-    if (m && method === "DELETE") return json(res, 200, await composio.removeService(cfg, m[1]));
 
     // Phone credential entry arrives as an HPKE envelope bound to the exact
     // paired device, bot, task, card and allowlisted target. The companion
@@ -18519,12 +18585,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const message = connectorMessage(m[1], threadId, m[2]);
       if (!message?.connector) return json(res, 404, { error: "no such connection request" });
       const connector = message.connector;
+      const cardIdentity = connectorIdentityFor(creditContext.getStore());
+      if ((m[3] === "authorize" || m[3] === "status") && !connectorsUsable(cardIdentity)) {
+        return json(res, cardIdentity === "denied" ? 403 : 503, { error: cardIdentity === "denied"
+          ? "Sign in with your NATION account to connect apps."
+          : "Connected apps are temporarily unavailable." });
+      }
       if (m[3] === "authorize" && method === "POST") {
         store.patchMessage(threadId, message.id, {
           connector: { ...connector, status: "authorizing", error: undefined, dismissed: false },
         });
         try {
-          return json(res, 200, await composio.authorizeService(cfg, connector.slug, connector.alias));
+          return json(res, 200, await composio.authorizeService(cfg, connector.slug, connector.alias, cardIdentity as composio.ConnectorPrincipal | null));
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           store.patchMessage(threadId, message.id, {
@@ -18534,7 +18606,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       if (m[3] === "status" && method === "GET") {
-        const service = (await composio.connectionStatus(cfg, [connector.slug]))[connector.slug];
+        const service = (await composio.connectionStatus(cfg, [connector.slug], cardIdentity as composio.ConnectorPrincipal | null))[connector.slug];
         // A different active account must never complete a second-account card.
         // Missing alias metadata stays pending rather than guessing from the
         // toolkit-wide status (including scoped keys without account reads).

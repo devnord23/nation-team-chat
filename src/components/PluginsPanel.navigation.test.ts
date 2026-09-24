@@ -2,10 +2,10 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ surface: "apps" as "apps" | "mcp", dispatch: vi.fn() }));
+const fixture = vi.hoisted(() => ({ surface: "apps" as "apps" | "mcp", owner: true, dispatch: vi.fn() }));
 vi.mock("@/state/store", () => ({
   api: vi.fn(),
-  useStore: () => ({ state: { pluginsSurface: fixture.surface }, dispatch: fixture.dispatch }),
+  useStore: () => ({ state: { pluginsSurface: fixture.surface, config: { isProductOwner: fixture.owner } }, dispatch: fixture.dispatch }),
 }));
 vi.mock("./McpServersPanel", () => ({ McpServersPanel: () => createElement("div", null, "MCP inventory") }));
 import { PluginsPanel } from "./PluginsPanel";
@@ -22,7 +22,7 @@ function render() {
   const html = renderToStaticMarkup(createElement(Capture));
   return { html, nodes: nodes(tree) };
 }
-beforeEach(() => { vi.stubGlobal("window", {}); fixture.surface = "apps"; fixture.dispatch.mockReset(); });
+beforeEach(() => { vi.stubGlobal("window", {}); fixture.surface = "apps"; fixture.owner = true; fixture.dispatch.mockReset(); });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Plugins surface navigation", () => {
@@ -42,5 +42,14 @@ describe("Plugins surface navigation", () => {
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "togglePlugins", open: true, surface: "mcp" });
     fixture.surface = "mcp";
     expect(render().html).toContain("MCP inventory");
+  });
+
+  it("gives members their own connected apps but never the workspace MCP inventory", () => {
+    fixture.owner = false;
+    fixture.surface = "mcp";
+    const member = render();
+    expect(member.html).not.toContain("MCP inventory");
+    expect(member.nodes.some((node) => node.props.role === "tab" && node.props.children === "MCP servers")).toBe(false);
+    expect(member.nodes.some((node) => node.props.role === "tab" && node.props.children === "Connected apps")).toBe(true);
   });
 });

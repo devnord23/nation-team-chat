@@ -2,6 +2,7 @@
 // Session owns connection state, auth links and the MCP endpoint.
 import { saveConfig, type AppConfig } from "./config.ts";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { managedConnectorUnavailableReason } from "../shared/connector-availability.ts";
@@ -251,14 +252,73 @@ function requestedServiceRecord<T>(services: Record<string, T>, requested: strin
   );
 }
 
-export function connectionMode(cfg: AppConfig): "managed" | "self-hosted" | "unavailable" {
+// ── per-account identity (hosted multi-user) ───────────────────────────
+// A desktop install is one person: one Composio user and one Session in
+// config.json (the `principal` argument is omitted). A hosted workspace is
+// many people sharing one backend project key, so every NATION account gets
+// its own Composio user id and Session. Connections belong to that user id,
+// so one member's Gmail can never appear in, or be invoked from, another
+// member's turn. The managed broker speaks for a single installation and
+// has no per-user dimension, so it is never used for a principal.
+
+/** A NATION account on whose behalf connected apps are read or used. */
+export interface ConnectorPrincipal {
+  /** Stable NATION account id (never an email or a secret). */
+  accountId: string;
+}
+
+/** Deterministic, non-reversible Composio user id for one NATION account.
+ * The account id itself (which may embed an email hash) never leaves. */
+export function principalUserId(principal: ConnectorPrincipal): string {
+  const digest = createHash("sha256").update("nation-connector-user-v1\0").update(principal.accountId).digest("hex");
+  return `nation_${digest.slice(0, 40)}`;
+}
+
+let principalSessionFile: string | null = null;
+let principalSessions: Map<string, string> | null = null;
+const principalSessionsInFlight = new Map<string, Promise<SessionResponse>>();
+
+/** Where the non-secret user id → Session id map is kept. Unset keeps it in
+ * memory only (a lost Session is recreated for the same user id, so no
+ * connection is lost either way). */
+export function setPrincipalSessionFile(path: string | null): void {
+  principalSessionFile = path;
+  principalSessions = null;
+}
+
+function principalSessionMap(): Map<string, string> {
+  if (principalSessions) return principalSessions;
+  principalSessions = new Map();
+  if (principalSessionFile && existsSync(principalSessionFile)) {
+    try {
+      const parsed = z.record(z.string(), z.string()).parse(JSON.parse(readFileSync(principalSessionFile, "utf8")));
+      for (const [userId, sessionId] of Object.entries(parsed)) principalSessions.set(userId, sessionId);
+    } catch {
+      console.warn("[connectors] per-account Session map was unreadable; Sessions will be recreated");
+    }
+  }
+  return principalSessions;
+}
+
+function rememberPrincipalSession(userId: string, sessionId: string): void {
+  const map = principalSessionMap();
+  map.set(userId, sessionId);
+  if (!principalSessionFile) return;
+  const temp = `${principalSessionFile}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(Object.fromEntries(map), null, 2), { mode: 0o600 });
+  renameSync(temp, principalSessionFile);
+}
+
+export function connectionMode(cfg: AppConfig, principal?: ConnectorPrincipal | null): "managed" | "self-hosted" | "unavailable" {
   if (projectApiKey(cfg)) return "self-hosted";
-  if (brokerAccess()) return "managed";
+  // The broker has one identity; handing it to a member would share the
+  // installation's accounts with everyone.
+  if (!principal && brokerAccess()) return "managed";
   return "unavailable";
 }
 
-export function configured(cfg: AppConfig): boolean {
-  return connectionMode(cfg) !== "unavailable";
+export function configured(cfg: AppConfig, principal?: ConnectorPrincipal | null): boolean {
+  return connectionMode(cfg, principal) !== "unavailable";
 }
 
 /** Three answers, not two. The desktop shell sets OMB_CREDENTIAL_STORE to
@@ -270,8 +330,9 @@ export type ConnectorAvailability = "configured" | "unconfigured" | "unreadable"
 export function connectorAvailability(
   cfg: AppConfig,
   storeState: string | undefined = process.env.OMB_CREDENTIAL_STORE,
+  principal?: ConnectorPrincipal | null,
 ): ConnectorAvailability {
-  if (configured(cfg)) return "configured";
+  if (configured(cfg, principal)) return "configured";
   return storeState === "unavailable" ? "unreadable" : "unconfigured";
 }
 
@@ -309,10 +370,18 @@ async function throwBrokerError(res: Response, fallback: string): Promise<never>
   throw Object.assign(new Error(await responseError(res, fallback)), { status });
 }
 
+/** Composio's own hosts, or — only when the operator pointed the API at a
+ * loopback stand-in (hermetic verification) — that exact loopback origin. */
+function trustedProviderUrl(url: URL): boolean {
+  if (url.protocol === "https:" && (url.hostname === "composio.dev" || url.hostname.endsWith(".composio.dev"))) return true;
+  const base = new URL(apiBase());
+  return base.protocol === "http:" && base.hostname === "127.0.0.1" && url.origin === base.origin;
+}
+
 function trustedAuthUrl(value: string | undefined, slug: string): string {
   if (!value) throw new Error(`Connected-apps service returned no authorization link for ${slug}`);
   const url = new URL(value);
-  if (url.protocol !== "https:" || (url.hostname !== "composio.dev" && !url.hostname.endsWith(".composio.dev"))) {
+  if (!trustedProviderUrl(url)) {
     throw new Error("Connected-apps service returned an untrusted authorization link");
   }
   return url.toString();
@@ -320,7 +389,7 @@ function trustedAuthUrl(value: string | undefined, slug: string): string {
 
 function parseSessionResponse(session: SessionResponse): SessionResponse {
   const mcp = new URL(session.mcp.url);
-  if (mcp.protocol !== "https:" || (mcp.hostname !== "composio.dev" && !mcp.hostname.endsWith(".composio.dev"))) {
+  if (!trustedProviderUrl(mcp)) {
     throw new Error("Composio returned an untrusted Session MCP URL");
   }
   return { ...session, mcp: { ...session.mcp, url: mcp.toString() } };
@@ -482,7 +551,8 @@ export async function prepareProjectSession(
   return { apiKey: trimmed, userId, sessionId: session.session_id };
 }
 
-async function ensureProjectSession(cfg: AppConfig): Promise<SessionResponse> {
+async function ensureProjectSession(cfg: AppConfig, principal?: ConnectorPrincipal | null): Promise<SessionResponse> {
+  if (principal) return ensurePrincipalSession(cfg, principal);
   const composio = cfg.composio;
   const apiKey = projectApiKey(cfg);
   if (!composio || !apiKey) throw new Error("No Composio project key configured");
@@ -504,6 +574,46 @@ async function ensureProjectSession(cfg: AppConfig): Promise<SessionResponse> {
   return created;
 }
 
+/** One Session per NATION account, created on first use for that account's
+ * own Composio user id. Never touches the installation's config.json pair. */
+async function ensurePrincipalSession(cfg: AppConfig, principal: ConnectorPrincipal): Promise<SessionResponse> {
+  const apiKey = projectApiKey(cfg);
+  if (!apiKey) throw new Error("Connected apps are unavailable");
+  const userId = principalUserId(principal);
+  const running = principalSessionsInFlight.get(userId);
+  if (running) return running;
+  const work = (async () => {
+    const sessionId = principalSessionMap().get(userId);
+    if (sessionId) {
+      const existing = await getProjectSession(apiKey, sessionId);
+      if (existing && existing.config?.user_id !== undefined && existing.config.user_id !== userId) {
+        throw new Error("Connected-apps Session does not belong to this account");
+      }
+      if (existing && (supportsMultiAccount(existing) || multiAccountUpgradeAttempted.has(existing.session_id))) return existing;
+    }
+    const prepared = await prepareProjectSession(apiKey, { apiKey, userId, ...(sessionId ? { sessionId } : {}) });
+    if (prepared.userId !== userId) throw new Error("Connected-apps Session does not belong to this account");
+    multiAccountUpgradeAttempted.add(prepared.sessionId);
+    rememberPrincipalSession(userId, prepared.sessionId);
+    const created = await getProjectSession(apiKey, prepared.sessionId);
+    if (!created) throw new Error("Composio Session disappeared after creation");
+    return created;
+  })();
+  principalSessionsInFlight.set(userId, work);
+  try { return await work; } finally { principalSessionsInFlight.delete(userId); }
+}
+
+/** The Composio user id that owns this caller's connections. */
+function sessionUserId(cfg: AppConfig, session: SessionResponse, principal?: ConnectorPrincipal | null): string | undefined {
+  if (principal) return principalUserId(principal);
+  return session.config?.user_id ?? cfg.composio?.userId;
+}
+
+/** Brokered calls exist only for the single-installation identity. */
+function requireBroker(principal?: ConnectorPrincipal | null): void {
+  if (principal) throw Object.assign(new Error("Connected apps are unavailable"), { status: 503 });
+}
+
 /** Replace the current Session with a freshly created one — the only way to
  *  pick up an auth config the user added after the Session was made. The
  *  Composio user id is kept, so every existing connection survives. */
@@ -511,16 +621,24 @@ async function recreateProjectSession(
   cfg: AppConfig,
   userId: string,
   authConfigs: AuthConfigMap,
+  principal?: ConnectorPrincipal | null,
 ): Promise<SessionResponse> {
   const composio = cfg.composio;
   const apiKey = projectApiKey(cfg);
-  if (!composio || !apiKey) throw new Error("No Composio project key configured");
+  if (!apiKey || (!principal && !composio)) throw new Error("No Composio project key configured");
   const prepared = await prepareProjectSession(
     apiKey,
     { apiKey, userId },
     authConfigs,
   );
   multiAccountUpgradeAttempted.add(prepared.sessionId);
+  if (principal) {
+    rememberPrincipalSession(userId, prepared.sessionId);
+    const created = await getProjectSession(apiKey, prepared.sessionId);
+    if (!created) throw new Error("Composio Session disappeared after creation");
+    return created;
+  }
+  if (!composio) throw new Error("No Composio project key configured");
   composio.userId = prepared.userId;
   composio.sessionId = prepared.sessionId;
   saveConfig({ composio: { userId: prepared.userId, sessionId: prepared.sessionId } });
@@ -536,8 +654,9 @@ const NEEDS_AUTH_CONFIG = /does not manage auth|auth[_ ]?config/i;
 export async function mcpIntegration(
   cfg: AppConfig,
   context: IntegrationContext,
+  principal?: ConnectorPrincipal | null,
 ): Promise<ComposioMcpIntegration | null> {
-  if (!configured(cfg)) return null;
+  if (!configured(cfg, principal)) return null;
   return {
     command: process.execPath,
     args: [SPAWNED_PROXIES.connectors],
@@ -563,6 +682,7 @@ export async function relayMcp(
   cfg: AppConfig,
   payload: JsonValue,
   transportSessionId?: string,
+  principal?: ConnectorPrincipal | null,
 ): Promise<{ status: number; bytes: Uint8Array; contentType: string; transportSessionId?: string }> {
   const apiKey = projectApiKey(cfg);
   let url: string;
@@ -572,11 +692,14 @@ export async function relayMcp(
     accept: "application/json, text/event-stream",
   });
   if (apiKey) {
-    const session = await ensureProjectSession(cfg);
+    const session = await ensureProjectSession(cfg, principal);
     url = session.mcp.url;
     headers.set("x-api-key", apiKey);
-    identity = backendFingerprint("project-mcp", url, apiKey);
+    // The Session URL is already per account; naming the account too keeps
+    // one member's MCP transport session from ever being replayed for another.
+    identity = backendFingerprint(`project-mcp:${principal ? principalUserId(principal) : "install"}`, url, apiKey);
   } else {
+    requireBroker(principal);
     const broker = brokerAccess();
     if (!broker) throw new Error("Connected apps are unavailable");
     url = `${broker.url}/v1/mcp`;
@@ -751,9 +874,10 @@ function allServiceStates(
  * Enumerate the user's complete connected-account inventory without depending
  * on marketplace ordering or catalog pagination.
  */
-export async function connectedServices(cfg: AppConfig): Promise<Record<string, ConnectorServiceState>> {
+export async function connectedServices(cfg: AppConfig, principal?: ConnectorPrincipal | null): Promise<Record<string, ConnectorServiceState>> {
   const apiKey = projectApiKey(cfg);
   if (!apiKey) {
+    requireBroker(principal);
     const response = await brokerRequest("/v1/connectors/connected");
     if (!response.ok) await throwBrokerError(response, `Connected apps: HTTP ${response.status}`);
     const body = connectorServicesResponseSchema.parse(await response.json());
@@ -767,8 +891,8 @@ export async function connectedServices(cfg: AppConfig): Promise<Record<string, 
       }]),
     );
   }
-  const session = await ensureProjectSession(cfg);
-  const userId = session.config?.user_id ?? cfg.composio?.userId;
+  const session = await ensureProjectSession(cfg, principal);
+  const userId = sessionUserId(cfg, session, principal);
   if (!userId) throw new Error("Composio Session returned no user ID");
   const [toolkits, accounts] = await Promise.all([
     listSessionToolkits(apiKey, session.session_id),
@@ -780,19 +904,20 @@ export async function connectedServices(cfg: AppConfig): Promise<Record<string, 
   return allServiceStates(summarizeAccounts(accounts, []), toolkits);
 }
 
-export async function connectionStatus(cfg: AppConfig, slugs: string[]) {
+export async function connectionStatus(cfg: AppConfig, slugs: string[], principal?: ConnectorPrincipal | null) {
   const canonicalSlugs = [...new Set(slugs.map(canonicalToolkitSlug))];
   const apiKey = projectApiKey(cfg);
   if (!apiKey) {
+    requireBroker(principal);
     const response = await brokerRequest(`/v1/connectors?${new URLSearchParams({ services: canonicalSlugs.join(",") })}`);
     if (!response.ok) await throwBrokerError(response, `Connected apps: HTTP ${response.status}`);
     const body = connectorServicesResponseSchema.parse(await response.json());
     return requestedServiceRecord(body.services ?? {}, slugs);
   }
-  const session = await ensureProjectSession(cfg);
+  const session = await ensureProjectSession(cfg, principal);
   const params = new URLSearchParams({ limit: "50" });
   if (canonicalSlugs.length) params.set("toolkits", canonicalSlugs.join(","));
-  const userId = session.config?.user_id ?? cfg.composio?.userId;
+  const userId = sessionUserId(cfg, session, principal);
   const [res, accounts] = await Promise.all([
     fetch(`${apiBase()}/tool_router/session/${encodeURIComponent(session.session_id)}/toolkits?${params}`, {
       headers: projectHeaders(apiKey),
@@ -841,15 +966,16 @@ export async function connectionStatus(cfg: AppConfig, slugs: string[]) {
 }
 
 /** Backward-compatible service disconnect: removes the Session-selected account. */
-export async function removeService(cfg: AppConfig, slug: string) {
+export async function removeService(cfg: AppConfig, slug: string, principal?: ConnectorPrincipal | null) {
   const toolkit = canonicalToolkitSlug(slug);
   const apiKey = projectApiKey(cfg);
   if (!apiKey) {
+    requireBroker(principal);
     const response = await brokerRequest(`/v1/connectors/${encodeURIComponent(toolkit)}`, { method: "DELETE" });
     if (!response.ok) await throwBrokerError(response, `Connected apps: HTTP ${response.status}`);
     return removalResponseSchema.parse(await response.json());
   }
-  const session = await ensureProjectSession(cfg);
+  const session = await ensureProjectSession(cfg, principal);
   const params = new URLSearchParams({ limit: "50", toolkits: toolkit });
   const list = await fetch(
     `${apiBase()}/tool_router/session/${encodeURIComponent(session.session_id)}/toolkits?${params}`,
@@ -868,11 +994,12 @@ export async function removeService(cfg: AppConfig, slug: string) {
 }
 
 /** Disconnect exactly one account after proving it belongs to this user/toolkit. */
-export async function removeAccount(cfg: AppConfig, slug: string, accountId: string) {
+export async function removeAccount(cfg: AppConfig, slug: string, accountId: string, principal?: ConnectorPrincipal | null) {
   if (!validAccountId(accountId)) throw inputError("Invalid connected-account ID");
   const toolkit = canonicalToolkitSlug(slug);
   const apiKey = projectApiKey(cfg);
   if (!apiKey) {
+    requireBroker(principal);
     const response = await brokerRequest(
       `/v1/connectors/${encodeURIComponent(toolkit)}/accounts/${encodeURIComponent(accountId)}`,
       { method: "DELETE" },
@@ -880,8 +1007,8 @@ export async function removeAccount(cfg: AppConfig, slug: string, accountId: str
     if (!response.ok) await throwBrokerError(response, `Connected apps: HTTP ${response.status}`);
     return removalResponseSchema.parse(await response.json());
   }
-  const session = await ensureProjectSession(cfg);
-  const userId = session.config?.user_id ?? cfg.composio?.userId;
+  const session = await ensureProjectSession(cfg, principal);
+  const userId = sessionUserId(cfg, session, principal);
   if (!userId) throw new Error("Composio Session has no user ID");
   const accounts = await listConnectedAccounts(apiKey, userId, [toolkit]);
   const owned = accounts.some((account) =>
@@ -899,14 +1026,15 @@ export async function removeAccount(cfg: AppConfig, slug: string, accountId: str
 }
 
 /** Mint a browser auth link for one service. Returns { url } or throws. */
-export async function authorizeService(cfg: AppConfig, slug: string, requestedAlias?: string | null) {
+export async function authorizeService(cfg: AppConfig, slug: string, requestedAlias?: string | null, principal?: ConnectorPrincipal | null) {
   const alias = normalizeAccountAlias(requestedAlias);
   const toolkit = canonicalToolkitSlug(slug);
-  const mode = connectionMode(cfg);
+  const mode = connectionMode(cfg, principal);
   const unavailable = managedConnectorUnavailableReason(mode, toolkit);
   if (unavailable) throw inputError(unavailable, 409);
   const apiKey = projectApiKey(cfg);
   if (!apiKey) {
+    requireBroker(principal);
     const request: RequestInit = { method: "POST" };
     if (alias) request.body = JSON.stringify({ alias });
     const response = await brokerRequest(`/v1/connectors/${encodeURIComponent(toolkit)}/authorize`, request);
@@ -914,8 +1042,8 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
     const body = authUrlResponseSchema.parse(await response.json());
     return { url: trustedAuthUrl(body.url, toolkit) };
   }
-  const session = await ensureProjectSession(cfg);
-  const userId = session.config?.user_id ?? cfg.composio?.userId;
+  const session = await ensureProjectSession(cfg, principal);
+  const userId = sessionUserId(cfg, session, principal);
   if (!userId) throw new Error("Composio Session has no user ID");
   // A scoped key may be denied account listing — authorization must still
   // work (it always did pre-multi-account), so the alias guardrails degrade
@@ -954,13 +1082,17 @@ export async function authorizeService(cfg: AppConfig, slug: string, requestedAl
     // instead of echoing Composio's "auth_config_override" hint.
     const authConfigs = await listCustomAuthConfigs(apiKey);
     const covered = Object.keys(authConfigs).some((key) => canonicalToolkitSlug(key) === toolkit);
+    if (!covered && principal) {
+      // Members cannot fix backend app registration; do not hand them it.
+      throw inputError(`${toolkit} is not available to connect yet. Ask your workspace admin to enable it.`, 409);
+    }
     if (!covered) {
       throw inputError(
         `${toolkit} has no Composio-managed sign-in. In your Composio project, create an auth config for "${toolkit}" `
           + "(Auth Configs → Create) with your own app credentials, then click Connect again.",
       );
     }
-    const fresh = await recreateProjectSession(cfg, userId, authConfigs);
+    const fresh = await recreateProjectSession(cfg, userId, authConfigs, principal);
     res = await link(fresh.session_id);
     if (!res.ok) throw new Error(await responseError(res, `Composio authorization: HTTP ${res.status}`));
   }
