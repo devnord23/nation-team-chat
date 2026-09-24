@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { NationAdminPage } from "../components/NationAdminPage";
 import { api, ApiError } from "../lib/api-client";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 it.each([null, {}, { isProductOwner: false }])("does not show admin controls without a confirmed owner: %j", config => {
   vi.stubGlobal("window", {});
@@ -37,6 +37,7 @@ it("keeps the PIN gate on top of confirmed admin access", () => {
 });
 
 it("preserves the shared API authorization error and base path", async () => {
+  vi.stubEnv("BASE_URL", "/swarm/");
   const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 }));
   vi.stubGlobal("fetch", fetcher);
   const request = api("/api/admin/credits");
