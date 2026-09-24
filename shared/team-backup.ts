@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export { MAX_TEAM_BACKUP_BYTES, TEAM_BACKUP_CONTENTS, TEAM_BACKUP_EXCLUSIONS } from "./team-backup-info.js";
+export { MAX_TEAM_BACKUP_BYTES, TEAM_BACKUP_CONTENTS, TEAM_BACKUP_EXCLUSIONS } from "./team-backup-info.ts";
 
 const key = z.string().min(1).max(200);
 const name = z.string().trim().min(1).max(200);
