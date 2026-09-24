@@ -9,12 +9,12 @@
 // whole tour, and completion is written to the workspace config. A failed
 // write still dismisses this visit, but may require retrying on the next launch.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { MausAvatar } from "@/components/Avatar";
 import { useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { setEmailGateDone, track } from "@/lib/analytics";
 import { brand } from "@/lib/brand";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { isProductAdmin } from "@/lib/admin-gate";
 import type { MausMotion, MausState } from "@/lib/mascot";
 import {
   beatWidth,
@@ -34,6 +34,34 @@ import { QuietButton } from "./beats/shared";
 import { withViewTransition } from "./view-transition";
 import { ProgressDots } from "./ProgressDots";
 import { FeatureReel } from "./reel/FeatureReel";
+
+/** Nation "N" tile — replaces the OpenMausBot green-arrow in the tour header. */
+function NationMark({ size, label }: { size: number; label?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-label={label ?? "NATION"}
+      role="img"
+      style={{ display: "block", flexShrink: 0 }}
+    >
+      <rect width="100" height="100" rx="22" fill="#111111" />
+      <text
+        x="50"
+        y="68"
+        textAnchor="middle"
+        fontSize="62"
+        fontWeight="800"
+        fill="#ffffff"
+        fontFamily="system-ui,-apple-system,BlinkMacSystemFont,sans-serif"
+        letterSpacing="-2"
+      >
+        N
+      </text>
+    </svg>
+  );
+}
 
 /** The guide's resting face per beat; beats may override it as they learn
  * more (the engines beat looks proud or curious once the harness answers). */
@@ -73,7 +101,7 @@ export function WelcomeFlow({
   embedded = false,
   reel = true,
   dictation,
-  entrance = "arrive",
+  entrance: _entrance = "arrive",
 }: {
   /** The seeded bot the exit beat names; null when the roster is empty. */
   bot: Bot | null;
@@ -88,29 +116,27 @@ export function WelcomeFlow({
   reel?: boolean;
   /** Preview only: pretend the microphone can be asked for (or not). */
   dictation?: boolean;
-  /** The guide's first motion beat on mount. */
+  /** Reserved: the guide's entrance motion type. No longer rendered since
+   * the tour header is a static image rather than an animated mascot. */
   entrance?: Motion;
 }) {
-  const { dispatch } = useStore();
+  const { dispatch, state } = useStore();
   const { capabilities } = useDesktopCapabilities();
-  const beats = beatsFor({ dictation: dictation ?? capabilities.dictation.available, reel });
+  const admin = isProductAdmin({
+    remoteClient: Boolean(window.ogb?.remoteClient),
+    pinRequired: state.config?.adminGate?.pinRequired,
+    isProductOwner: state.config?.isProductOwner,
+  });
+  const beats = beatsFor({ dictation: dictation ?? capabilities.dictation.available, reel, engines: admin });
   const [beat, setBeat] = useState<BeatId>(() => (initialBeat && beats.includes(initialBeat) ? initialBeat : "hello"));
-  const [mascot, setMascot] = useState<MausState>(MASCOT_FOR_BEAT[beat]);
-  const [motion, setMotion] = useState<{ kind: Motion; key: number }>({ kind: "blink", key: 0 });
   const cardRef = useRef<HTMLDivElement>(null);
   const finishing = useRef(false);
 
-  const bump = useCallback((kind: Motion) => setMotion((m) => ({ kind, key: m.key + 1 })), []);
-
-  // The entrance waits one frame. A spin issued in the same commit that
-  // mounts the avatar lands before its engine has drawn, and the face never
-  // comes back; the mascot gallery never hits this because its motions are
-  // always triggered on an avatar that is already on screen.
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => bump(entrance));
-    return () => cancelAnimationFrame(frame);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // setMascot and bump are no-ops: the tour header is now the Nation "N" mark
+  // (static image) rather than an animated mascot. Beats still call these via
+  // beatProps — the calls are harmless and preserve the beats' internal logic.
+  const setMascot = useCallback((_state: MausState) => {}, []);
+  const bump = useCallback((_kind: Motion) => {}, []);
 
   useEffect(() => {
     track("onboarding_step", { step: beat, replay });
@@ -234,14 +260,7 @@ export function WelcomeFlow({
                 {logo ? (
                   <img src={logo} alt="" width={72} height={72} className="h-[72px] w-[72px] object-contain" />
                 ) : (
-                  <MausAvatar
-                    color="green"
-                    state={mascot}
-                    motion={motion.kind}
-                    motionKey={motion.key}
-                    size={40}
-                    label={brand().name}
-                  />
+                  <NationMark size={40} label={brand().name} />
                 )}
               </div>
               {title && (

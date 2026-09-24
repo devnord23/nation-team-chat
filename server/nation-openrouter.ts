@@ -4,6 +4,23 @@
  * OPENROUTER_API_KEY stays server-side only; the client only learns whether
  * free credit is configured (a boolean). NATION_OPENROUTER_MODEL overrides
  * the upstream model; it must not resolve to a Claude / Anthropic slug.
+ *
+ * VPS env summary (set in /opt/nation-team-chat environment or .env):
+ *
+ *   OPENROUTER_API_KEY=sk-or-v1-…          # required — shared Nation credit
+ *   OPENROUTER_API_URL=https://openrouter.ai/api/v1  # optional override
+ *   NATION_OPENROUTER_MODEL=openai/gpt-4o  # optional default model override
+ *
+ * The `openaiCompat` built-in engine also inherits OPENROUTER_API_KEY via
+ * the openai-compat driver's decodeConfig() → process.env fallback.  No
+ * extra config.json key is required; setting OPENROUTER_API_KEY is enough
+ * for both the nation-openrouter (VPS rail) and openaiCompat (Local VM rail)
+ * instances to become available on the same key.
+ *
+ * Models that cannot be proxied through OpenRouter (true CLI installs that
+ * require a local binary — Cursor CLI, Droid CLI, Kimi CLI, Codex CLI,
+ * Antigravity CLI) are excluded from the Nation catalog and stay admin-only
+ * in the full engine fleet.
  */
 
 export const NATION_DEFAULT_MODEL = "openai/gpt-4o-mini";

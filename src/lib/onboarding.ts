@@ -72,6 +72,9 @@ export interface BeatOptions {
   /** The feature reel ships in a later phase; it is a beat the machine
    * already knows so that turning it on is one flag. */
   reel: boolean;
+  /** Show the engine-discovery beat (admin/owner only; Nation provisions
+   * engines server-side, so regular users never see this step). */
+  engines?: boolean;
 }
 
 /** Beats in order for this session. The exit beat is always last so the
@@ -79,7 +82,7 @@ export interface BeatOptions {
 export function beatsFor(options: BeatOptions): BeatId[] {
   const beats: BeatId[] = ["hello"];
   if (options.reel) beats.push("reel");
-  beats.push("engines");
+  if (options.engines) beats.push("engines");
   if (options.dictation) beats.push("permissions");
   beats.push("phone", "bot");
   return beats;
