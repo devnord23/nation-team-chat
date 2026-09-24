@@ -10,6 +10,6 @@ it.each(["js", "ts", "tsx", "jsx", "json", "css", "html", "py", "bash", "sql", "
 it("escapes unknown-language source without losing its content", async () => {
   const html = await highlightCode('<script>alert("sample")</script>', "unknown-language");
   expect(html).not.toContain("<script>");
-  expect(html).toContain("&lt;script");
+  expect(html).toMatch(/(?:&lt;|&#x3c;|&#60;)script/i);
   expect(html).toContain("sample");
 });
