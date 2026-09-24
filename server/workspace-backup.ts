@@ -14,7 +14,7 @@ import * as tar from "tar";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { writeFileAtomic } from "./atomic.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
-import { WORKSPACE_BACKUP_CLIENT_KEYS } from "../shared/workspace-backup-client.ts";
+import { workspaceClientPreferences } from "./workspace-client-preferences.ts";
 import { ephemeralWorkspaceTokenPath, excludedWorkspaceAuthPath, portableWorkspaceConfig, restoredWorkspaceConfig } from "./workspace-backup-policy.ts";
 import type { WorkspaceBackupClientState, WorkspaceBackupPrivateMetadata, WorkspaceBackupSummary } from "../shared/workspace-backup.ts";
 
@@ -382,8 +382,8 @@ function validateManifest(value: unknown): Manifest {
     Object.keys(value.summary).some((key) => !["format", "version", "id", "createdAt", "appVersion", "files", "directories", "bytes", "bots", "groups", "threads", "messages", "exclusions", "warnings"].includes(key)) || !record(value.clientState) ||
     !Object.values(value.clientState).every((item) => typeof item === "string") || !Array.isArray(value.entries) ||
     value.entries.length > MAX_WORKSPACE_BACKUP_FILES) throw new Error("Invalid or unsupported workspace backup metadata.");
-  if (Object.keys(value.clientState).some((key) => !WORKSPACE_BACKUP_CLIENT_KEYS.includes(key as typeof WORKSPACE_BACKUP_CLIENT_KEYS[number])) ||
-    Buffer.byteLength(JSON.stringify(value.clientState)) > 2 * 1024 ** 2) throw new Error("Invalid or oversized workspace client preferences.");
+  const clientState = workspaceClientPreferences(value.clientState as Record<string, string>);
+  if (Buffer.byteLength(JSON.stringify(clientState)) > 2 * 1024 ** 2) throw new Error("Invalid or oversized workspace client preferences.");
   for (const key of ["files", "directories", "bytes", "bots", "groups", "threads", "messages"] as const) {
     if (!Number.isSafeInteger(value.summary[key]) || (value.summary[key] as number) < 0) throw new Error("Invalid workspace backup summary.");
   }
@@ -413,7 +413,7 @@ function validateManifest(value: unknown): Manifest {
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) if (names.get(parts.slice(0, i).join("/")) !== "directory") throw new Error("A backup entry has an unsafe parent.");
   }
-  return value as unknown as Manifest;
+  return { ...value, clientState } as unknown as Manifest;
 }
 
 async function decryptArchive(inputPath: string, plaintext: string, password: string): Promise<void> {
