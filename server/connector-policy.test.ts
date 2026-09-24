@@ -12,7 +12,7 @@ describe("removed connector surfaces", () => {
   it("returns 404 before authorization for every removed route and HTTP method", async () => {
     const fixture = await launchVerificationServer(process.env);
     try {
-      for (const path of ["/api/connectors", "/api/connectors/gmail/authorize", "/api/internal/connectors/mcp", "/api/internal/connectors/request", "/api/mcp/servers", "/api/integrations", "/api/marketplace", "/api/bots/example/slack-management", "/swarm/connectors"]) {
+      for (const path of ["/api/connectors", "/api/connectors/gmail/authorize", "/api/bots/example/connectors/request/resume", "/api/internal/connectors/mcp", "/api/internal/connectors/request", "/api/mcp/servers", "/api/integrations", "/api/marketplace", "/api/bots/example/slack-management", "/swarm/connectors"]) {
         for (const method of ["GET", "POST", "PUT", "DELETE"]) {
           const response = await fetch(fixture.info.url + path, { method, headers: { authorization: "Bearer invalid" } });
           expect(response.status, `${method} ${path}`).toBe(404);

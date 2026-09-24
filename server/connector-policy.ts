@@ -4,5 +4,6 @@ export const CONNECTORS_ENABLED: boolean = false;
 export function removedConnectorPath(path: string): boolean {
   return /^\/(?:swarm\/)?(?:connectors|integrations|marketplace|plugins)(?:\/|$)/i.test(path)
     || /^\/api\/(?:internal\/)?(?:connectors|integrations|marketplace|plugins|composio|mcp)(?:\/|$)/i.test(path)
+    || /^\/api\/.*\/(?:connectors|integrations|marketplace|plugins|composio)(?:\/|$)/i.test(path)
     || /^\/api\/bots\/[^/]+\/slack-management(?:\/|$)/i.test(path);
 }
