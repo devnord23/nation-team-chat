@@ -16,8 +16,8 @@ approval transaction, or billing contract.
 Managed chat requests, every tool round, text helpers and avatar images request
 usage accounting and charge actual `usage.cost` multiplied by the configured
 markup. `server/spend.ts` owns the admission/settlement path; both the displayed
-balance and zero-credit gate use this ledger. Regular managed turns are routed
-to NATION API, including self-hosted computer turns. In-flight requests may
+balance and zero-credit gate use this ledger. All managed turns, including owner/admin turns, are routed
+to NATION API; billing exemption does not select a legacy engine. In-flight requests may
 finish over the remaining balance; subsequent requests stop. Owner/admin
 exemption requires an authenticated admin scope AND a product owner/admin flag.
 Exempt calls still record actual provider cost for the daily report.
@@ -190,3 +190,16 @@ DNS change, or deployment was executed by this work.
 
 Provider reference: https://openrouter.ai/docs/cookbook/administration/usage-accounting
 and https://openrouter.ai/docs/guides/overview/multimodal/image-generation.
+
+## Final browser verification
+
+The combined code at `dcea19e5` passed 18 focused ledger/payment and real HTTP
+checks, including owner NATION API routing, zero owner deduction and recorded
+actual mock cost. TypeScript and the strict public-assets/member-API guard pass.
+Brave verified chat submission, code and diagram rendering, neutral unavailable
+voice text, hosted settings, and the retained owner credit report. See the dated
+evidence in `branding-audit.md`.
+
+Production is unchanged and the Base overlay is not installed in the live API.
+Founder review, authenticated live smoke, and the required managed desktop/
+approved wallpaper check remain before a complete production-readiness claim.
