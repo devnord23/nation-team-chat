@@ -18,6 +18,38 @@
   ],
   "rewrites": [
     {
+      "source": "/swarm/connectors/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/connectors/:path*"
+    },
+    {
+      "source": "/connectors/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/connectors/:path*"
+    },
+    {
+      "source": "/swarm/integrations/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/integrations/:path*"
+    },
+    {
+      "source": "/integrations/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/integrations/:path*"
+    },
+    {
+      "source": "/swarm/marketplace/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/marketplace/:path*"
+    },
+    {
+      "source": "/marketplace/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/marketplace/:path*"
+    },
+    {
+      "source": "/swarm/plugins/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/plugins/:path*"
+    },
+    {
+      "source": "/plugins/:path*",
+      "destination": "https://server.aurk.org/nation-team-chat/api/plugins/:path*"
+    },
+    {
       "source": "/swarm/api/:path*",
       "destination": "https://server.aurk.org/nation-team-chat/api/:path*"
     },
