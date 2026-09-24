@@ -54,7 +54,7 @@ export interface BrandStatus {
 }
 
 export function brandFile(): string {
-  return process.env.OMB_BRAND_FILE || join(DATA_DIR, "brand.json");
+  return process.env.NATION_BRAND_FILE || process.env.OMB_BRAND_FILE || join(DATA_DIR, "brand.json");
 }
 
 /** Resolve the brand for this server right now. Never throws. */
@@ -76,7 +76,12 @@ export function loadBrand(options: { file?: string; isEntitled?: (feature: strin
     const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
     return fallback(`${file}: ${where}${issue?.message ?? "invalid"}; using the default brand`);
   }
-  if (!isEntitled("whitelabel")) {
+  // A NATION deployment may select its own product theme without enabling
+  // arbitrary enterprise white labels. Other brands retain the entitlement.
+  const nationTheme = Boolean(process.env.NATION_BRAND_FILE) && file === process.env.NATION_BRAND_FILE &&
+    ["NATION", "Nation Team Chat"].includes(parsed.data.name) &&
+    (!parsed.data.supportUrl || parsed.data.supportUrl === DEFAULT_BRAND.supportUrl);
+  if (!nationTheme && !isEntitled("whitelabel")) {
     return fallback(`${file} found but this server is not licensed for whitelabel; using the default brand`);
   }
   return { brand: parsed.data, source: "file", file };
@@ -92,11 +97,9 @@ export function describeBrand(status: BrandStatus): string {
 export interface PublicBrandStatus {
   brand: Brand;
   source: "default" | "file";
-  notice?: string;
 }
 
 export function publicBrand(status: BrandStatus): PublicBrandStatus {
   const out: PublicBrandStatus = { brand: status.brand, source: status.source };
-  if (status.notice) out.notice = status.notice;
   return out;
 }

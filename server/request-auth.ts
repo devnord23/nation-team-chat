@@ -194,9 +194,11 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/shared-computers\/(?:connect|[\w-]+\/(?:poll|lease|result|disconnect))$/, feature: "sharedComputers" },
   // liveness, identity, the stream
   { methods: ["GET"], path: /^\/api\/health$/ },
-  { methods: ["GET"], path: /^\/api\/edition$/ },
+
   { methods: ["GET"], path: /^\/api\/brand$/ },
   { methods: ["GET"], path: /^\/api\/events$/ },
+  { methods: ["GET"], path: /^\/api\/instances$/ }, // public NATION projection only
+  { methods: ["POST"], path: /^\/api\/bots$/ }, // configured defaults only
   // reads: fleet, transcripts, search (no secrets in any of these)
   { methods: ["GET"], path: /^\/api\/bots$/ },
   { methods: ["GET"], path: /^\/api\/team-map$/ },

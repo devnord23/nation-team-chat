@@ -3,6 +3,7 @@
 // inside one managed container per bot.
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
+import { hostname, networkInterfaces } from "node:os";
 import { createConnection, createServer, type AddressInfo } from "node:net";
 
 import {
@@ -195,6 +196,13 @@ export function vpsDockerArgs(alias: string, args: string[]): string[] {
  * loopback port on this computer and forwards it to noVNC on the container's
  * private bridge address. Every caller-controlled component is validated
  * before it becomes an argv value. */
+/** Literal local targets do not need an SSH viewer transport. Unresolved
+ * SSH aliases remain tunneled; never assume a remote DNS name is local. */
+export function isLocalVpsTarget(alias: string, localName = hostname(), addresses = Object.values(networkInterfaces()).flatMap(items => items?.map(item => item.address) ?? [])): boolean {
+  const target = alias.replace(/^[^@]+@/, "").replace(/^\[|\]$/g, "").toLowerCase();
+  return ["localhost", "127.0.0.1", "::1", localName.toLowerCase(), ...addresses].includes(target);
+}
+
 export function vpsSshTunnelArgs(alias: string, localPort: number, privateIp: string, configPath: string | null = null): string[] {
   if (!isValidSshAlias(alias)) throw new Error("invalid VPS SSH config alias");
   if (!Number.isInteger(localPort) || localPort < 1024 || localPort > 65535) {
@@ -206,6 +214,9 @@ export function vpsSshTunnelArgs(alias: string, localPort: number, privateIp: st
     // so the viewer tunnel comes up without its own handshake
     ...(configPath ? ["-F", configPath] : []),
     "-N",
+    "-o", "ControlMaster=no",
+    "-o", "ControlPath=none",
+    "-o", "ControlPersist=no",
     "-o",
     "BatchMode=yes",
     "-o",
@@ -458,14 +469,14 @@ function hasNoPublishedPorts(config: {
 function statusProblem(status: VpsComputerStatus): string | null {
   if (!status.configured) return "Configure a VPS SSH alias in App Settings → Connections";
   if (!status.daemonUp) return "Docker over SSH could not reach the VPS; check the SSH alias and Docker on the VPS";
-  if (!status.image) return `Prepare the pinned OpenMausBot Cua image on the VPS (Driver ${CUA_DRIVER_VERSION})`;
-  if (status.container === "missing") return "No OpenMausBot container exists for this bot on the VPS";
-  if (!status.imageMatches) return "The VPS container uses an incompatible or untrusted OpenMausBot image";
-  if (!status.managed) return "The VPS container name is occupied by a container OpenMausBot did not create";
+  if (!status.image) return `Prepare the pinned NATION Cua image on the VPS (Driver ${CUA_DRIVER_VERSION})`;
+  if (status.container === "missing") return "No NATION container exists for this bot on the VPS";
+  if (!status.imageMatches) return "The VPS container uses an incompatible or untrusted NATION image";
+  if (!status.managed) return "The VPS container name is occupied by a container NATION did not create";
   if (status.network === "unsafe") return "The VPS container uses an unapproved network or publishes ports; refusing to use it";
   if (status.mounts === "unsafe") return "The VPS container has host mounts; refusing to use it";
-  if (status.security === "unsafe") return "The VPS container is missing OpenMausBot safety limits";
-  if (status.container === "stopped") return "The OpenMausBot VPS container is stopped";
+  if (status.security === "unsafe") return "The VPS container is missing NATION safety limits";
+  if (status.container === "stopped") return "The NATION VPS container is stopped";
   if (status.desktop_error) return `The VPS Cua desktop failed to start: ${status.desktop_error}`;
   if (!status.desktopReady) return "The VPS container started, but Cua Driver is not ready yet";
   return null;
@@ -1119,7 +1130,7 @@ export async function vpsComputerAction(
         if (before.container === "missing") return before;
         if (!before.managed) {
           throw Object.assign(
-            new Error("The VPS container name is occupied by a container OpenMausBot did not create — remove it on the VPS yourself"),
+            new Error("The VPS container name is occupied by a container NATION did not create — remove it on the VPS yourself"),
             { status: 409 },
           );
         }
@@ -1199,6 +1210,11 @@ export async function vpsComputerJoin(
     );
   }
 
+  // On the Docker host the private bridge is reachable directly. Do not
+  // start an SSH control process for a local viewer connection.
+  if (isLocalVpsTarget(alias)) {
+    return { joinUrl: `http://${connection.privateIp}:${INTERNAL_VIEWER_PORT}/vnc.html#autoconnect=true&resize=scale&password=${encodeURIComponent(connection.password)}`, state: "running" };
+  }
   const localPort = await unusedLoopbackPort();
   const ssh = prepareVpsSsh(DATA_DIR, augmentedPath());
   const child = spawn("ssh", vpsSshTunnelArgs(alias, localPort, connection.privateIp, ssh.configPath), {

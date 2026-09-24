@@ -1,3 +1,4 @@
+import { isProductAdmin } from "@/lib/admin-gate";
 // Access: where this bot runs, its working folder, connected apps and
 // browser toggles, its webhooks, and the standing "always allowed" grants.
 // Works on/cloud backend/auto-start VPS, Working folder, Connected apps, and
@@ -175,7 +176,7 @@ function McpServersCard({ bot, patch }: { bot: Bot; patch: (patch: { mcpServers:
   );
 }
 
-export function AccessSection({
+export function OwnerAccessSection({
   bot,
   derived,
 }: {
@@ -467,4 +468,12 @@ export function AccessSection({
       />
     </div>
   );
+}
+
+export function AccessSection(props: Parameters<typeof OwnerAccessSection>[0]) {
+  const { state } = useStore();
+  if (!isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) {
+    return <div className="rounded-xl bg-card p-4 text-ink"><h3 className="font-medium">NATION API</h3><p className="mt-2 text-sm text-ink-secondary">Your agent uses a NATION Isolated PC when available.</p></div>;
+  }
+  return <OwnerAccessSection {...props} />;
 }

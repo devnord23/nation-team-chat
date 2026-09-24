@@ -33,7 +33,7 @@ function FaceImg({ color, size }: { color: MausColor; size: number }) {
 const CHANNELS_MS = 6000;
 
 const MEMBERS: Array<{ name: string; title: string; color: MausColor }> = [
-  { name: "Maus", title: "Chief of staff", color: "green" },
+  { name: "NATION agent", title: "Chief of staff", color: "green" },
   { name: "Researcher", title: "Finds and checks facts", color: "blue" },
   { name: "Writer", title: "Drafts and edits", color: "orange" },
 ];

@@ -35,7 +35,7 @@ interface AllowPermissionResult {
 }
 const dead = () => {
   for (const resolve of waiting.values()) {
-    resolve({ behavior: "deny", message: "OpenMausBot: permission broker unavailable — skip this action" });
+    resolve({ behavior: "deny", message: "NATION: permission broker unavailable — skip this action" });
   }
   waiting.clear();
 };
@@ -113,7 +113,7 @@ async function answerNativeQuestions(input: unknown): Promise<string> {
     return JSON.stringify({
       behavior: "deny",
       message:
-        "OpenMausBot: this AskUserQuestion call had no answerable question (each one needs question text), so nobody was shown it. Ask again with a well-formed call, or continue without it.",
+        "NATION: this AskUserQuestion call had no answerable question (each one needs question text), so nobody was shown it. Ask again with a well-formed call, or continue without it.",
     });
   }
   const answer = await askBroker({
@@ -125,7 +125,7 @@ async function answerNativeQuestions(input: unknown): Promise<string> {
   });
   // A question is only ever denied when the broker is gone.
   if (answer.behavior === "deny") {
-    return JSON.stringify({ behavior: "deny", message: answer.message || "Denied from OpenMausBot" });
+    return JSON.stringify({ behavior: "deny", message: answer.message || "Denied from NATION" });
   }
   // What lands in `answers` turns on WHO answered, not on whether there are
   // words. The broker's own notes are words — the timeout's "nobody answered
@@ -143,7 +143,7 @@ async function answerNativeQuestions(input: unknown): Promise<string> {
 const TOOLS = [
   {
     name: "approve",
-    description: "Ask the OpenMausBot user whether a tool use is allowed",
+    description: "Ask the NATION user whether a tool use is allowed",
     inputSchema: {
       type: "object",
       properties: {
@@ -217,7 +217,7 @@ async function handle(msg: any) {
         if (answer.always && suggestions) result.updatedPermissions = suggestions;
         text = JSON.stringify(result);
       } else {
-        text = JSON.stringify({ behavior: "deny", message: answer.message || "Denied from OpenMausBot" });
+        text = JSON.stringify({ behavior: "deny", message: answer.message || "Denied from NATION" });
       }
     }
     return reply(text);

@@ -360,7 +360,7 @@ export function VpsConnection() {
       <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
         {t("keys.vps.descBefore")}
         <a
-          href="https://github.com/devnord23/nation-team-chat/blob/main/docs/byo-vps.md"
+          href="https://t.me/thenation_city"
           target="_blank"
           rel="noopener noreferrer"
           className="text-accent hover:underline"

@@ -529,7 +529,7 @@
   "settings.connections.ready": "El servicio de apps conectadas está listo",
   "settings.connections.selfHost": "Autoalojar las apps conectadas",
   "keys.composio.label": "Clave de proyecto de Composio",
-  "keys.composio.desc": "Conecta Gmail, GitHub, Slack, Notion y otras apps mediante tu propio proyecto de Composio.",
+  "keys.composio.desc": "Conecta las aplicaciones de tu equipo mediante tu propio proyecto de integración.",
   "keys.composio.link": "Crear o copiar una clave de proyecto",
   "keys.box.label": "Clave de API de Box",
   "keys.box.placeholder": "Pega tu clave de API de Box",
@@ -1021,7 +1021,7 @@
   "computer.android.allowUsbDebugging": "Permitir depuración por USB",
   "computer.android.step3b": "en el teléfono. Puedes elegir Permitir siempre para este equipo de confianza.",
   "computer.android.agentNote": "El control del agente usa esta misma conexión USB autorizada. No hace falta app complementaria en el teléfono, ni cuenta, ni Tailscale, ni emparejamiento inalámbrico.",
-  "computer.android.harnessNote": "Una vez conectado, pídele a cualquier Maus compatible que abra una app de Android o complete una tarea en tu teléfono. La skill Phone Harness incluida se carga sola en las peticiones del teléfono.",
+  "computer.android.harnessNote": "Una vez conectado, pide a un compañero de NATION que complete una tarea en tu teléfono.",
   "computer.android.step2": "Activa las opciones de desarrollador tocando {buildNumber} siete veces en Acerca del teléfono y luego activa {usbDebugging}.",
   "connectors.card.popupBlocked": "Tu navegador bloqueó la página de conexión. Permite las ventanas emergentes e inténtalo de nuevo.",
   "connectors.card.connected": "Conectado",
@@ -1154,5 +1154,7 @@
   "engines.icon.uploadAria": "Subir un icono de proveedor personalizado para {name}",
   "engines.icon.formatError": "Sube una imagen PNG, JPEG o WebP.",
   "engines.icon.sizeError": "Los iconos de proveedor deben ocupar como máximo 128 KB.",
-  "computer.phase.starting": "Starting your bot's computerâ€¦"
+  "computer.phase.starting": "Starting your bot's computerâ€¦",
+  "onboarding.tour.apps": "Conecta las aplicaciones que usa tu equipo.",
+  "onboarding.reel.apps.body": "Conecta tus aplicaciones una vez. Tus compañeros de NATION pueden solicitar acceso cuando lo necesiten."
 }

@@ -3,8 +3,15 @@
 // route module can import them directly.
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { publicResponse } from "../public-response.ts";
+const ownerResponses = new WeakSet<ServerResponse>();
+export function setResponseOwner(res: ServerResponse, owner: boolean): void {
+  if (owner) ownerResponses.add(res);
+  else ownerResponses.delete(res);
+}
+
 export function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(body);
+  const data = JSON.stringify(publicResponse(body, ownerResponses.has(res)));
   res.writeHead(status, { "content-type": "application/json" });
   res.end(data);
 }

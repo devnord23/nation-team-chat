@@ -2,8 +2,8 @@ import { parseJson, type JsonValue } from "./schema.ts";
 import { isBotPackage, parseBotPackage, type ParsedBotPackage } from "./bot-package.ts";
 import { parseTeamManifest, type ParsedTeamManifest } from "./team-manifest.ts";
 
-export const TEAM_LIBRARY_REPOSITORY = "https://github.com/devnord23/nation-team-chat";
-export const TEAM_LIBRARY_RAW_ROOT = "https://raw.githubusercontent.com/milind-soni/openmausbot-teams/main";
+export const TEAM_LIBRARY_REPOSITORY = "https://thenation.city";
+export const TEAM_LIBRARY_RAW_ROOT = "https://thenation.city/team-library";
 export const TEAM_LIBRARY_CATALOG_URL = `${TEAM_LIBRARY_RAW_ROOT}/catalog.json`;
 
 const MAX_CATALOG_BYTES = 256_000;
@@ -124,7 +124,7 @@ async function fetchJson(url: string, maxBytes: number, fetcher: Fetcher): Promi
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
-    const error = Object.assign(new Error(`GitHub returned HTTP ${response.status}`), { status: response.status });
+    const error = Object.assign(new Error(`The team service returned HTTP ${response.status}`), { status: response.status });
     throw error;
   }
   const announced = Number(response.headers.get("content-length") ?? 0);
@@ -134,7 +134,7 @@ async function fetchJson(url: string, maxBytes: number, fetcher: Fetcher): Promi
   try {
     return parseJson(raw);
   } catch {
-    throw new Error("GitHub did not return valid JSON");
+    throw new Error("The team service returned an invalid file");
   }
 }
 
@@ -144,7 +144,7 @@ async function fetchText(url: string, maxBytes: number, fetcher: Fetcher): Promi
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw Object.assign(new Error(`GitHub returned HTTP ${response.status}`), { status: response.status });
+  if (!response.ok) throw Object.assign(new Error(`The team service returned HTTP ${response.status}`), { status: response.status });
   const announced = Number(response.headers.get("content-length") ?? 0);
   if (announced > maxBytes) throw new Error("The remote team file is too large");
   const raw = await response.text();
@@ -152,7 +152,21 @@ async function fetchText(url: string, maxBytes: number, fetcher: Fetcher): Promi
   return raw;
 }
 
-export async function fetchTeamCatalog(fetcher: Fetcher = fetch): Promise<TeamCatalog> {
+const NATION_TEAM = {
+  format: "openmaus.team", version: 2,
+  team: { name: "NATION Starter Team", members: [
+    { key: "coordinator", name: "Coordinator", title: "Planning", description: "Break goals into clear tasks and coordinate the team.", appearance: { color: "green" } },
+    { key: "researcher", name: "Researcher", title: "Research", description: "Find evidence, compare options, and check the details.", appearance: { color: "blue" } },
+  ] },
+};
+const NATION_CATALOG = { format: "openmaus.catalog", version: 1, teams: [{
+  slug: "nation-starter", name: "NATION Starter Team", summary: "Plan together and research the details.",
+  category: "Getting started", manifest: "teams/nation-starter/team.mausteam.json",
+  readme: "teams/nation-starter/README.md", members: 2, skills: [], requires: { apps: [] }, featured: true,
+}] };
+
+export async function fetchTeamCatalog(fetcher?: Fetcher): Promise<TeamCatalog> {
+  if (!fetcher) return parseTeamCatalog(NATION_CATALOG);
   return parseTeamCatalog(await fetchJson(TEAM_LIBRARY_CATALOG_URL, MAX_CATALOG_BYTES, fetcher));
 }
 
@@ -169,11 +183,12 @@ async function fetchShareable(url: string, fetcher: Fetcher): Promise<ParsedShar
     : parseShareable(await fetchJson(url, MAX_MANIFEST_BYTES, fetcher));
 }
 
-export async function fetchLibraryTeam(slug: string, fetcher: Fetcher = fetch): Promise<ParsedShareableTeam> {
+export async function fetchLibraryTeam(slug: string, fetcher?: Fetcher): Promise<ParsedShareableTeam> {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw new Error("That team name is invalid");
   const catalog = await fetchTeamCatalog(fetcher);
   const entry = catalog.teams.find((team) => team.slug === slug);
   if (!entry) throw Object.assign(new Error("That library team was not found"), { status: 404 });
+  if (!fetcher) return parseTeamManifest(NATION_TEAM);
   return fetchShareable(`${TEAM_LIBRARY_RAW_ROOT}/${entry.package ?? entry.manifest}`, fetcher);
 }
 
@@ -188,13 +203,13 @@ export function githubManifestUrls(input: string): string[] {
   try {
     url = new URL(input.trim());
   } catch {
-    throw new Error("Enter a valid GitHub URL");
+    throw new Error("Enter a supported team file link");
   }
   if (url.protocol !== "https:" || url.username || url.password || url.port) {
-    throw new Error("Only public HTTPS GitHub links are supported");
+    throw new Error("This team file link is not supported");
   }
   const parts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
-  if (!parts.every(safeSegment)) throw new Error("That GitHub path is not supported");
+  if (!parts.every(safeSegment)) throw new Error("That team file link is not supported");
 
   if (url.hostname === "github.com" || url.hostname === "www.github.com") {
     if (parts.length === 2) {
@@ -210,17 +225,17 @@ export function githubManifestUrls(input: string): string[] {
     }
     if (parts.length >= 5 && (parts[2] === "blob" || parts[2] === "raw")) {
       const [owner, repo, , ref, ...file] = parts;
-      if (!file.at(-1)?.match(/\.(?:md|json)$/)) throw new Error("The GitHub link must point to a Markdown playbook or JSON team file");
+      if (!file.at(-1)?.match(/\.(?:md|json)$/)) throw new Error("The link must point to a team file");
       return [`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${file.join("/")}`];
     }
   }
 
   if (url.hostname === "raw.githubusercontent.com" && parts.length >= 4) {
-    if (!parts.at(-1)?.match(/\.(?:md|json)$/)) throw new Error("The GitHub link must point to a Markdown playbook or JSON team file");
+    if (!parts.at(-1)?.match(/\.(?:md|json)$/)) throw new Error("The link must point to a team file");
     return [`https://raw.githubusercontent.com/${parts.join("/")}`];
   }
 
-  throw new Error("Paste a GitHub repository, Markdown playbook, or legacy JSON team link");
+  throw new Error("Upload a team file or paste a supported team file link");
 }
 
 export async function fetchGithubTeam(input: string, fetcher: Fetcher = fetch): Promise<ParsedShareableTeam> {

@@ -1,6 +1,6 @@
 // The deployment's brand (name, tagline, accent, logo, support link) — served
 // by GET /api/brand from a brand.json on the server, applied once before the
-// first paint so the window never shows "OpenMausBot" and then renames itself.
+// first paint so the window consistently uses the deployment brand.
 // Pure helpers live here so they can be unit-tested without a DOM.
 
 export interface Brand {
@@ -96,11 +96,11 @@ function applyIcon(favicon: string | undefined): void {
   } else touch?.remove();
 }
 
-/** Stamp the brand on the document: title, icon and accent variables. */
+/** Apply the brand icon and accent variables without changing SEO metadata. */
 export function applyBrand(status: BrandStatus): void {
   current = status;
   if (typeof document === "undefined") return;
-  document.title = status.brand.name;
+  // The published Swarm Desk SEO title belongs to index.html.
   applyIcon(status.brand.favicon);
   const root = document.documentElement;
   for (const name of ["--color-accent", "--color-accent-border", "--color-focus", "--color-accent-text", "--color-accent-ink"]) {

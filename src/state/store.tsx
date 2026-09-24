@@ -1,3 +1,4 @@
+import { publicError } from "../../shared/public-error";
 // Server-backed store. The React app holds no transports of its own:
 // it dispatches typed commands over HTTP and folds the one SSE event
 // stream from the harness server into local state. The reducer stays
@@ -2306,7 +2307,7 @@ export async function api<T = any>(path: string, init?: RequestInit & { timeoutM
         : AbortSignal.timeout(timeoutMs),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+  if (!res.ok) throw new ApiError(publicError(body.error ?? `${res.status} ${res.statusText}`), res.status);
   return body;
 }
 

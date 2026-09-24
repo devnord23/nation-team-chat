@@ -158,7 +158,7 @@ export function entitled(feature: string, now: number = Date.now()): boolean {
 export function describeEdition(status: EditionStatus): string {
   if (status.edition === "enterprise") {
     const until = status.expiresAt ? ` until ${status.expiresAt}` : "";
-    return `openmausbot enterprise edition for ${status.customer}${until}: ${status.features.join(", ") || "no features"}`;
+    return `NATION enterprise edition for ${status.customer}${until}: ${status.features.join(", ") || "no features"}`;
   }
-  return `openmausbot open-source edition${status.notice ? ` (${status.notice})` : ""}`;
+  return "NATION Team Chat";
 }

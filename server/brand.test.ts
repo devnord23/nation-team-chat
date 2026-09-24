@@ -86,3 +86,19 @@ describe("the brand's favicon", () => {
     expect(brandSchema.safeParse({ name: "Agent Ada", favicon: `data:image/png;base64,${"A".repeat(130_000)}` }).success).toBe(false);
   });
 });
+
+
+it("applies the explicit NATION deployment theme without publishing diagnostic metadata", async () => {
+  const { publicBrand } = await import("./brand.ts");
+  const file = brandFile(JSON.stringify({ name: "Nation Team Chat", supportUrl: "https://t.me/thenation_city" }));
+  const previous = process.env.NATION_BRAND_FILE;
+  process.env.NATION_BRAND_FILE = file;
+  try {
+    const status = loadBrand({ file, isEntitled: unlicensed });
+    expect(status.source).toBe("file");
+    expect(publicBrand({ ...status, notice: "private diagnostic" })).toEqual({ brand: status.brand, source: "file" });
+  } finally {
+    if (previous === undefined) delete process.env.NATION_BRAND_FILE;
+    else process.env.NATION_BRAND_FILE = previous;
+  }
+});

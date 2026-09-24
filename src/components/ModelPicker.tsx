@@ -338,7 +338,7 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
   );
 }
 
-export function ModelPicker({
+function AdminModelPicker({
   bot,
   threadId,
   className,
@@ -888,4 +888,12 @@ export function ModelPicker({
       />
     </div>
   );
+}
+
+/** The private picker never mounts for a member, including direct navigation. */
+export function ModelPicker(props: Parameters<typeof AdminModelPicker>[0]) {
+  const { state } = useStore();
+  const admin = isProductAdmin({ isProductOwner: state.config?.isProductOwner,
+    pinRequired: state.config?.adminGate?.pinRequired, remoteClient: Boolean(window.ogb?.remoteClient) });
+  return admin ? <AdminModelPicker {...props} /> : <span title="NATION API" className="text-[12px] font-medium text-ink-secondary">NATION API</span>;
 }

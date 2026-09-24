@@ -90,7 +90,7 @@ interface AcpTurn {
   turn: SendTurnInput;
   turnConfig: AcpConfig;
   controlsHost: boolean;
-  state: { settled: boolean; promptSent: boolean; text: string; producedItem: boolean };
+  state: { settled: boolean; promptSent: boolean; text: string; producedItem: boolean; observedActivity: boolean };
   asks: Map<string, AcpAskFinish>;
   interruptTimer: ReturnType<typeof setTimeout> | null;
   flushAssistantText: () => void;
@@ -407,7 +407,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
   const SOURCE = support.nativeSource;
   const decodeConfig = decodeAcpConfig(support.defaultCli);
   const DENY_TIMEOUT_NOTE =
-    "Nobody answered this permission request in time. Skipping this action and finishing what you can without it.";
+    "NATION: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
   return {
     driverKind: DRIVER_KIND,
@@ -840,6 +840,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             void handleClientFileRequest(msg);
             return;
           }
+          current.state.observedActivity = true;
           if (msg.method !== "session/request_permission") {
             // never leave an unknown server request hanging — the agent blocks
             return send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: "method not found" } });
@@ -959,6 +960,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             return;
           }
           if (!current || !current.state.promptSent) return;
+          current.state.observedActivity = true;
           const u = p.update ?? {};
           switch (u.sessionUpdate) {
             case "agent_message_chunk": {
@@ -1227,7 +1229,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         ): Promise<any> =>
           session.acp.request(method, params, timeoutMs, receive, idleMs, idleMessage);
 
-        const state = { settled: false, promptSent: false, text: "", producedItem: false };
+        const state = { settled: false, promptSent: false, text: "", producedItem: false, observedActivity: false };
         const asks = new Map<string, AcpAskFinish>();
         const modelOf = (result: any): string | null => {
           const option = (Array.isArray(result?.configOptions) ? result.configOptions : []).find(
@@ -1299,38 +1301,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         emit({ ...base(threadId, turnId), type: "turn.started" });
         session.current = current;
 
-        // How long a `session/prompt` result may take before it is no longer
-        // considered an "immediate" failure — used to distinguish a stale
-        // resume (Hermes v0.21 returns `{}` from session/load but serves a
-        // refusal within ~200 ms) from a genuine LLM refusal that just
-        // happens to be fast.
-        const STALE_LOAD_FAST_MS = 2_000;
-
-        // Whether a transparent stale-load retry has already been used for
-        // this turn; we only retry once regardless of what the second pass
-        // returns.
-        let hadStaleLoadRetry = false;
-
         (async () => {
-          // Outer loop: runs at most twice. The second pass only runs when
-          // the first pass detects the stale-resume refusal pattern.
-          for (let stalePass = 0; stalePass <= 1; stalePass++) {
-            if (stalePass === 1 && !hadStaleLoadRetry) break;
-
-            try {
-              // Reset progress fields for the retry pass so a subsequent
-              // successful reply is treated as a complete answer.
-              if (stalePass === 1) {
-                state.text = "";
-                state.producedItem = false;
-                state.promptSent = false;
-              }
-
-              // Track whether this pass established the session via
-              // session/load (as opposed to a pooled re-use or session/new).
-              let didSessionLoad = false;
-              let sessionLoadAt = 0;
-
+          try {
             // The handshake is paid once per process, not once per turn. It
             // is a function so the establishment retry below can pay it
             // again on a replacement child.
@@ -1342,7 +1314,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   "initialize",
                   {
                     protocolVersion: 1,
-                    clientInfo: { name: "nation-team-chat", version: "0.0.0" },
+                    clientInfo: { name: "openmausbot", version: "0.0.0" },
                     clientCapabilities: {
                       fs: {
                         readTextFile: support.clientFileSystem === true,
@@ -1386,11 +1358,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             let runtimeAcceptsImages = await handshake();
             let init = session.initResult;
 
-            // On a stale-load retry pass, force session/new by not providing
-            // the resume cursor — the loaded session is known-broken.
-            const cursor = (stalePass === 0 && typeof turn.resumeCursor === "string")
-              ? turn.resumeCursor
-              : null;
+            let cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+            // Some ACP agents acknowledge a missing saved session with {}.
+            // Retry only a just-loaded, instantly refused, completely silent
+            // prompt. Never replay a turn that emitted content or used tools.
+            for (let resumeAttempt = 0; resumeAttempt < 2; resumeAttempt += 1) {
+            let justLoaded = false;
             let sessionResult: any = null;
             for (;;) {
               const liveSessionId = session.sessionId;
@@ -1416,8 +1389,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                     (result) => {
                       if (result) {
                         loaded = true;
-                        didSessionLoad = true;
-                        sessionLoadAt = Date.now();
                         session.sessionId = cursor;
                         session.sessionKey = sessionKey;
                         receiveModelVariants(result);
@@ -1430,7 +1401,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                    * genuinely new session */
                 }
               }
-              if (loaded) break;
+              if (loaded) { justLoaded = true; break; }
               if (cursor && liveSessionId === cursor) {
                 // The agent refused (or never answered) re-establishing its
                 // own live session on this process. Continuity outranks the
@@ -1547,6 +1518,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             state.promptSent = true;
             const promptIdleMs = promptIdleTimeoutMs();
+            const promptStartedAt = Date.now();
             const result = await request(
               "session/prompt",
               { sessionId, prompt: [{ type: "text", text }, ...imageBlocks] },
@@ -1556,6 +1528,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               `${DRIVER_KIND} went fully silent ${Math.round(promptIdleMs / 1000)} s after the message and the turn was stopped. ` +
                 "Raise OPENMAUS_ACP_PROMPT_IDLE_TIMEOUT_MS if this model legitimately takes longer to answer.",
             );
+            if (resumeAttempt === 0 && justLoaded && (result?.stopReason === "refusal" || result?.stopReason === "error") &&
+                Date.now() - promptStartedAt < 1500 && !state.settled &&
+                !state.observedActivity && !state.text && !state.producedItem && current.asks.size === 0) {
+              cursor = null;
+              session.sessionId = null;
+              session.sessionKey = null;
+              session.sessionConfigResult = null;
+              state.promptSent = false;
+              sessionAllows.delete(threadId);
+              continue;
+            }
             // opencode 1.18.18 reports usage at the result root; grok and
             // gemini put it under _meta. Read both rather than lose the count.
             const usage = result?.usage ?? result?._meta ?? {};
@@ -1568,43 +1551,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               });
             }
             const reason = result?.stopReason;
-
-            // Stale-resume detection: Hermes (and potentially other ACP
-            // agents) may return `result: {}` from session/load even when
-            // the idle-closed session cannot actually be restored. The next
-            // session/prompt then immediately returns refusal or error with
-            // no content because there is no real session to continue.
-            //
-            // Guard conditions (all must hold to retry):
-            //   1. First pass only — never retry twice.
-            //   2. The session was established via session/load (not pooled
-            //      re-use or a fresh session/new).
-            //   3. The prompt completed with a refusal/error stop-reason.
-            //   4. The elapsed time from session/load to prompt result was
-            //      short (< STALE_LOAD_FAST_MS) — a genuine LLM refusal
-            //      takes long enough to distinguish from an agent that
-            //      merely echoed an error from a non-existent session.
-            //   5. No content was produced — if the agent sent anything it
-            //      was making real progress, not bouncing off a null session.
-            if (
-              stalePass === 0
-              && didSessionLoad
-              && !state.producedItem
-              && (reason === "refusal" || reason === "error")
-              && Date.now() - sessionLoadAt < STALE_LOAD_FAST_MS
-            ) {
-              // Discard the stale cursor from the live session record so
-              // the next iteration calls session/new, which starts clean.
-              session.sessionId = null;
-              hadStaleLoadRetry = true;
-              appendNative(threadId, {
-                dir: "out",
-                source: SOURCE,
-                msg: { staleLoadRetry: true, reason, elapsed: Date.now() - sessionLoadAt },
-              });
-              continue; // retry with session/new (stalePass === 1)
-            }
-
             if (reason === "end_turn") settle(threadId, session, true, null);
             else if (reason === "cancelled") settle(threadId, session, true, "cancelled");
             else {
@@ -1619,6 +1565,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 message: errorMessage,
               });
               settle(threadId, session, false, reason ?? "failed");
+            }
+            break;
             }
           } catch (e) {
             if (!state.settled) {
@@ -1644,8 +1592,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               settle(threadId, session, false, needsAuth ? "auth_required" : "rpc_error");
             }
           }
-          break; // normal completion — exit the stale-load retry loop
-          } // end for (stalePass)
         })();
 
         return { turnId };

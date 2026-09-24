@@ -59,7 +59,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
     const result = await pairWithCode({ code, label, attemptId });
     setBusy(false);
     if (result.ok) {
-      location.replace("/");
+      location.replace(import.meta.env.BASE_URL);
       return;
     }
     setError(result.error);
@@ -76,7 +76,7 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
       return;
     }
     if (sent) {
-      location.replace("/");
+      location.replace(import.meta.env.BASE_URL);
       return;
     }
     setSent(true);
@@ -91,13 +91,14 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
     <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
       <div className="absolute left-3 top-12 max-w-[280px]"><DesktopWorkspaceSwitcher /></div>
       <div className="w-full max-w-[420px]">
-        <h1 className="text-[20px] font-semibold">{mode === "email" ? "Sign in to" : "Connect to"} {environment?.label ?? "Nation Team Chat"}</h1>
+        <img src={`${import.meta.env.BASE_URL}bot-faces/coordinator.png`} alt="NATION agent" className="mb-5 size-20 rounded-2xl" />
+        <h1 className="text-[20px] font-semibold">{mode === "email" ? "Sign in to" : "Connect to"} {"Nation Team Chat"}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
           {mode === "email"
             ? sent
               ? `We emailed an 8-digit code to ${email}. It works once and expires in ten minutes.`
               : "Enter your email and we will send you a one-time code."
-            : `Enter your access code to join ${environment?.label ?? "Nation Team Chat"}. Codes expire after five minutes.`}
+            : `Enter your access code to join ${"Nation Team Chat"}. Codes expire after five minutes.`}
         </p>
         {reasonWorthShowing(reason) && !connected ? <p className="mt-3 text-[13px] text-ink-secondary">{reasonWorthShowing(reason)}</p> : null}
         {connected ? (

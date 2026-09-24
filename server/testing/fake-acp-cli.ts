@@ -319,10 +319,7 @@ type McpEntry = { command: string; args?: string[]; env?: Array<{ name: string; 
 let agentsMcp: McpEntry | null = null;
 // the session this process established, for FAKE_ACP_REJECT_LIVE_LOAD_FILE
 let liveSession: string | null = null;
-// For 'stale-resume' mode: track whether the last session establishment was
-// via session/load (true) or session/new (false), to serve a refusal only
-// on the first prompt after a load.
-let lastEstablishedByLoad = false;
+let loadedSession = false;
 
 /** Minimal one-shot MCP stdio client: initialize, call each tool in
  * sequence, return the text of the last result. Dependency-free. */
@@ -498,7 +495,7 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       liveSession = "fake-acp-session";
-      lastEstablishedByLoad = false;
+      loadedSession = false;
       resultAndConfigUpdates(msg.id, {
         sessionId: "fake-acp-session",
         ...(opts ? { configOptions: opts } : {}),
@@ -507,6 +504,12 @@ function handle(msg: any) {
       break;
     }
     case "session/load": {
+      if (mode.startsWith("stale-resume")) {
+        liveSession = msg.params.sessionId;
+        loadedSession = true;
+        result(msg.id, {});
+        break;
+      }
       if (process.env.FAKE_ACP_LOAD_NULL) {
         result(msg.id, null);
         break;
@@ -528,7 +531,6 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       liveSession = typeof msg.params?.sessionId === "string" ? msg.params.sessionId : liveSession;
-      lastEstablishedByLoad = true;
       resultAndConfigUpdates(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}) }, "session/load", msg.params.sessionId);
       break;
     }
@@ -547,7 +549,6 @@ function handle(msg: any) {
       const opts = configOptions();
       const mdls = sessionModels();
       liveSession = typeof msg.params?.sessionId === "string" ? msg.params.sessionId : liveSession;
-      lastEstablishedByLoad = true;
       result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}) });
       break;
     }
@@ -626,6 +627,14 @@ function handle(msg: any) {
       break;
     }
     case "session/prompt": {
+      if (mode.startsWith("stale-resume") && (loadedSession || mode === "stale-resume-always")) {
+        if (mode === "stale-resume-content") {
+          out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: msg.params.sessionId,
+            update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "A real refusal." } } } });
+        }
+        result(msg.id, { stopReason: mode === "stale-resume-error" ? "error" : "refusal" });
+        break;
+      }
       emitConfigUpdates("session/prompt", msg.params.sessionId);
       if (process.env.FAKE_ACP_DUMP && process.env.FAKE_ACP_VARIANTS) {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.selection.json`, JSON.stringify({
@@ -634,16 +643,6 @@ function handle(msg: any) {
       }
       if (process.env.FAKE_ACP_DUMP && process.env.FAKE_ACP_DUMP_PROMPT === "1") {
         writeFileSync(`${process.env.FAKE_ACP_DUMP}.prompt.json`, JSON.stringify(msg.params?.prompt ?? null, null, 2));
-      }
-      if (mode === "stale-resume" && lastEstablishedByLoad) {
-        // Simulate Hermes v0.21.3: session/load returned {} (loaded = true)
-        // but the session is actually gone. The first prompt on that session
-        // returns an immediate refusal with no content. On the retry pass
-        // the driver calls session/new first, so lastEstablishedByLoad will
-        // be false and we fall through to the normal happy path.
-        lastEstablishedByLoad = false; // consume once — retry gets a fresh session
-        result(msg.id, { stopReason: "refusal", _meta: {} });
-        return;
       }
       if (mode === "hang") {
         // never resolve the prompt on our own — lets tests exercise interrupt

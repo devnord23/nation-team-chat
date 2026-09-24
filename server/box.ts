@@ -588,7 +588,7 @@ export async function listManagedBoxes(
     try {
       recoveries = boxCreateRecoverySnapshot();
     } catch {
-      return invalidInventory("Nation could not safely read its cloud computer recovery records");
+      return invalidInventory("NATION could not safely read its cloud computer recovery records");
     }
     for (const recovery of recoveries) {
       if (!recovery.resolved || !recovery.boxId) continue;
@@ -597,12 +597,12 @@ export async function listManagedBoxes(
 
       const matchingRows = candidates.filter((candidate) => candidate?.id === recovery.boxId);
       if (matchingRows.length > 1) {
-        return invalidInventory("ascii.dev returned a conflicting id for a Nation-managed cloud computer — refresh or repair it in ascii.dev");
+        return invalidInventory("ascii.dev returned a conflicting id for an NATION-managed cloud computer — refresh or repair it in ascii.dev");
       }
       if (matchingRows.length === 1) {
         const listedName = typeof matchingRows[0]?.name === "string" ? matchingRows[0].name : "";
         if (listedName !== namedOwner.currentName && listedName !== namedOwner.legacyName) {
-          return invalidInventory("A remembered cloud computer no longer has its Nation owner name — repair it in ascii.dev before continuing");
+          return invalidInventory("A remembered cloud computer no longer has its NATION owner name — repair it in ascii.dev before continuing");
         }
         continue;
       }
@@ -621,7 +621,7 @@ export async function listManagedBoxes(
         inspected.identity.name !== namedOwner.currentName
         && inspected.identity.name !== namedOwner.legacyName
       ) {
-        return invalidInventory("A remembered cloud computer no longer has its Nation owner name — repair it in ascii.dev before continuing");
+        return invalidInventory("A remembered cloud computer no longer has its NATION owner name — repair it in ascii.dev before continuing");
       }
       const directCandidate = {
         id: inspected.identity.boxId,
@@ -635,7 +635,7 @@ export async function listManagedBoxes(
     try {
       deletions = boxDeletionSnapshot();
     } catch {
-      return invalidInventory("Nation could not safely read its cloud computer deletion records");
+      return invalidInventory("NATION could not safely read its cloud computer deletion records");
     }
     for (const deletion of deletions) {
       let state: BoxDeletionReconciliation;
@@ -701,11 +701,11 @@ export async function listManagedBoxes(
     if (!owner) continue;
     const boxId = typeof candidate.id === "string" ? candidate.id : "";
     if (!BOX_ID.test(boxId)) {
-      return invalidInventory("ascii.dev returned an invalid id for a Nation-managed cloud computer — refresh or repair it in ascii.dev");
+      return invalidInventory("ascii.dev returned an invalid id for an NATION-managed cloud computer — refresh or repair it in ascii.dev");
     }
     const existing = ownedBoxByBot.get(owner.botId);
     if (existing && existing !== boxId) {
-      return invalidInventory("ascii.dev returned conflicting cloud computers for one Nation bot — repair them in ascii.dev before continuing");
+      return invalidInventory("ascii.dev returned conflicting cloud computers for one NATION bot — repair them in ascii.dev before continuing");
     }
     ownedBoxByBot.set(owner.botId, boxId);
   }
@@ -737,16 +737,16 @@ export async function listManagedBoxes(
     // deterministic name), silently skipping a malformed/duplicated identity
     // could let bot deletion mistake provider corruption for absence.
     if (!BOX_ID.test(boxId)) {
-      return invalidInventory("ascii.dev returned an invalid id for a Nation-managed cloud computer — refresh or repair it in ascii.dev");
+      return invalidInventory("ascii.dev returned an invalid id for an NATION-managed cloud computer — refresh or repair it in ascii.dev");
     }
     if ((boxIdCounts.get(boxId) ?? 0) !== 1 || seenBoxIds.has(boxId)) {
-      return invalidInventory("ascii.dev returned a conflicting id for a Nation-managed cloud computer — refresh or repair it in ascii.dev");
+      return invalidInventory("ascii.dev returned a conflicting id for an NATION-managed cloud computer — refresh or repair it in ascii.dev");
     }
     if (legacyOwner && owner && options.adoptLegacy !== false) {
       try {
         adoptResolvedBox(owner.botId, boxId);
       } catch {
-        return invalidInventory("Nation could not safely remember this legacy cloud computer's owner — repair it in ascii.dev before continuing");
+        return invalidInventory("NATION could not safely remember this legacy cloud computer's owner — repair it in ascii.dev before continuing");
       }
     }
     seenBoxIds.add(boxId);
@@ -836,7 +836,7 @@ async function revalidateManagedBox(
   if (!inventory.available) throw inventoryFailure(inventory);
   const instance = inventory.instances.find((candidate) => candidate.boxId === boxId);
   if (!instance) {
-    throw Object.assign(new Error("that OpenMaus-managed cloud computer no longer exists"), { status: 404 });
+    throw Object.assign(new Error("that NATION-managed cloud computer no longer exists"), { status: 404 });
   }
   return instance;
 }

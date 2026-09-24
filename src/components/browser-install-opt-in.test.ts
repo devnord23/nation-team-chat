@@ -21,7 +21,7 @@ vi.mock("@/state/store", async (importOriginal) => {
       state: {
         ...original.initialState,
         appSettingsSection: "experimental",
-        config: { box: { configured: false }, ...fixture.config },
+        config: { isProductOwner: true, box: { configured: false }, ...fixture.config },
         instances: [{
           instanceId: "fixture", driverKind: "claudeAgent", displayName: "Fixture",
           models: { default: "fixture", options: [] }, snapshot: { state: "available" },

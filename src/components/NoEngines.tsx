@@ -12,6 +12,7 @@ import { EngineSetup, installCommandFor } from "@/components/EngineSetup";
 import { InstanceProviderMark } from "@/components/ProviderIcons";
 import { splitEngineRail } from "@/lib/engine-rail";
 import { t } from "@/lib/i18n";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { brand } from "../lib/brand";
 
 export function NoEngines() {
@@ -27,13 +28,13 @@ export function NoEngines() {
     }
   };
 
-  if (remoteClient) {
+  if (remoteClient || !isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) {
     return (
       <main className="flex h-full min-w-0 flex-1 items-center justify-center bg-app px-6">
         <div className="max-w-[520px] rounded-2xl border border-hairline/40 bg-card p-6 text-center">
-          <h1 className="text-[20px] font-semibold text-ink">The host needs an agent engine</h1>
+          <h1 className="text-[20px] font-semibold text-ink">NATION API is temporarily unavailable</h1>
           <p className="mt-2 text-[13.5px] leading-relaxed text-ink-secondary">
-            Configure Claude, ACP, or another supported engine in NATION Team on the host computer, then return here.
+            Please try again in a moment. Your team and work are saved.
           </p>
           <button onClick={() => void recheck()} disabled={rechecking} className="mt-5 rounded-lg bg-raised px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-60">
             {rechecking ? "Checking…" : "Check again"}

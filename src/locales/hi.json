@@ -529,7 +529,7 @@
   "settings.connections.ready": "जुड़े हुए ऐप की सेवा तैयार है",
   "settings.connections.selfHost": "जुड़े हुए ऐप खुद होस्ट करें",
   "keys.composio.label": "Composio प्रोजेक्ट कुंजी",
-  "keys.composio.desc": "अपने Composio प्रोजेक्ट से Gmail, GitHub, Slack, Notion और दूसरे ऐप जोड़ें।",
+  "keys.composio.desc": "अपने इंटीग्रेशन प्रोजेक्ट से अपनी टीम के ऐप कनेक्ट करें।",
   "keys.composio.link": "प्रोजेक्ट कुंजी बनाएँ या कॉपी करें",
   "keys.box.label": "Box API कुंजी",
   "keys.box.placeholder": "अपनी Box API कुंजी पेस्ट करें",
@@ -1021,7 +1021,7 @@
   "computer.android.allowUsbDebugging": "USB डीबगिंग की अनुमति दें",
   "computer.android.step3b": "फ़ोन पर। इस भरोसेमंद कंप्यूटर के लिए आप हमेशा अनुमति दें चुन सकते हैं।",
   "computer.android.agentNote": "एजेंट नियंत्रण इसी अधिकृत USB कनेक्शन का उपयोग करता है। फ़ोन पर साथी ऐप, खाता, Tailscale या वायरलेस पेयरिंग की ज़रूरत नहीं।",
-  "computer.android.harnessNote": "जुड़ने के बाद, किसी भी संगत Maus से कहें कि वह कोई Android ऐप खोले या आपके फ़ोन पर कोई काम पूरा करे। फ़ोन से जुड़े अनुरोधों के लिए साथ आई Phone Harness स्किल अपने आप लोड होती है।",
+  "computer.android.harnessNote": "कनेक्ट होने के बाद, किसी NATION साथी से अपने फ़ोन पर कोई काम पूरा करने को कहें।",
   "computer.android.step2": "“फ़ोन के बारे में” में {buildNumber} पर सात बार टैप करके डेवलपर विकल्प चालू करें, फिर {usbDebugging} चालू करें।",
   "connectors.card.popupBlocked": "आपके ब्राउज़र ने कनेक्शन पेज रोक दिया। पॉप-अप की अनुमति दें और फिर कोशिश करें।",
   "connectors.card.connected": "जुड़ा हुआ",
@@ -1154,5 +1154,7 @@
   "engines.icon.uploadAria": "{name} के लिए कस्टम प्रदाता आइकन अपलोड करें",
   "engines.icon.formatError": "PNG, JPEG या WebP छवि अपलोड करें।",
   "engines.icon.sizeError": "प्रदाता के आइकन का आकार 128 KB या उससे कम होना चाहिए।",
-  "computer.phase.starting": "Starting your bot's computerâ€¦"
+  "computer.phase.starting": "Starting your bot's computerâ€¦",
+  "onboarding.tour.apps": "अपनी टीम के ऐप कनेक्ट करें।",
+  "onboarding.reel.apps.body": "अपने ऐप एक बार कनेक्ट करें। ज़रूरत पड़ने पर आपके NATION साथी पहुँच माँग सकते हैं।"
 }

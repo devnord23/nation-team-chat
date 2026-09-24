@@ -25,7 +25,7 @@ describe("new bot default model selection", () => {
     const preferred = { instanceId: "codex", model: "selected-model", variant: "default" };
     expect(selectDefaultModelSelection([{ ...codex, capabilities: { modelVariants: true } }], preferred))
       .toEqual(preferred);
-    expect(selectDefaultModelSelection([codex], preferred)).toEqual({ instanceId: "", model: "" });
+    expect(selectDefaultModelSelection([codex], preferred)).toEqual(preferred);
     expect(preferred.variant).toBe("default");
   });
   it.each(["low", "high"] as const)("honors the configured provider, model, and supported %s effort ahead of the Claude preference", (effort) => {
@@ -63,14 +63,20 @@ describe("new bot default model selection", () => {
     { label: "unavailable provider", instances: [claude, { ...codex, snapshot: { state: "unavailable" as const } }] },
     { label: "signed-out provider", instances: [claude, { ...codex, snapshot: { state: "available" as const, authenticated: false } }] },
     { label: "removed model", instances: [claude, { ...codex, models: { default: "new-model", options: [] } }] },
-  ])("returns setup for a saved $label without changing provider", ({ instances }) => {
+  ])("preserves a saved $label while discovery is unavailable", ({ instances }) => {
     expect(selectDefaultModelSelection(instances, { instanceId: "codex", model: "selected-model" }))
-      .toEqual({ instanceId: "", model: "" });
+      .toEqual({ instanceId: "codex", model: "selected-model" });
   });
 
-  it("keeps the existing Claude preference when no default was saved", () => {
-    expect(selectDefaultModelSelection([codex, claude])).toEqual({ instanceId: "claude", model: "claude-default" });
+  it("never defaults to the computer engine when no default was saved", () => {
+    expect(selectDefaultModelSelection([codex, claude])).toEqual({ instanceId: "codex", model: "codex-default" });
     expect(selectDefaultModelSelection([codex])).toEqual({ instanceId: "codex", model: "codex-default" });
     expect(selectDefaultModelSelection([])).toEqual({ instanceId: "", model: "" });
   });
+});
+
+
+it("keeps the configured Hermes route before its catalog is discovered", () => {
+  const selection = { instanceId: "hermes", model: "openrouter/auto" };
+  expect(selectDefaultModelSelection([{ instanceId: "hermes", driverKind: "hermesAgent", snapshot: { state: "available" }, models: { default: "", options: [] } }], selection)).toEqual(selection);
 });

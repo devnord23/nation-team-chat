@@ -16,7 +16,7 @@ const fixture = vi.hoisted(() => {
     instances: [] as InstanceInfo[],
     modelVariantSessions: {} as AppState["modelVariantSessions"],
     dispatch: vi.fn(),
-    config: undefined as AppState["config"] | undefined,
+    config: { isProductOwner: true } as AppState["config"] | undefined,
   };
 });
 vi.mock("@/state/store", async (importOriginal) => ({

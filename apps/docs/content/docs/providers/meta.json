@@ -1,5 +1,9 @@
 {
-  "title": "Agent engines",
+  "title": "NATION API",
   "icon": "BrainCircuit",
-  "pages": ["index", "antigravity", "troubleshooting"]
+  "pages": [
+    "index",
+    "antigravity",
+    "troubleshooting"
+  ]
 }

@@ -1097,6 +1097,28 @@ describe("ACP turns (fake CLI)", () => {
     expect(done).toMatchObject({ ok: true });
   });
 
+  it.each([
+    ["stale-resume", true, 2, 1],
+    ["stale-resume-error", true, 2, 1],
+    ["stale-resume-always", false, 2, 1],
+    ["stale-resume-content", false, 1, 0],
+  ] as const)("recovers %s at most once without replaying content", async (mode, ok, prompts, fresh) => {
+    const rpcFile = join(scratch, "resume-rpc.json");
+    process.env.FAKE_ACP_MODE = mode;
+    process.env.FAKE_ACP_RPC_DUMP = rpcFile;
+    await create(GrokAgentDriver);
+    const turn = await instance.adapter.sendTurn({ threadId: "resume-recovery", text: "hello", resumeCursor: "expired-session" });
+    expect(await recorder.until(e => e.type === "turn.completed" && e.turnId === turn.turnId)).toMatchObject({ ok });
+    const calls = JSON.parse(readFileSync(rpcFile, "utf8")) as string[];
+    expect(calls.filter(m => m === "session/load")).toHaveLength(1);
+    expect(calls.filter(m => m === "session/new")).toHaveLength(fresh);
+    expect(calls.filter(m => m === "session/prompt")).toHaveLength(prompts);
+    if (ok) {
+      expect(recorder.events.filter(e => e.type === "runtime.error")).toHaveLength(0);
+      expect(recorder.events.filter(e => e.type === "session.started").at(-1)).toMatchObject({ sessionId: "fake-acp-session" });
+    }
+  });
+
   it("falls through to session/new when session/load returns null", async () => {
     process.env.FAKE_ACP_LOAD_NULL = "1";
     await create(GrokAgentDriver);
@@ -1317,21 +1339,22 @@ describe("ACP turns (fake CLI)", () => {
       ]);
     });
 
-    it("closes the idle process and resumes on the next turn", async () => {
+    it.each(["happy", "stale-resume", "stale-resume-error"])("closes the idle process and resumes the next turn (%s)", async mode => {
+      const threadId = `t-pool-idle-${mode}`;
       process.env.OMB_ACP_SESSION_IDLE_MIN_MS = "50";
       process.env.OMB_ACP_SESSION_IDLE_MS = "100";
       countFile = join(scratch, "launches");
       rpcFile = join(scratch, "rpc.json");
       process.env.FAKE_ACP_LAUNCH_COUNT_FILE = countFile;
       process.env.FAKE_ACP_RPC_DUMP = rpcFile;
-      await create();
-      const first = await instance.adapter.sendTurn({ threadId: "t-pool-idle", text: "one" });
+      await create(GrokAgentDriver, mode);
+      const first = await instance.adapter.sendTurn({ threadId, text: "one" });
       await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
       // the close reason is only logged, never emitted — poll the native log
       // for it rather than sleeping a fixed window past the idle deadline
       await new Promise<void>((resolve, reject) => {
         const deadline = Date.now() + 5_000;
-        const log = join(NATIVE_DIR, "t-pool-idle.ndjson");
+        const log = join(NATIVE_DIR, `${threadId}.ndjson`);
         const check = () => {
           if (Date.now() > deadline) return reject(new Error("idle close was never logged"));
           try {
@@ -1347,7 +1370,7 @@ describe("ACP turns (fake CLI)", () => {
       expect(launches()).toBe(1);
 
       const second = await instance.adapter.sendTurn({
-        threadId: "t-pool-idle",
+        threadId,
         text: "two",
         resumeCursor: "fake-acp-session",
       });
@@ -1357,6 +1380,9 @@ describe("ACP turns (fake CLI)", () => {
       // the dump is per-process and overwritten on spawn, so this is the resumed child
       expect(rpc()).toContain("session/load");
       expect(rpc()).toContain("initialize");
+      expect(rpc().filter(m => m === "session/prompt")).toHaveLength(mode === "happy" ? 1 : 2);
+      expect(rpc().filter(m => m === "session/new")).toHaveLength(mode === "happy" ? 0 : 1);
+      expect(recorder.events.filter(e => e.type === "runtime.error")).toHaveLength(0);
     });
 
     it("respawns when the spawn contract changes", async () => {

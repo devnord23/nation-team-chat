@@ -1026,7 +1026,7 @@ export class Store {
       detail: string;
       finishedAt: number;
     } | null,
-    fallbackDetail = "OpenMausBot restarted before this goal finished.",
+    fallbackDetail = "NATION restarted before this goal finished.",
     fallbackFinishedAt = Date.now(),
   ): number {
     const ownedThreadIds = new Set<string>();
@@ -1447,7 +1447,7 @@ export class Store {
     profile: Partial<
       Pick<
         BotRecord,
-        "name" | "title" | "description" | "soul" | "color" | "mascotExpression" | "mascotBody" | "modelSelection" | "section"
+        "name" | "title" | "description" | "soul" | "color" | "mascotExpression" | "mascotBody" | "modelSelection" | "section" | "computer" | "cloudBackend"
       >
     > = {},
     opts: {
@@ -1480,6 +1480,8 @@ export class Store {
       ...(profile.mascotBody ? { mascotBody: profile.mascotBody } : {}),
       unread: false,
       modelSelection: profile.modelSelection ?? this.defaultSelection(),
+      ...(profile.computer ? { computer: profile.computer } : {}),
+      ...(profile.cloudBackend ? { cloudBackend: profile.cloudBackend } : {}),
       resumeCursors: {},
       createdAt: Date.now(),
     };

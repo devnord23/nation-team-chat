@@ -8,7 +8,7 @@ import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn(), mcpError: false, servers: null as null | Array<{ name: string; enabled: boolean }> }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: original.initialState, dispatch: fixture.dispatch }) };
+  return { ...original, useStore: () => ({ state: { ...original.initialState, config: { isProductOwner: true } }, dispatch: fixture.dispatch }) };
 });
 vi.mock("@/lib/mcp-servers", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/mcp-servers")>(),
@@ -22,7 +22,7 @@ vi.mock("../DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { host: { homeDir: undefined } } }),
 }));
 
-const { AccessSection } = await import("./AccessSection");
+const { AccessSection, OwnerAccessSection } = await import("./AccessSection");
 
 // WorkingFolder (moved into this file) reads window.ogb?.pickFolder directly
 // at render time, same "node" environment gap as above — stub per test, the
@@ -98,7 +98,7 @@ describe("AccessSection always-allowed list", () => {
 
   it("opens the established app connection flow without authorizing a second way", () => {
     let tree!: ReturnType<typeof AccessSection>;
-    function Capture() { tree = AccessSection({ bot: makeBot(), derived: makeDerived() }); return tree; }
+    function Capture() { tree = OwnerAccessSection({ bot: makeBot(), derived: makeDerived() }); return tree; }
     renderToStaticMarkup(createElement(StoreProvider, null, createElement(Capture)));
     type Node = ReactElement<{ children?: ReactNode; onClick?: () => void }>;
     const nodes = (value: ReactNode): Node[] => {

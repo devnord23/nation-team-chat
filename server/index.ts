@@ -1,3 +1,5 @@
+import { publicResponse } from "./public-response.ts";
+import { publicError } from "../shared/public-error.ts";
 import { loadLocalEnv } from "./load-local-env.ts";
 loadLocalEnv();
 import { cloudVpsPublicStatus } from "./cloud-vps-from-env.ts";
@@ -464,7 +466,7 @@ import {
 } from "./phone-secret.ts";
 // Keep these two last: a route module may import any server module, and
 // loading the table after everything above leaves module start-up order as is.
-import { json, readBody } from "./harness/http.ts";
+import { json, readBody, setResponseOwner } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 
@@ -1563,7 +1565,7 @@ function askBotAndWait(targetBotId: string, message: string, depth: number, from
   });
 }
 
-// New bots honor setup's saved choice; unconfigured workspaces prefer Claude.
+// New bots honor the configured NATION route, including lazy ACP catalogs.
 async function defaultSelection() {
   if (hostedModels) return hostedModels.select(cfg.defaultModelSelection);
   return selectDefaultModelSelection(await registry.describe(), cfg.defaultModelSelection);
@@ -1572,7 +1574,7 @@ async function defaultSelection() {
 function checkedModelSelection(
   raw: unknown,
   current?: { selection: ModelSelection; busy: boolean },
-  requireAvailableModel = false,
+  requireAvailableModel = true,
 ): { ok: true; selection: ModelSelection } | { ok: false; status: number; error: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, status: 400, error: "modelSelection must be an object" };
@@ -1617,22 +1619,19 @@ function checkedModelSelection(
   if (providerInstancesChanging.has(selection.instanceId)) {
     return { ok: false, status: 409, error: "this provider account is being updated Ã¢â‚¬â€ try again shortly" };
   }
-  // Model IDs remain free-form at the app's general API boundary. Custom
-  // engines can accept IDs that are not in their discovery catalog, and
-  // several drivers only learn the final catalog when a turn starts. The
-  // MCP tool applies a stricter discovered-model policy for its own calls.
+  // An operator-configured default is valid during lazy discovery. Other
+  // choices must appear in the selected engine's advertised catalog.
+  if (!target) return { ok: false, status: 400, error: "NATION: the selected engine is unavailable. Choose a configured engine in Admin." };
   if (requireAvailableModel) {
-    if (!target) {
-      return { ok: false, status: 400, error: `model instance "${selection.instanceId}" is unavailable` };
-    }
     const offered =
+      (selection.instanceId === cfg.defaultModelSelection?.instanceId && selection.model === cfg.defaultModelSelection.model) ||
       selection.model === target.models.default ||
       target.models.options.some((option) => option.id === selection.model);
     if (!offered) {
       return {
         ok: false,
         status: 400,
-        error: `model "${selection.model}" is not offered by instance "${selection.instanceId}"`,
+        error: "NATION: the selected model is unavailable. Choose a configured model in Admin.",
       };
     }
   }
@@ -1647,7 +1646,7 @@ function checkedModelSelection(
 }
 
 function checkedTaskModelSwitch(current: BotRecord, raw: unknown, updateBotDefault: boolean,
-  resetApprovalToAsk: boolean, requireAvailableModel = false, trusted = false) {
+  resetApprovalToAsk: boolean, requireAvailableModel = true, trusted = false) {
   if (current.approvalGrant) return { ok: false as const, status: 409, error: "Wait for the approval change to finish before switching models" };
   const checked = checkedModelSelection(raw, {
     selection: current.modelSelection, busy: threadBusy(current.id, current.threadId),
@@ -3468,12 +3467,11 @@ function broadcast(payload: Record<string, unknown>) {
   sessions.revalidateEmailSessions();
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
-  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...payload, seq })}\n\n`;
+  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...payload, seq }, true))}\n\n`;
   // Store both projections as immutable frames: live and reconnecting clients
   // must receive the same filtered config without changing the admin event.
-  const clientFrame = kind === "config"
-    ? `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify({ ...configForAccess(payload as ReturnType<typeof configStatus>, false), seq })}\n\n`
-    : frame;
+  const clientPayload = kind === "config" ? configForAccess(payload as ReturnType<typeof configStatus>, false) : payload;
+  const clientFrame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...clientPayload, kind, seq }))}\n\n`;
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
   // detection stays honest, but never retain their base64 payloads.
@@ -5039,10 +5037,11 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
+      console.error("[NATION runtime]", event.message);
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `error: ${event.message.slice(0, 160)}`, ok: false, setup: event.setup, ...(event.terminal ? { terminal: true } : {}) },
+        tool: { name: `error: ${publicError(event.message)}`, ok: false, setup: event.setup, ...(event.terminal ? { terminal: true } : {}) },
       });
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful
@@ -8308,7 +8307,7 @@ try {
     claimRequest: () => workspaceMaintenance.request(),
   });
   const advertised = WEBHOOK_PUBLIC_URL ? ` (advertised as ${webhookIngress.baseUrl})` : "";
-  console.log(`openmausbot webhook receiver on http://${webhookIngress.host}:${webhookIngress.port}${advertised}`);
+  console.log(`NATION webhook receiver on http://${webhookIngress.host}:${webhookIngress.port}${advertised}`);
 } catch (error) {
   webhookIngressError = error instanceof Error ? error.message : String(error);
   console.error(`openmausbot webhook receiver unavailable: ${webhookIngressError}`);
@@ -9663,7 +9662,8 @@ function startGroupTurn(
   const group = store.group(groupId);
   if (!group) throw Object.assign(new Error("no such group"), { status: 404 });
   if (roomSetupPending(group)) {
-    throw Object.assign(new Error("finish room setup before sending the first message"), { status: 409 });
+    // A human send accepts the room defaults; optional setup must not block chat.
+    store.patchGroup(group.id, { setupSkippedAt: Date.now() });
   }
   // Capture the chosen thread once. Manual sends use the active task; a
   // scheduled team goal supplies its detached background task explicitly.
@@ -10979,12 +10979,18 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
   // id, and the sign-in list are not a client's business. Preserve the
   // source objects.
   return {
-    ...status,
     isProductOwner: false,
-    signIn: { admins: [], members: [] },
-    vps: { configured: status.vps.configured, sshAlias: "" },
+    adminGate: status.adminGate,
     profile: { name: status.profile.name, email: "" },
-    browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
+    language: status.language,
+    onboarding: status.onboarding,
+    rooms: status.rooms,
+    threads: { maxConcurrentPerBot: status.threads.maxConcurrentPerBot },
+    vps: { configured: status.vps.configured },
+    tts: { configured: status.tts.configured },
+    features: { browser: status.features.browser, showToolCalls: status.features.showToolCalls,
+      skillAuthoring: status.features.skillAuthoring, sharedComputers: status.features.sharedComputers },
+    browserProfiles: status.browserProfiles.map(({ id, name }) => ({ id, name })),
   };
 }
 
@@ -11479,6 +11485,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;
+    setResponseOwner(res, auth.scopes.includes("admin"));
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -11549,7 +11556,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // credential encoding because those scanners cannot take a typed code.
       const serverName = environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED }).label;
       const invite = base
-        ? `openmausbot://pair?address=${encodeURIComponent(base)}&token=${encodeURIComponent(opened.credential)}&name=${encodeURIComponent(serverName)}`
+        ? `${base.replace(/\/$/, "")}/pair#code=${encodeURIComponent(code)}`
         : null;
       return json(res, 200, {
         id: opened.id,
@@ -14230,13 +14237,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "POST" && path === "/api/team-library/github") {
       const body = await readBody(req);
       if (typeof body.url !== "string" || !body.url.trim()) {
-        return json(res, 400, { error: "A GitHub URL is required" });
+        return json(res, 400, { error: "A team file link is required" });
       }
       try {
         return json(res, 200, await fetchGithubTeam(body.url));
       } catch (error) {
         const status = (error as { status?: number }).status === 404 ? 404 : 400;
-        return json(res, status, { error: error instanceof Error ? error.message : "The GitHub team could not be loaded" });
+        return json(res, status, { error: error instanceof Error ? error.message : "The team could not be loaded" });
       }
     }
     if (method === "GET" && path === "/api/teams/scout") {
@@ -15038,6 +15045,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.requireAvailableModel === true && body.modelSelection === undefined) {
         return json(res, 400, { error: "requireAvailableModel requires modelSelection" });
       }
+      if (!auth.scopes.includes("admin") && body.modelSelection !== undefined) {
+        return json(res, 403, { error: "NATION: model settings are available only in Admin." });
+      }
       const profileInput = Object.fromEntries(
         ["name", "title", "description"]
           .filter((key) => body[key] !== undefined)
@@ -15057,7 +15067,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.modelSelection === undefined) {
         selection = await defaultSelection();
       } else {
-        const checked = checkedModelSelection(body.modelSelection, undefined, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, undefined, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         selection = checked.selection;
       }
@@ -15067,7 +15077,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (store.bots.length >= MAX_WORKSPACE_BOTS) {
         return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
       }
-      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection });
+      const bot = store.createBot({ ...profile.patch, section, modelSelection: selection,
+        ...(vpsSshAlias(cfg) ? { computer: "cloud" as const, cloudBackend: "vps" as const } : {}),
+      });
       return json(res, 201, {
         bot: {
           ...wireBot(bot),
@@ -15253,7 +15265,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const checked = checkedModelSelection(
           rawSelection,
           selectedTask ? { selection: selectedTask.modelSelection, busy: threadBusy(selectedTask.id, selectedTask.threadId) } : undefined,
-          body.requireAvailableModel === true,
+          true,
         );
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         normalizedSelection = checked.selection;
@@ -15725,7 +15737,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
       const parsed = z.object({ source: z.string().min(1).max(2000) }).safeParse(await readBody(req));
-      if (!parsed.success) return json(res, 400, { error: "source must be a GitHub URL or owner/repo" });
+      if (!parsed.success) return json(res, 400, { error: "Enter a supported skill file link" });
       const fetched = await fetchSkillFromSource(parsed.data.source);
       if ("error" in fetched) return json(res, 422, { error: fetched.error });
       const results = fetched.skills.map((skill) => installSkill(m![1]!, skill.source, skill.files));
@@ -16801,6 +16813,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "body must be a JSON object" });
       const current = store.projectBotForTask(m[1], m[2]);
       if (!current) return json(res, 404, { error: "no such task" });
+      if (!auth.scopes.includes("admin") && (body.modelSelection !== undefined || body.updateBotDefault !== undefined)) return json(res, 403, { error: "NATION: model settings are available only in Admin." });
       const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "surface"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       for (const key of ["requireAvailableModel", "acknowledgeLocalAuto", "updateBotDefault", "resetApprovalToAsk"] as const) {
@@ -16846,7 +16859,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (body.modelSelection !== undefined) {
         if (current.approvalGrant) return json(res, 409, { error: "the bot's approval mode is still being confirmed" });
-        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, { selection: current.modelSelection, busy: threadBusy(current.id, current.threadId) }, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         patch.modelSelection = checked.selection;
       }
@@ -16874,7 +16887,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (patch.modelSelection) {
         const checked = checkedTaskModelSwitch({ ...current,
           ...(patch.approvalMode ? { approvalMode: patch.approvalMode, autoApprove: patch.autoApprove } : {}),
-        }, patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true, body.requireAvailableModel === true);
+        }, patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true, true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
       }
       const task = patch.modelSelection
@@ -17284,7 +17297,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     // The brand for this deployment (server/brand.ts): read per request so edits show on reload.
     if (method === "GET" && path === "/api/brand") {
-      return json(res, 200, loadBrand());
+      return json(res, 200, auth.scopes.includes("admin") ? loadBrand() : publicBrand(loadBrand()));
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ inspector: a thread's runtime events + native protocol tee Ã¢â€â‚¬Ã¢â€â‚¬
@@ -17378,6 +17391,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ provider instances (model picker) Ã¢â€â‚¬Ã¢â€â‚¬
     if (method === "GET" && path === "/api/instances") {
+      if (!auth.scopes.includes("admin")) {
+        const selection = await defaultSelection();
+        const selected = registry.get(selection.instanceId);
+        const available = selected ? (await selected.snapshot()).state === "available" : false;
+        return json(res, 200, { instances: [{ instanceId: "nation", displayName: "NATION API",
+          enabled: true, snapshot: { state: available ? "available" : "unavailable" },
+          models: { default: "NATION API", options: [{ id: "NATION API", label: "NATION API" }] }, capabilities: {} }] });
+      }
       // Rescan PATH first: this endpoint is how the app answers "what can I
       // run?", and the interesting case is a CLI installed since launch.
       // Windows never pushes PATH changes into a live process, so without
@@ -18298,7 +18319,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "GET" && path === "/api/tts/voices") {
       try {
-        return json(res, 200, { voices: await tts.listVoices(cfg) });
+        const voices = await tts.listVoices(cfg);
+        return json(res, 200, { voices: auth.scopes.includes("admin") ? voices : voices.map((voice, index) => ({ id: voice.id, label: `Voice ${index + 1}` })) });
       } catch (e) {
         return json(res, 200, { voices: [], error: e instanceof Error ? e.message : String(e) });
       }
@@ -18823,7 +18845,7 @@ restoreChannelMessages();
 
 server.listen(PORT, "127.0.0.1", () => {
   companyRuntimeReady();
-  console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+  console.log(`NATION server on http://127.0.0.1:${PORT}`);
   followupsReady = true;
   drainQueuedSends();
   drainQueuedChannelSends();

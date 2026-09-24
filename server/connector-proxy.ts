@@ -204,12 +204,12 @@ async function handle(message: Json): Promise<void> {
       const labels = requests.map((r) => (r.alias ? `${r.slug} (${r.alias})` : r.slug)).join(", ");
       send(textResult(
         id,
-        `OpenMausBot showed the user a secure connection card for ${labels}. End this turn now. The app will continue the task automatically after the connection finishes.`,
+        `NATION showed the user a secure connection card for ${labels}. End this turn now. The app will continue the task automatically after the connection finishes.`,
       ));
       return;
     }
     if (/WAIT_FOR_CONNECTIONS$/i.test(name)) {
-      send(textResult(id, "The workspace is handling connection completion and will continue the task automatically."));
+      send(textResult(id, "NATION is handling connection completion and will continue the task automatically."));
       return;
     }
   }

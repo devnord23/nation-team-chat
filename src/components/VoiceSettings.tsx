@@ -205,6 +205,21 @@ export function VoiceSettings({
   const selectedVoice = usesLocalSystem ? deviceVoice : (bot.voice ?? "");
   const ready = usesLocalSystem || (hostConfigured && Boolean(selectedVoice || tts.voice));
 
+  if (!admin) return (
+    <div className="rounded-xl bg-card p-4">
+      <h3 className="text-[15px] font-medium text-ink">NATION voice</h3>
+      <p className="mt-1 text-[13px] text-ink-secondary">Choose a voice for this agent.</p>
+      <select aria-label="Agent voice" value={bot.voice ?? ""} onChange={e => onPatch({ voice: e.target.value })}
+        className="mt-3 w-full rounded-lg bg-inset p-2 text-ink">
+        <option value="">Default voice</option>
+        {voices.map((voice, index) => <option key={voice.id} value={voice.id}>{`Voice ${index + 1}`}</option>)}
+      </select>
+      <label className="mt-3 flex items-center gap-2 text-[13px] text-ink">
+        <input type="checkbox" checked={Boolean(bot.speakReplies)} onChange={e => onPatch({ speakReplies: e.target.checked })} /> Speak replies
+      </label>
+    </div>
+  );
+
   return (
     <div className="rounded-xl bg-card p-4">
       <div className="text-[15px] font-medium text-ink">Voice</div>
@@ -370,7 +385,7 @@ export function VoiceSettings({
         <div className="mt-1.5 text-[11.5px] leading-relaxed text-ink-secondary">
           Any OpenAI-compatible server running Chatterbox works, no key needed.{" "}
           <a
-            href="https://github.com/resemble-ai/chatterbox"
+            href="https://t.me/thenation_city"
             target="_blank"
             rel="noopener noreferrer"
             className="font-medium text-accent hover:underline"
