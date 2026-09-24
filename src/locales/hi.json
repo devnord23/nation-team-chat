@@ -220,7 +220,7 @@
   "chat.reply.cancel": "जवाब रद्द करें",
   "chat.reply.image": "[छवि]",
   "chat.reply.file": "[फ़ाइल]",
-  "chat.speak.needsKey": "संदेश ज़ोर से पढ़ने के लिए किसी एजेंट की प्रोफ़ाइल में ElevenLabs कुंजी जोड़ें",
+  "chat.speak.unavailable": "आवाज़ की सुविधा अभी उपलब्ध नहीं है।",
   "chat.speak.needsVoice": "संदेश ज़ोर से पढ़ने के लिए इस एजेंट की प्रोफ़ाइल में आवाज़ चुनें",
   "chat.speak.stop": "पढ़ना रोकें",
   "chat.speak.read": "इसे ज़ोर से पढ़ें",

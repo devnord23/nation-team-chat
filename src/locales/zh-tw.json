@@ -344,7 +344,7 @@
   "chat.reply.cancel": "取消回覆",
   "chat.reply.image": "[圖片]",
   "chat.reply.file": "[檔案]",
-  "chat.speak.needsKey": "在代理程式設定檔中新增 ElevenLabs 金鑰，即可朗讀訊息",
+  "chat.speak.unavailable": "語音功能目前無法使用。",
   "chat.speak.needsVoice": "在這個代理程式的設定檔中挑選語音，即可朗讀訊息",
   "chat.speak.stop": "停止朗讀",
   "chat.speak.read": "朗讀這則訊息",

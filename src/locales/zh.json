@@ -220,7 +220,7 @@
   "chat.reply.cancel": "取消回复",
   "chat.reply.image": "[图片]",
   "chat.reply.file": "[文件]",
-  "chat.speak.needsKey": "要朗读消息，请在某个智能体的资料中添加 ElevenLabs 密钥",
+  "chat.speak.unavailable": "语音功能暂时不可用。",
   "chat.speak.needsVoice": "要朗读消息，请在这个智能体的资料中选择一个声音",
   "chat.speak.stop": "停止朗读",
   "chat.speak.read": "朗读这条",

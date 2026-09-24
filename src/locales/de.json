@@ -299,7 +299,7 @@
   "chat.reply.cancel": "Antwort verwerfen",
   "chat.reply.image": "[Bild]",
   "chat.reply.file": "[Datei]",
-  "chat.speak.needsKey": "Füge im Profil eines Agenten einen ElevenLabs-Schlüssel hinzu, um Nachrichten vorzulesen",
+  "chat.speak.unavailable": "Die Sprachausgabe ist derzeit nicht verfügbar.",
   "chat.speak.needsVoice": "Wähle im Profil dieses Agenten eine Stimme, um Nachrichten vorzulesen",
   "chat.speak.stop": "Vorlesen stoppen",
   "chat.speak.read": "Das vorlesen",

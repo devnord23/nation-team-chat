@@ -370,7 +370,7 @@
   "chat.reply.cancel": "Скасувати відповідь",
   "chat.reply.image": "[зображення]",
   "chat.reply.file": "[файл]",
-  "chat.speak.needsKey": "Додайте ключ ElevenLabs у профілі агента, щоб читати повідомлення вголос",
+  "chat.speak.unavailable": "Озвучення наразі недоступне.",
   "chat.speak.needsVoice": "Оберіть голос у профілі цього агента, щоб читати повідомлення вголос",
   "chat.speak.stop": "Зупинити озвучення",
   "chat.speak.read": "Прочитати вголос",

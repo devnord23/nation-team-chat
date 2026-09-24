@@ -220,7 +220,7 @@
   "chat.reply.cancel": "返信をやめる",
   "chat.reply.image": "[画像]",
   "chat.reply.file": "[ファイル]",
-  "chat.speak.needsKey": "メッセージを読み上げるには、エージェントのプロフィールに ElevenLabs のキーを追加してください",
+  "chat.speak.unavailable": "音声は現在利用できません。",
   "chat.speak.needsVoice": "メッセージを読み上げるには、このエージェントのプロフィールで音声を選んでください",
   "chat.speak.stop": "読み上げを停止",
   "chat.speak.read": "これを読み上げる",

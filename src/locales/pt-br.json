@@ -299,7 +299,7 @@
   "chat.reply.cancel": "Cancelar a resposta",
   "chat.reply.image": "[imagem]",
   "chat.reply.file": "[arquivo]",
-  "chat.speak.needsKey": "Adicione uma chave da ElevenLabs no perfil de um agente para ler as mensagens em voz alta",
+  "chat.speak.unavailable": "A leitura em voz alta está indisponível no momento.",
   "chat.speak.needsVoice": "Escolha uma voz no perfil deste agente para ler as mensagens em voz alta",
   "chat.speak.stop": "Parar a leitura",
   "chat.speak.read": "Ler isto em voz alta",
