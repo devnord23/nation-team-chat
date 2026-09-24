@@ -266,7 +266,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
         instance.authentication?.method === "device-code"
           ? <CodexAccountSettings instance={instance} />
           : instance.authentication?.method === "paste-code" && !instance.claudeAccount && (
-            <p className="flex items-center gap-1.5 text-[12px] text-success"><Check size={13} />{t("engineSetup.claude.connectedAccount")}</p>
+            <p className="flex items-center gap-1.5 text-[12px] text-success"><Check size={13} />{t("engineSetup.managed.connectedAccount")}</p>
           )
       )}
       <details className="mt-3 rounded-xl border border-hairline/40 px-3 py-2.5">
@@ -295,7 +295,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
               className="flex shrink-0 items-center gap-1 text-[11.5px] text-ink-secondary hover:text-ink disabled:opacity-50"
             >
               {updating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-              {updating ? t("engines.updating") : t("engines.updateClaude")}
+              {updating ? t("engines.updating") : t("engines.updateManaged")}
             </button>
           )}
           {instance.cli && (
@@ -321,7 +321,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           </button>
         </div>
         {updatedVersion && (
-          <div role="status" className="mt-1 text-[12px] text-success">{t("engines.claudeUpdated", { version: updatedVersion })}</div>
+          <div role="status" className="mt-1 text-[12px] text-success">{t("engines.managedUpdated", { version: updatedVersion })}</div>
         )}
         {error && <div role="alert" className="mt-1 text-[12px] text-danger">{error}</div>}
         {open && (

@@ -4,7 +4,7 @@
 import { requestNotificationPermission } from "@/lib/notify";
 import type { Bot } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
-import { VoiceSettings } from "../VoiceSettings";
+import { VoiceSettings } from "../web/VoiceSettings";
 import type { useBotSettingsDerived } from "./useBotSettingsDerived";
 
 export function VoiceSection({

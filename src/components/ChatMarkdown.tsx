@@ -231,17 +231,8 @@ export function CodeBlock({ code, lang, streaming }: CodeBlockProps) {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const highlight = () => {
-      import("shiki")
-        .then((shiki) =>
-          shiki.codeToHtml(code, {
-            lang: lang || "text",
-            themes: {
-              light: "github-light-default",
-              dark: "github-dark-default",
-            },
-            defaultColor: "light-dark()",
-          }),
-        )
+      import("@/lib/code-highlight")
+        .then(({ highlightCode }) => highlightCode(code, lang))
         .then((out) => {
           if (!alive) return;
           if (highlightCache.size >= CACHE_MAX) {

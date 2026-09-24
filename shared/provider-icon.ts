@@ -82,6 +82,11 @@ export function providerIconError(icon: ProviderIcon): string | null {
     return (PROVIDER_ICON_PRESETS as readonly string[]).includes(icon.preset)
       ? null : "Choose a supported provider icon.";
   }
+  return customProviderIconError(icon);
+}
+
+/** Renderer upload validation does not import the legacy preset catalog. */
+export function customProviderIconError(icon: Extract<ProviderIcon, { kind: "custom" }>): string | null {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(icon.dataUrl);
   if (!match) return "Upload a PNG, JPEG, or WebP image.";
   const byteLength = decodedBase64Bytes(match[2]);

@@ -75,11 +75,11 @@ const CREDENTIALS: Record<
     optional: true,
   },
   anthropic: {
-    labelKey: "keys.anthropic.label",
+    labelKey: "keys.primary.label",
     placeholder: "sk-ant-…",
-    descriptionKey: "keys.anthropic.desc",
+    descriptionKey: "keys.primary.desc",
     href: "https://console.anthropic.com/settings/keys",
-    linkLabelKey: "keys.anthropic.link",
+    linkLabelKey: "keys.primary.link",
     optional: true,
   },
   openaiCompat: {
@@ -91,11 +91,11 @@ const CREDENTIALS: Record<
     optional: true,
   },
   xai: {
-    labelKey: "keys.xai.label",
+    labelKey: "keys.media.label",
     placeholder: "xai-…",
-    descriptionKey: "keys.xai.desc",
+    descriptionKey: "keys.media.desc",
     href: "https://console.x.ai",
-    linkLabelKey: "keys.xai.link",
+    linkLabelKey: "keys.media.link",
     optional: true,
   },
 };

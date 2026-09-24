@@ -164,25 +164,21 @@ describe("repaired tables", () => {
   });
 });
 
-it("requests both code palettes for skin-aware highlighting", async () => {
+it("uses the shared NATION highlighter for code blocks", async () => {
   const originalUseEffect = (await vi.importActual<typeof React>("react")).useEffect;
   const effects: React.EffectCallback[] = [];
   const effect = vi.mocked(React.useEffect).mockImplementation((callback) => { effects.push(callback); });
-  const codeToHtml = vi.fn().mockResolvedValue("<pre>dual palette</pre>");
-  vi.doMock("shiki", () => ({ codeToHtml }));
+  const highlightCode = vi.fn().mockResolvedValue("<pre>dual palette</pre>");
+  vi.doMock("@/lib/code-highlight", () => ({ highlightCode }));
   const cleanup: ReturnType<React.EffectCallback>[] = [];
   try {
     renderToStaticMarkup(createElement(ChatMarkdown, { text: "```text\nPalette regression sample\n```" }));
     for (const callback of effects) cleanup.push(callback());
-    await vi.waitFor(() => expect(codeToHtml).toHaveBeenCalledWith("Palette regression sample", {
-      lang: "text",
-      themes: { light: "github-light-default", dark: "github-dark-default" },
-      defaultColor: "light-dark()",
-    }));
+    await vi.waitFor(() => expect(highlightCode).toHaveBeenCalledWith("Palette regression sample", "text"));
   } finally {
     for (const close of cleanup) if (typeof close === "function") close();
     effect.mockImplementation(originalUseEffect);
-    vi.doUnmock("shiki");
+    vi.doUnmock("@/lib/code-highlight");
   }
 });
 
