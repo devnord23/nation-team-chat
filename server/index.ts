@@ -3,6 +3,8 @@ import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-pr
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId } from "./nation-credit-context.ts";
 import type { CreditAccount } from "./nation-credits.ts";
 import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
+import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
@@ -474,7 +476,7 @@ import {
 } from "./phone-secret.ts";
 // Keep these two last: a route module may import any server module, and
 // loading the table after everything above leaves module start-up order as is.
-import { json, readBody, setResponseOwner } from "./harness/http.ts";
+import { json, readBody, setBodyGuard, setResponseOwner, setResponseProjector } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 
@@ -1501,6 +1503,140 @@ function runAsQueuedSenders<T>(threadId: string, queueIds: Array<string | undefi
   return creditContext.run(accounts.at(-1)!, run);
 }
 
+// ── private conversations (hosted multi-account) ───────────────────────
+// A bot conversation belongs to one account; rooms are the shared surface.
+// See ./thread-ownership.ts. `null` viewer = single-user install or the
+// trusted local system, which see everything as before.
+const threadOwnership = new ThreadOwnership(join(DATA_DIR, "thread-owners.json"));
+/** The account a background/agent request acts for, when it is not a session. */
+const threadOwnerContext = new AsyncLocalStorage<string>();
+type ThreadViewer = string | null;
+function privateThreads(): boolean {
+  return connectorsMultiUser();
+}
+/** Team rooms are shared on purpose; a bot-to-bot DM is delegation plumbing
+ * carrying whoever drove it, so it stays private like a bot conversation. */
+function isSharedRoomThread(threadId: string): boolean {
+  const group = store.groupByThread(threadId);
+  return Boolean(group && !group.dm);
+}
+function threadOwnerOf(threadId: string): string {
+  return threadOwnership.recorded(threadId) ?? threadSponsorId(threadId) ?? OPERATOR_ACCOUNT;
+}
+function viewerOf(auth: RequestAuth): ThreadViewer {
+  if (!privateThreads() || auth.kind !== "session") return null;
+  return creditAccount(auth).id;
+}
+function canSeeThread(viewer: ThreadViewer, threadId: string): boolean {
+  return viewer === null || isSharedRoomThread(threadId) || threadOwnerOf(threadId) === viewer;
+}
+/** Who a conversation created right now belongs to. */
+function currentThreadAccount(): string | undefined {
+  return threadOwnerContext.getStore() ?? creditContext.getStore()?.id;
+}
+function claimNewThread(threadId: string | undefined): void {
+  if (!threadId || !privateThreads()) return;
+  const owner = currentThreadAccount();
+  if (owner) threadOwnership.claim(threadId, owner);
+}
+/** This account's own open conversation with a shared bot (created when it
+ * has none, never the bot's globally open task when that is someone else's). */
+function viewerActiveThread(viewer: string, botId: string, create = true): string | undefined {
+  const bot = store.bot(botId);
+  if (!bot) return undefined;
+  const owns = (threadId: string) => (threadId === bot.threadId || Boolean(store.taskByThread(bot.id, threadId)))
+    && threadOwnerOf(threadId) === viewer;
+  const remembered = threadOwnership.activeFor(viewer, bot.id);
+  if (remembered && owns(remembered)) return remembered;
+  const pick = owns(bot.threadId)
+    ? bot.threadId
+    : store.tasks(bot.id).filter((task) => owns(task.threadId))
+      .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0]?.threadId;
+  if (pick) { threadOwnership.setActive(viewer, bot.id, pick); return pick; }
+  if (!create) return undefined;
+  const task = threadOwnerContext.run(viewer, () => store.createTask(bot.id, undefined, false));
+  if (!task) return undefined;
+  threadOwnership.claim(task.threadId, viewer);
+  threadOwnership.setActive(viewer, bot.id, task.threadId);
+  return task.threadId;
+}
+/** A wire bot as one account sees it: its own open conversation and tasks. */
+function projectBotForViewer(viewer: string, wire: Record<string, any>, messageLimit?: number): Record<string, any> {
+  const bot = typeof wire.id === "string" ? store.bot(wire.id) : null;
+  if (!bot) return wire;
+  const active = viewerActiveThread(viewer, bot.id);
+  const out: Record<string, any> = { ...wire };
+  if (Array.isArray(wire.tasks)) out.tasks = wire.tasks.filter((task: any) => typeof task?.threadId === "string" && canSeeThread(viewer, task.threadId));
+  if (!active) { out.threadId = ""; delete out.messages; delete out.hasMore; delete out.activeLeafId; return out; }
+  if (wire.threadId === active) return out;
+  out.threadId = active;
+  if ("activeTaskId" in wire) out.activeTaskId = active;
+  const task = store.taskByThread(bot.id, active);
+  if (task) Object.assign(out, { unread: task.unread === true, activity: task.activity ?? "idle", busy: threadBusy(bot.id, active),
+    pinnedMessageId: task.pinnedMessageId, rewound: task.rewound, waitingForTeammates: false });
+  if ("messages" in wire) Object.assign(out, messagePage(active, messageLimit ?? (Array.isArray(wire.messages) ? Math.max(wire.messages.length, 50) : 50)));
+  return out;
+}
+/** The account an agent turn in this conversation acts for. */
+function turnAccountFor(threadId: string): string | undefined {
+  if (!privateThreads()) return undefined;
+  return isSharedRoomThread(threadId) ? threadSponsorId(threadId) : threadOwnerOf(threadId);
+}
+/** Which of these conversations an agent turn in `fromThreadId` may recall:
+ * from a private conversation, its own account's and the shared rooms; from
+ * a shared room, only shared rooms (a room is never a window into anyone's
+ * private chats). */
+function recallableThreads(fromThreadId: string, threadIds: string[]): string[] {
+  if (!privateThreads()) return threadIds;
+  if (isSharedRoomThread(fromThreadId)) return threadIds.filter(isSharedRoomThread);
+  const owner = threadOwnerOf(fromThreadId);
+  return threadIds.filter((threadId) => isSharedRoomThread(threadId) || threadOwnerOf(threadId) === owner);
+}
+/** Bot memory written in a private conversation is that account's alone;
+ * rooms keep the bot's shared memory. Off a hosted workspace: the bot's. */
+function memoryKeyFor(botId: string, threadId: string): string {
+  if (!privateThreads() || isSharedRoomThread(threadId)) return botId;
+  const digest = createHash("sha256").update("nation-private-memory-v1\0").update(threadOwnerOf(threadId)).digest("hex").slice(0, 16);
+  return `${botId}--m-${digest}`;
+}
+/** A routine is visible with its conversation, or to the account that made it. */
+function routineVisible(viewer: ThreadViewer, routine: { id?: unknown; routineId?: unknown; sourceThreadId?: unknown; resultsThreadId?: unknown } | undefined): boolean {
+  if (viewer === null || !routine) return true;
+  const thread = [routine.sourceThreadId, routine.resultsThreadId].find((id): id is string => typeof id === "string" && id.length > 0);
+  if (thread) return canSeeThread(viewer, thread);
+  const id = typeof routine.routineId === "string" ? routine.routineId : routine.id;
+  if (typeof routine.routineId === "string") {
+    const parent = routines?.listRoutines().find((item) => item.id === routine.routineId);
+    if (parent) return routineVisible(viewer, parent);
+  }
+  return typeof id === "string" && threadOwnership.recorded(`routine:${id}`) === viewer;
+}
+/** Any response or event body, as one account may see it; null = withhold. */
+function projectForViewer(viewer: ThreadViewer, value: unknown): unknown {
+  if (viewer === null || !value || typeof value !== "object" || Array.isArray(value)) return value;
+  const input = value as Record<string, any>;
+  const threadIds = [input.threadId, input.event?.threadId, input.notification?.threadId, input.message?.threadId]
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  if (threadIds.some((id) => !canSeeThread(viewer, id))) return null;
+  const out: Record<string, any> = { ...input };
+  if (out.bot && typeof out.bot === "object" && typeof out.bot.id === "string") out.bot = projectBotForViewer(viewer, out.bot);
+  if (Array.isArray(out.bots)) out.bots = out.bots.map((bot: any) => bot && typeof bot === "object" && typeof bot.id === "string" ? projectBotForViewer(viewer, bot) : bot);
+  if (out.task && typeof out.task?.threadId === "string" && !canSeeThread(viewer, out.task.threadId)) delete out.task;
+  // bot-to-bot delegation DMs are private; team rooms stay shared
+  if (Array.isArray(out.groups)) out.groups = out.groups.filter((group: any) => typeof group?.threadId !== "string" || canSeeThread(viewer, group.threadId));
+  if (out.group && typeof out.group?.threadId === "string" && !canSeeThread(viewer, out.group.threadId)) return null;
+  if (Array.isArray(out.routines)) out.routines = out.routines.filter((item: any) => routineVisible(viewer, item));
+  if (Array.isArray(out.runs)) out.runs = out.runs.filter((item: any) => routineVisible(viewer, item));
+  if ((out.routine && !routineVisible(viewer, out.routine)) || (out.run && !routineVisible(viewer, out.run))) return null;
+  if (Array.isArray(out.hits)) out.hits = out.hits.filter((hit: any) => typeof hit?.threadId !== "string" || canSeeThread(viewer, hit.threadId));
+  for (const key of ["queues", "botQueuedMessages"]) {
+    if (out[key] && typeof out[key] === "object" && !Array.isArray(out[key])) {
+      out[key] = Object.fromEntries(Object.entries(out[key]).filter(([threadId]) => canSeeThread(viewer, threadId)));
+    }
+  }
+  return out;
+}
+
 /** Connected apps are usable for this identity (backend healthy and scoped). */
 function connectorsUsable(identity: ConnectorIdentity): identity is composio.ConnectorPrincipal | null {
   return identity !== "denied" && CONNECTORS_ENABLED && composio.configured(cfg, identity);
@@ -1845,6 +1981,27 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+// Every new bot conversation records the account it was created for (a
+// member's request, or the account an agent turn runs for). Nothing is
+// claimed off a hosted workspace, or when no account is in context.
+{
+  const createTask = store.createTask.bind(store);
+  store.createTask = (botId, title, activate = true, ...rest) => {
+    const task = createTask(botId, title, activate, ...rest);
+    if (task) {
+      claimNewThread(task.threadId);
+      const owner = currentThreadAccount();
+      if (activate && owner && privateThreads()) threadOwnership.setActive(owner, botId, task.threadId);
+    }
+    return task;
+  };
+  const createBot = store.createBot.bind(store);
+  store.createBot = (...args: Parameters<typeof createBot>) => {
+    const bot = createBot(...args);
+    claimNewThread(bot?.threadId);
+    return bot;
+  };
+}
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
@@ -3481,6 +3638,9 @@ function messageWindow(threadId: string, messageId: string, limit: number) {
 interface SseClient {
   res: ServerResponse;
   admin: boolean;
+  /** Hosted private conversations: the account this stream is for (null =
+   * single-user install or the local system, which see everything). */
+  viewer: ThreadViewer;
   /** Live screen frames carry a base64 desktop capture every few seconds
    * while a bot works. A client that isn't showing the computer panel Ã¢â‚¬â€
    * a phone on cellular, most of all Ã¢â‚¬â€ should not pay for them. */
@@ -3529,7 +3689,14 @@ const SSE_HEARTBEAT_MS =
     ? configuredSseHeartbeatMs
     : 15_000;
 let lastSeq = 0;
-const replayBuffer: Array<{ seq: number; kind: string; frame: string | null; clientFrame: string | null }> = [];
+const replayBuffer: Array<{ seq: number; kind: string; frame: string | null; clientFrame: string | null; payload: Record<string, unknown> | null }> = [];
+
+/** The frame one private-conversation viewer receives, or null to skip it. */
+function viewerFrame(viewer: string, admin: boolean, payload: Record<string, unknown>, seq: number): string | null {
+  const projected = projectForViewer(viewer, payload) as Record<string, unknown> | null;
+  if (!projected) return null;
+  return `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...projected, seq }, admin))}\n\n`;
+}
 
 /** Screen frames are the only kind a client can decline. */
 const wants = (client: SseClient, kind: string) => kind !== "screen" || client.screens;
@@ -3559,13 +3726,18 @@ function broadcast(payload: Record<string, unknown>) {
   // Live desktop captures can each be hundreds of kilobytes and become stale
   // as soon as the next one arrives. Keep their sequence slots so resume-gap
   // detection stays honest, but never retain their base64 payloads.
-  replayBuffer.push({ seq, kind, frame: kind === "screen" ? null : frame, clientFrame: kind === "screen" ? null : clientFrame });
+  replayBuffer.push({ seq, kind, frame: kind === "screen" ? null : frame, clientFrame: kind === "screen" ? null : clientFrame,
+    payload: kind === "screen" ? null : { ...clientPayload, kind } });
   if (replayBuffer.length > REPLAY_MAX) replayBuffer.shift();
   for (const client of Array.from(sseClients)) {
     if (!wants(client, kind)) continue;
     // Screen frames are replaceable and durable events are not: see
     // ./sse-fanout.ts for the backpressure/bound decision this makes.
-    if (deliverSseFrame(client, kind, client.admin ? frame : clientFrame) === "disconnected") {
+    const own = client.viewer === null
+      ? client.admin ? frame : clientFrame
+      : viewerFrame(client.viewer, client.admin, { ...(client.admin ? payload : clientPayload), kind }, seq);
+    if (own === null) continue;
+    if (deliverSseFrame(client, kind, own) === "disconnected") {
       sseClients.delete(client);
     }
   }
@@ -3891,7 +4063,7 @@ bus.subscribe((event: RuntimeEvent) => {
       .map((message) => message.tool!.name);
     const line = turnOutcomeLine({ ok: event.ok, reply: reply?.text, stopReason: event.stopReason, tools });
     if (!line) return;
-    appendMemoryLog(bot.id, line, {
+    appendMemoryLog(memoryKeyFor(bot.id, event.threadId), line, {
       source: memorySourceLabel({
         room: store.groupByThread(event.threadId),
         task: store.taskByThread(bot.id, event.threadId),
@@ -7318,8 +7490,8 @@ async function startTurn(
         { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
         // what the bot said lately in its other conversations, so a task
         // never redoes Ã¢â‚¬â€ or forgets Ã¢â‚¬â€ what another one already did
-        { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(store, bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId })) },
-        { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace }) },
+        { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(store, bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, allow: (other) => recallableThreads(threadId, [other]).length === 1 })) },
+        { id: "memory", label: "Memory", text: memorySystemPrompt(memoryKeyFor(bot.id, threadId), { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace }) },
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id) : "" },
         { id: "skill-instructions", label: "Skill instructions", text: skillInstructions },
         { id: "playbooks", label: "Playbooks", text: packagePlaybooks },
@@ -8745,10 +8917,13 @@ async function runGroupMemberTurn(
   const setupChanged =
     turnInstance(readyBot) !== instance ||
     roomTurnApprovalMode(readyBot, orchestration) !== preparedApprovalMode ||
-    readyBot.modelSelection.instanceId !== preparedSelection.instanceId ||
-    readyBot.modelSelection.model !== preparedSelection.model ||
-    readyBot.modelSelection.effort !== preparedSelection.effort ||
-    readyBot.modelSelection.variant !== preparedSelection.variant ||
+    // Hosted turns run on the server-routed NATION API model, never the
+    // stored selection, so a stored-vs-routed difference is not a change.
+    (!creditsEnforced() && (
+      readyBot.modelSelection.instanceId !== preparedSelection.instanceId ||
+      readyBot.modelSelection.model !== preparedSelection.model ||
+      readyBot.modelSelection.effort !== preparedSelection.effort ||
+      readyBot.modelSelection.variant !== preparedSelection.variant)) ||
     readyBot.composio !== preparedComposio;
   if (setupChanged) {
     if (setupRetry === 0) {
@@ -9048,7 +9223,7 @@ async function runGroupMemberTurn(
   // brief can carry a private chat into the room; as with session_search
   // (#754) the room is told, once per source thread, rather than the
   // crossing being blocked.
-  const recentLines = recentWork(store, bot, { userName, currentThreadId: threadId });
+  const recentLines = recentWork(store, bot, { userName, currentThreadId: threadId, allow: (other) => recallableThreads(threadId, [other]).length === 1 });
   {
     const crossing = claimRecallCrossings(threadId, recentLines.filter((line) => line.private).map((line) => line.threadId));
     if (crossing.count) {
@@ -11616,6 +11791,43 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     const auth = gate.auth;
     creditContext.enterWith(creditAccount(auth));
     setResponseOwner(res, auth.scopes.includes("admin"));
+    // Hosted private conversations: every request names at most the
+    // conversations its own account may see. Enforced here, on the path,
+    // the query, the parsed body and the response, not in each route.
+    const viewer = viewerOf(auth);
+    if (viewer !== null) {
+      const hidden = () => Object.assign(new Error("no such conversation"), { status: 404 });
+      const pathThread = path.match(/^\/api\/threads\/([\w-]+)(?:\/|$)/)?.[1];
+      const botTask = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)$/);
+      const queryThread = url.searchParams.get("threadId")?.trim();
+      for (const threadId of [pathThread, botTask?.[2], queryThread]) {
+        if (threadId && !canSeeThread(viewer, threadId)) return json(res, 404, { error: "no such conversation" });
+      }
+      // Switching conversations switches only this account's open one.
+      if (botTask && method === "POST") threadOwnership.setActive(viewer, botTask[1], botTask[2]);
+      const queueDelete = path.match(/^\/api\/bots\/([\w-]+)\/queue\/([\w-]+)$/);
+      if (queueDelete && method === "DELETE") {
+        const owning = Object.entries(publicBotQueuedMessages()).find(([, items]) => items.some((item) => item.queueId === queueDelete[2]))?.[0];
+        if (owning && !canSeeThread(viewer, owning)) return json(res, 404, { error: "no such conversation" });
+      }
+      const botRoute = path.match(/^\/api\/bots\/([\w-]+)\/(messages(?:\/[\w-]+\/edit)?|active-branch|compact|interrupt|read|respond|always-allow|cards\/[\w-]+|secret-cards\/[\w-]+\/\w+|connector-cards\/[\w-]+\/\w+)$/);
+      setBodyGuard(req, (body) => {
+        if (!body || typeof body !== "object" || Array.isArray(body)) return;
+        const botId = botRoute?.[1];
+        const given = typeof body.threadId === "string" && body.threadId ? body.threadId : undefined;
+        if (given && canSeeThread(viewer, given)) return;
+        // None named: this account's own open conversation. A named one it
+        // cannot see is refused, never redirected.
+        if (botId && !given) {
+          const own = viewerActiveThread(viewer, botId);
+          if (!own) throw hidden();
+          body.threadId = own;
+          return;
+        }
+        if (given) throw hidden();
+      });
+      setResponseProjector(res, (body) => projectForViewer(viewer, body));
+    }
     if (HOSTED_WORKSPACE && auth.kind === "session") {
       const failure = workspaceAccess
         ? await workspaceAccess.authorize(req, auth)
@@ -11832,6 +12044,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!internalCapability) {
         return json(res, 401, { error: "unauthorized" });
       }
+      // Conversations an agent opens now belong to the account its turn runs for.
+      const internalTurnAccount = turnAccountFor(internalCapability.threadId);
+      if (internalTurnAccount) threadOwnerContext.enterWith(internalTurnAccount);
       const internalSender = store.bot(internalCapability.botId);
       if (!internalSender) {
         return json(res, 401, { error: "unauthorized" });
@@ -11954,12 +12169,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/memory") {
         const body = await readInternalBody();
-        const result = updateMemory(internalSender.id, { action: body.action, text: body.text, oldText: body.oldText }, { source: memorySource() });
+        const result = updateMemory(memoryKeyFor(internalSender.id, internalCapability.threadId), { action: body.action, text: body.text, oldText: body.oldText }, { source: memorySource() });
         return json(res, result.ok ? 200 : result.code === "conflict" ? 409 : result.code === "over-budget" ? 413 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/memory/log") {
         const body = await readInternalBody();
-        const result = appendMemoryLog(internalSender.id, body.text, { source: memorySource() });
+        const result = appendMemoryLog(memoryKeyFor(internalSender.id, internalCapability.threadId), body.text, { source: memorySource() });
         return json(res, result.ok ? 200 : 400, result);
       }
       if (method === "POST" && path === "/api/internal/browser/mcp") {
@@ -12052,7 +12267,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (task.closedBy) return "closed" as const;
           return "idle" as const;
         };
+        const listable = new Set(recallableThreads(fromThreadId, [...store.tasks(from.id).map((task) => task.threadId),
+          ...reachablePeers(store.bots, from).flatMap((peer) => store.tasks(peer.id).map((task) => task.threadId))]));
         for (const task of store.tasks(from.id)) {
+          if (!listable.has(task.threadId)) continue;
           rows.push({
             threadId: task.threadId, botId: from.id, botName: from.name, title: task.title,
             state: stateOf(from, task), unread: task.unread === true, openedAt: task.openedBy?.at ?? task.createdAt,
@@ -12061,7 +12279,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         for (const peer of reachablePeers(store.bots, from)) {
           for (const task of store.tasks(peer.id)) {
-            if (task.openedBy?.botId !== from.id) continue;
+            if (task.openedBy?.botId !== from.id || !listable.has(task.threadId)) continue;
             rows.push({
               threadId: task.threadId, botId: peer.id, botName: peer.name, title: task.title,
               state: stateOf(peer, task), unread: task.unread === true, openedAt: task.openedBy.at,
@@ -12084,6 +12302,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "source conversation does not belong to sender" });
         }
         const threadId = closeMatch[1]!;
+        if (recallableThreads(fromThreadId, [threadId]).length === 0) return json(res, 404, { error: "no such thread; call list_threads for the ones you can see" });
         const owner = [from, ...reachablePeers(store.bots, from)].find((bot) => store.taskByThread(bot.id, threadId));
         const task = owner ? store.taskByThread(owner.id, threadId) : undefined;
         if (!owner || !task) return json(res, 404, { error: "no such thread Ã¢â‚¬â€ call list_threads for the ones you can see" });
@@ -12342,7 +12561,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (scope !== "all" && scope !== "conversations" && scope !== "memory") {
           return json(res, 400, { error: "scope must be all, conversations, or memory" });
         }
-        const memoryHits = scope === "conversations" || !q ? [] : searchMemoryFiles(from.id, q, limit);
+        const memoryHits = scope === "conversations" || !q ? [] : searchMemoryFiles(memoryKeyFor(from.id, fromThreadId), q, limit);
         if (scope === "memory") return json(res, 200, { hits: [], memoryHits });
         // Own threads: the bot's main chat and tasks, and the rooms it is a
         // member of with their tasks Ã¢â‚¬â€ conversations it already saw in full.
@@ -12353,7 +12572,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           roomByThread.set(group.threadId, group);
           for (const task of group.tasks ?? []) roomByThread.set(task.threadId, group);
         }
-        const ownThreads = [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])];
+        const ownThreads = recallableThreads(fromThreadId, [...new Set([from.threadId, ...(from.tasks ?? []).map((task) => task.threadId), ...roomByThread.keys()])]);
         // A room is the only place a recall can be a disclosure, and only a
         // private chat is one: in a 1:1 the user already owns every thread
         // the bot can reach, and a room's lines were said in the open.
@@ -12390,7 +12609,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const threadId = String(url.searchParams.get("threadId") ?? "").trim();
         const messageId = String(url.searchParams.get("messageId") ?? "").trim();
         if (!threadId || !messageId) return json(res, 400, { error: "threadId and messageId are required" });
-        const own = threadId === from.threadId || Boolean(store.taskByThread(from.id, threadId));
+        const own = (threadId === from.threadId || Boolean(store.taskByThread(from.id, threadId)))
+          && recallableThreads(fromThreadId, [threadId]).length === 1;
         const message = own ? readMessageText(threadId, messageId) : null;
         if (!message) return json(res, 404, { error: "no such message in your conversations" });
         const readInRoom = Boolean(store.groupByThread(fromThreadId));
@@ -12755,6 +12975,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // the caller's own identity, the way every internal route does.
         const botId = typeof body.toBotId === "string" ? body.toBotId : "";
         const threadId = typeof body.toThreadId === "string" ? body.toThreadId : "";
+        if (threadId && recallableThreads(fromThreadId, [threadId]).length === 0) return json(res, 404, { error: "no such thread" });
         const note = typeof body.note === "string" ? body.note.trim().slice(0, 300) : "";
         const target = store.bot(botId);
         if (!target || target.id === from.id) return json(res, 404, { error: "no such teammate" });
@@ -13658,12 +13879,23 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
     if (path === "/api/routines" && method === "POST") {
-      return json(res, 201, { routine: routines!.create(publicRoutineInput(await readBody(req))) });
+      const created = routines!.create(publicRoutineInput(await readBody(req)));
+      if (privateThreads()) { const owner = currentThreadAccount(); if (owner) threadOwnership.claim(`routine:${created.id}`, owner); }
+      return json(res, 201, { routine: created });
     }
     // The desktop shell polls this to decide whether to hold the computer
     // awake: a run in flight, or a routine due within the hour.
     if (path === "/api/routines/wake" && method === "GET") {
       return json(res, 200, routines!.wakeHold());
+    }
+    // Acting on someone else's routine (or its run) reads as missing.
+    const routineTarget = path.match(/^\/api\/routines\/([\w-]+)(?:\/run)?$/)?.[1];
+    if (routineTarget && viewer !== null && !routineVisible(viewer, routines!.listRoutines().find((item) => item.id === routineTarget) ?? { id: routineTarget })) {
+      return json(res, 404, { error: "no such routine" });
+    }
+    const runTarget = path.match(/^\/api\/routine-runs\/([\w-]+)\/(?:cancel|seen)$/)?.[1];
+    if (runTarget && viewer !== null && !routineVisible(viewer, routines!.listRuns().find((item) => item.id === runTarget))) {
+      return json(res, 404, { error: "no such active run" });
     }
     let routineMatch = path.match(/^\/api\/routines\/([\w-]+)\/run$/);
     if (routineMatch && method === "POST") {
@@ -13818,6 +14050,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const client: SseClient = {
         res,
         admin: auth.scopes.includes("admin"),
+        viewer,
         screens: url.searchParams.get("screens") !== "off",
         backpressured: false,
       };
@@ -13860,8 +14093,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       );
       if (resumed) {
         for (const buffered of replayBuffer) {
-          const frame = client.admin ? buffered.frame : buffered.clientFrame;
-          if (buffered.seq > since && frame && wants(client, buffered.kind)) res.write(frame);
+          if (buffered.seq <= since || !wants(client, buffered.kind)) continue;
+          const frame = client.viewer === null
+            ? client.admin ? buffered.frame : buffered.clientFrame
+            : buffered.payload ? viewerFrame(client.viewer, client.admin, buffered.payload, buffered.seq) : null;
+          if (frame) res.write(frame);
         }
       }
 

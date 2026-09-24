@@ -10,8 +10,24 @@ export function setResponseOwner(res: ServerResponse, owner: boolean): void {
   else ownerResponses.delete(res);
 }
 
+/** Per-response audience projection (hosted private conversations): runs
+ * before the public projection and may withhold what the caller may not see. */
+const responseProjectors = new WeakMap<ServerResponse, (body: unknown) => unknown>();
+export function setResponseProjector(res: ServerResponse, project: (body: unknown) => unknown): void {
+  responseProjectors.set(res, project);
+}
+/** Per-request check of a parsed JSON body before any route acts on it. It
+ * may rewrite fields or throw an error carrying an HTTP status. */
+const bodyGuards = new WeakMap<IncomingMessage, (body: any) => void>();
+export function setBodyGuard(req: IncomingMessage, guard: (body: any) => void): void {
+  bodyGuards.set(req, guard);
+}
+
 export function json(res: ServerResponse, status: number, body: unknown) {
-  const filtered = publicResponse(body, ownerResponses.has(res));
+  const project = responseProjectors.get(res);
+  let projected = project ? project(body) : body;
+  if (projected === null) { status = 404; projected = { error: "no such conversation" }; }
+  const filtered = publicResponse(projected, ownerResponses.has(res));
   const data = JSON.stringify(filtered);
   const publicError = status >= 400 && filtered !== null && typeof filtered === "object"
     && typeof (filtered as Record<string, unknown>).error === "string";
@@ -55,6 +71,10 @@ export function readBody(req: IncomingMessage, limit = 1_000_000): Promise<any> 
         return fail(400, "invalid JSON body");
       }
       done = true;
+      const guard = bodyGuards.get(req);
+      if (guard) {
+        try { guard(body); } catch (error) { return reject(error); }
+      }
       resolve(body);
     });
     req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));

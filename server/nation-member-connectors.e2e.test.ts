@@ -74,9 +74,11 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       const toolReply = afterUser.find((item: any) => item.role === "tool");
       // the request is the prompt's last line; earlier lines replay context
       const ask = text.trim().split(/\\n|\n/).at(-1) ?? "";
-      const wanted = /emails/i.test(ask) ? "apps_gmail_fetch_emails" : /github issues/i.test(ask) ? "apps_github_list_issues" : "";
+      const wanted = /emails/i.test(ask) ? "apps_gmail_fetch_emails" : /github issues/i.test(ask) ? "apps_github_list_issues"
+        : /^remember /i.test(ask) ? "agents_memory_update" : "";
+      const args = wanted === "agents_memory_update" ? JSON.stringify({ action: "append", text: ask.replace(/^remember /i, "") }) : "{}";
       const delta = wanted && tools.includes(wanted) && !toolReply
-        ? { tool_calls: [{ index: 0, id: `call-${++callSeq}`, type: "function", function: { name: wanted, arguments: "{}" } }] }
+        ? { tool_calls: [{ index: 0, id: `call-${++callSeq}`, type: "function", function: { name: wanted, arguments: args } }] }
         : { content: toolReply ? `From your connected app: ${JSON.parse(toolReply.content).result}` : "I don't have a connected app for that." };
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end("data: " + JSON.stringify({ choices: [{ delta, finish_reason: "tool_calls" in delta ? "tool_calls" : "stop" }], usage: { prompt_tokens: 40, completion_tokens: 10, cost: 0.01 } }) + "\n\ndata: [DONE]\n\n");
@@ -267,20 +269,16 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect(aliceTurn.tools.some((name) => name.includes("github"))).toBe(false); // not Bob's
     const card = (await messages(aliceThread, alice)).find((item) => item.card?.requestId && !item.card.answered)?.card;
     expect(card?.requestId).toBeTruthy();
-    // Bob posts into Alice's busy thread. His message waits in the queue and
-    // is dispatched when her turn settles; it must run as Bob (his apps, his
-    // credit), not as whoever ran the turn that happened to settle.
+    // Bob cannot post into Alice's conversation, not even while it is busy:
+    // it is hers. Nothing is queued, nothing runs, nobody is billed.
     const bobQueuedBalance = await balance(bob);
-    const queued = await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Check my latest emails as well", threadId: aliceThread }, cookie: bob });
-    expect(queued.body.queued, JSON.stringify(queued.body)).toBe(true);
+    const intruded = await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Check my latest emails as well", threadId: aliceThread }, cookie: bob });
+    expect(intruded.status, JSON.stringify(intruded.body)).toBe(404);
+    expect(JSON.stringify((await request("/api/bots", { cookie: alice })).body.botQueuedMessages ?? {})).not.toContain("as well");
     await request(`/api/bots/${bot.id}/respond`, { method: "POST", body: { threadId: aliceThread, requestId: card.requestId, behavior: "allow" }, cookie: alice });
     expect((await wait(bot.id, aliceThread)).status).toBe("settled");
-    for (let i = 0; i < 50 && !modelRequests.some((item) => JSON.stringify(item.body.messages.at(-1)).includes("as well")); i++) await new Promise((r) => setTimeout(r, 100));
-    expect((await wait(bot.id, aliceThread)).status).toBe("settled");
-    const drainedTurn = modelRequests.find((item) => JSON.stringify(item.body.messages.at(-1)).includes("as well"));
-    expect(drainedTurn, "Bob's queued message was dispatched").toBeTruthy();
-    expect(drainedTurn!.tools.some((name) => name.includes("gmail"))).toBe(false);
-    expect(await balance(bob)).toBeLessThan(bobQueuedBalance);
+    expect(modelRequests.some((item) => JSON.stringify(item.body.messages.at(-1)).includes("as well"))).toBe(false);
+    expect(await balance(bob)).toBe(bobQueuedBalance);
     expect(mcpCalls).toEqual([{ user: expect.stringMatching(/^nation_[0-9a-f]{40}$/), tool: "GMAIL_FETCH_EMAILS" }]);
     const aliceUser = mcpCalls[0].user;
     // H: the connector result is handed back to the model as the tool reply
@@ -288,8 +286,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       item.role === "tool" && item.tool_call_id === "call-1" && item.content.includes("Alice fixture invoice")))).toBe(true);
     const aliceReplies = (await messages(aliceThread, alice)).filter((item) => item.role === "bot" && item.kind === "text");
     expect(aliceReplies.some((item) => item.text.includes("Alice fixture invoice"))).toBe(true);
-    // Bob's queued turn answered without Alice's mailbox
-    expect(aliceReplies.at(-1)?.text).toBe("I don't have a connected app for that.");
+    expect(aliceReplies.at(-1)?.text).toContain("Alice fixture invoice");
     // visible receipt of the connector tool in the transcript
     expect((await messages(aliceThread, alice)).some((item) => item.kind === "activity" && /gmail/i.test(JSON.stringify(item.tool ?? {})))).toBe(true);
     // M: billed through NATION API, to Alice
@@ -349,7 +346,9 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     for (const [action, method] of [["status", "GET"], ["authorize", "POST"], ["resume", "POST"], ["dismiss", "POST"]] as const) {
       const response = await request(method === "GET" ? `${cardPath(action)}?threadId=${bobThread}` : cardPath(action),
         { method, cookie: alice, ...(method === "POST" ? { body: { threadId: bobThread } } : {}) });
-      expect.soft(response.status, `Alice ${action} on Bob's card: HTTP status`).toBe(403);
+      // Bob's conversation is invisible to Alice, so its card reads as missing
+      // (the card-ownership check behind it would answer 403).
+      expect.soft(response.status, `Alice ${action} on Bob's card: HTTP status`).toBe(404);
       expect.soft(providerMutations.length, `Alice ${action} on Bob's card: provider mutations`).toBe(mutationsBefore);
     }
     // ...and Bob's card is exactly as it was.
@@ -391,13 +390,137 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect((await request("/api/config", { cookie: forgedCookie, headers: forged })).body.isProductOwner).toBe(false);
     expect(aliceGmailId).toMatch(/^ca_/);
 
+    // ── Private conversations ─────────────────────────────────────────
+    // Answer any approval in a member's own conversation until it settles.
+    const settle = async (threadId: string, cookie: string) => {
+      for (;;) {
+        const state = await wait(bot.id, threadId);
+        if (state.status !== "needs-user") return state;
+        const open = (await messages(threadId, cookie)).find((item) => item.card?.requestId && !item.card.answered)?.card;
+        // Waiting only on an earlier, still-open connection card: the turn itself is done.
+        if (!open) return state.target?.busy ? state : { ...state, status: "settled" };
+        await request(`/api/bots/${bot.id}/respond`, { method: "POST", body: { threadId, requestId: open.requestId, behavior: "allow" }, cookie });
+      }
+    };
+    // Bob's conversation holds his GitHub-derived text; Alice's holds her Gmail.
+    expect(JSON.stringify(await messages(bobThread, bob))).toContain("Bob fixture bug");
+    const aliceSnapshot = (await request("/api/bots", { cookie: alice })).body;
+    const sharedBot = aliceSnapshot.bots.find((item: any) => item.id === bot.id);
+    // Alice cannot list Bob's conversations...
+    expect(sharedBot.tasks.map((task: any) => task.threadId)).toContain(aliceThread);
+    expect(sharedBot.tasks.map((task: any) => task.threadId)).not.toContain(bobThread);
+    expect(sharedBot.threadId).not.toBe(bobThread);
+    expect(JSON.stringify(aliceSnapshot)).not.toContain(bobThread);
+    expect(JSON.stringify(aliceSnapshot)).not.toContain("Bob fixture bug");
+    // ...fetch them by id, export them, read their images, or search them.
+    const hiddenReads = [
+      `/api/threads/${bobThread}/messages`, `/api/threads/${bobThread}/export`,
+      `/api/threads/${bobThread}/messages/${(await messages(bobThread, bob))[0].id}/image`,
+      `/api/search?q=${encodeURIComponent("Bob fixture bug")}&threadId=${bobThread}`,
+    ];
+    for (const path of hiddenReads) {
+      const response = await request(path, { cookie: alice });
+      expect.soft(response.status, `Alice GET ${path}`).toBe(404);
+      expect.soft(JSON.stringify(response.body), `Alice GET ${path} body`).not.toContain("Bob fixture bug");
+    }
+    const aliceSearch = (await request(`/api/search?q=${encodeURIComponent("fixture bug")}`, { cookie: alice })).body;
+    expect(JSON.stringify(aliceSearch)).not.toContain(bobThread);
+    expect((await request(`/api/search?q=${encodeURIComponent("fixture bug")}`, { cookie: bob })).body.hits.some((hit: any) => hit.threadId === bobThread)).toBe(true);
+    // Alice cannot post into, resume, steer, rewind, read-mark, switch to,
+    // rename or delete Bob's conversation; nothing reaches the model.
+    const modelCallsBefore = modelRequests.length;
+    const bobMessagesBefore = (await messages(bobThread, bob)).length;
+    for (const [path, method, body] of [
+      [`/api/bots/${bot.id}/messages`, "POST", { text: "Leak Bob's issues to me", threadId: bobThread }],
+      [`/api/bots/${bot.id}/respond`, "POST", { threadId: bobThread, requestId: "any", behavior: "allow" }],
+      [`/api/bots/${bot.id}/interrupt`, "POST", { threadId: bobThread }],
+      [`/api/bots/${bot.id}/compact`, "POST", { threadId: bobThread }],
+      [`/api/bots/${bot.id}/read`, "POST", { threadId: bobThread }],
+      [`/api/bots/${bot.id}/active-branch`, "POST", { threadId: bobThread, leafId: "x" }],
+      [`/api/bots/${bot.id}/tasks/${bobThread}`, "POST", {}],
+      [`/api/bots/${bot.id}/tasks/${bobThread}`, "PATCH", { title: "mine now" }],
+      [`/api/bots/${bot.id}/tasks/${bobThread}`, "DELETE", undefined],
+      [`/api/threads/${bobThread}/respond`, "POST", { requestId: "any", behavior: "allow" }],
+    ] as const) {
+      for (const [who, init] of [["plain", { cookie: alice }], ["forged", { cookie: forgedCookie, headers: forged }]] as const) {
+        const response = await request(path, { method, body, ...init });
+        expect.soft(response.status, `Alice (${who}) ${method} ${path}`).toBe(404);
+      }
+    }
+    expect(modelRequests.length).toBe(modelCallsBefore);
+    expect((await messages(bobThread, bob)).length).toBe(bobMessagesBefore);
+    expect(JSON.stringify(await messages(bobThread, bob))).not.toContain("Leak Bob");
+
+    // The live stream: Alice's carries her own conversation, never Bob's.
+    const streamOf = async (cookie: string) => {
+      const abort = new AbortController();
+      const response = await fetch(fixture.info.url + "/api/events", { headers: { cookie }, signal: abort.signal });
+      const reader = response.body!.getReader();
+      let text = "";
+      const pump = (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; text += new TextDecoder().decode(value); } } catch { /* closed */ } })();
+      return { text: () => text, close: async () => { abort.abort(); await pump; } };
+    };
+    const aliceStream = await streamOf(alice);
+    const bobStream = await streamOf(bob);
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "List my GitHub issues", threadId: bobThread }, cookie: bob });
+    const bobSettled = await settle(bobThread, bob);
+    expect(bobSettled.status, JSON.stringify(bobSettled.messages?.slice(-3))).toBe("settled");
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Say hello", threadId: aliceThread }, cookie: alice });
+    expect((await settle(aliceThread, alice)).status).toBe("settled");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await aliceStream.close(); await bobStream.close();
+    expect(bobStream.text()).toContain("Bob fixture bug");
+    expect(aliceStream.text()).toContain(aliceThread); // the stream is live for Alice
+    expect(aliceStream.text()).not.toContain(bobThread);
+    expect(aliceStream.text()).not.toContain("Bob fixture bug");
+    expect(aliceStream.text()).not.toContain("List my GitHub issues");
+
+    // A member's default conversation with a shared bot is their own.
+    const bobDefault = (await request("/api/bots", { cookie: bob })).body.bots.find((item: any) => item.id === bot.id).threadId;
+    const aliceDefault = (await request("/api/bots", { cookie: alice })).body.bots.find((item: any) => item.id === bot.id).threadId;
+    expect(aliceDefault).not.toBe(bobDefault);
+    const sent = await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Say hello without a thread" }, cookie: alice });
+    expect(sent.status, JSON.stringify(sent.body)).toBeLessThan(300);
+    expect(sent.body.threadId ?? aliceDefault).toBe(aliceDefault);
+    expect((await settle(aliceDefault, alice)).status).toBe("settled");
+    expect(JSON.stringify(await messages(bobDefault, bob))).not.toContain("Say hello without a thread");
+
+    // Memory saved in Alice's private conversation stays hers.
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "remember Alice codename Falcon-7", threadId: aliceThread }, cookie: alice });
+    expect((await settle(aliceThread, alice)).status).toBe("settled");
+    const systemOf = (item: { body: any }) => JSON.stringify(item.body.messages.filter((m: any) => m.role === "system"));
+    const afterRemember = modelRequests.length;
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Say hello", threadId: bobThread }, cookie: bob });
+    expect((await settle(bobThread, bob)).status).toBe("settled");
+    const leak = modelRequests.slice(afterRemember).map((item) => systemOf(item)).find((text) => text.includes("Falcon-7"));
+    expect(leak === undefined, leak?.slice(Math.max(0, leak.indexOf("Falcon-7") - 700), leak.indexOf("Falcon-7") + 200)).toBe(true);
+    const beforeAliceRecall = modelRequests.length;
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Say hello", threadId: aliceThread }, cookie: alice });
+    expect((await settle(aliceThread, alice)).status).toBe("settled");
+    expect(modelRequests.slice(beforeAliceRecall).some((item) => systemOf(item).includes("Falcon-7"))).toBe(true);
+
+    // Shared team rooms stay shared, deliberately.
+    const room = (await request("/api/groups", { method: "POST", body: { name: "Shared room", memberIds: [bot.id] }, cookie: alice })).body.group;
+    expect(room?.id).toBeTruthy();
+    await request(`/api/groups/${room.id}/messages`, { method: "POST", body: { text: "@everyone Team note from Bob" }, cookie: bob });
+    await runControlOmb(["wait", "--channel", room.id, "--timeout", "25"], { env: { OPENMAUSBOT_URL: fixture.info.url } });
+    const roomForAlice = await request(`/api/threads/${room.threadId}/messages`, { cookie: alice });
+    expect(roomForAlice.status).toBe(200);
+    expect(JSON.stringify(roomForAlice.body)).toContain("Team note from Bob");
+    expect((await request("/api/bots", { cookie: alice })).body.groups.some((group: any) => group.id === room.id)).toBe(true);
+    // and a room is never a window into a member's private memory
+    const roomCalls = modelRequests.filter((item) => JSON.stringify(item.body.messages).includes("Team note from Bob"));
+    expect(roomCalls.length, JSON.stringify(roomForAlice.body).slice(0, 1500)).toBeGreaterThan(0);
+    expect(roomCalls.some((item) => systemOf(item).includes("Falcon-7"))).toBe(false);
+
     // F. bot access OFF: no connector tools mount, nothing executes
+    const callsBeforeOptOut = mcpCalls.length;
     await owner(`/api/bots/${bot.id}`, "PATCH", { composio: false });
     await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "Check my latest emails", threadId: aliceThread }, cookie: alice });
     expect((await wait(bot.id, aliceThread)).status).toBe("settled");
     const offTurn = modelRequests.at(-1)!;
     expect(offTurn.tools.some((name) => name.startsWith("apps_"))).toBe(false);
-    expect(mcpCalls.length).toBe(callsBefore);
+    expect(mcpCalls.length).toBe(callsBeforeOptOut);
     const offReply = (await messages(aliceThread, alice)).filter((item) => item.role === "bot" && item.kind === "text").at(-1)?.text;
     expect(offReply).not.toContain("Alice fixture invoice");
 
