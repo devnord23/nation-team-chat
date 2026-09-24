@@ -1,4 +1,9 @@
-@import "tailwindcss";
+/* Only renderer sources produce utility classes. Server examples and fixtures
+   are not styles and must never be copied into public CSS. */
+@import "tailwindcss" source(".");
+@source "../shared";
+@source "../index.html";
+@source "../ledger/index.html";
 
 /* Inline mentions keep the surrounding font metrics, including in the
    textarea mirror. No padding/border/font-weight changes that shift the caret. */
