@@ -91,14 +91,13 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
     <main className="flex min-h-screen items-center justify-center bg-app px-6 text-ink">
       <div className="absolute left-3 top-12 max-w-[280px]"><DesktopWorkspaceSwitcher /></div>
       <div className="w-full max-w-[420px]">
-        <h1 className="text-[20px] font-semibold">{mode === "email" ? "Sign in to" : "Connect to"} {environment?.label ?? "this NATION Team"}</h1>
+        <h1 className="text-[20px] font-semibold">{mode === "email" ? "Sign in to" : "Connect to"} {environment?.label ?? "Nation Team Chat"}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
-          {environment ? `Version ${environment.version} on ${environment.platform}. ` : ""}
           {mode === "email"
             ? sent
               ? `We emailed an 8-digit code to ${email}. It works once and expires in ten minutes.`
               : "Enter your email and we will send you a one-time code."
-            : "Enter the pairing code shown on the server. Codes work once and expire after five minutes."}
+            : `Enter your access code to join ${environment?.label ?? "Nation Team Chat"}. Codes expire after five minutes.`}
         </p>
         {reasonWorthShowing(reason) && !connected ? <p className="mt-3 text-[13px] text-ink-secondary">{reasonWorthShowing(reason)}</p> : null}
         {connected ? (
@@ -158,13 +157,19 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
               </button>
             ) : null}
             <button type="button" onClick={() => switchMode("code")} className="mt-3 w-full text-[13px] text-ink-secondary underline">
-              Have a pairing code instead?
+              Have an access code instead?
             </button>
+            <p className="mt-4 text-center text-[12px] text-ink-secondary">
+              Need help?{" "}
+              <a href="https://t.me/thenation_city" target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                Message us on Telegram
+              </a>
+            </p>
           </form>
         ) : (
           <form onSubmit={submitCode}>
             <label className={fieldLabel} htmlFor="pair-code">
-              Pairing code
+              Access code
             </label>
             <input
               id="pair-code"
@@ -192,6 +197,12 @@ export function PairPage({ initialCode, initialEmail = null, reason }: { initial
                 Sign in with your email instead
               </button>
             ) : null}
+            <p className="mt-4 text-center text-[12px] text-ink-secondary">
+              Need help?{" "}
+              <a href="https://t.me/thenation_city" target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                Message us on Telegram
+              </a>
+            </p>
           </form>
         )}
       </div>
