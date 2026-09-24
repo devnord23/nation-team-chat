@@ -12,13 +12,13 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Check } from "lucide-react";
 import { ServiceIcon, type ToolkitCard } from "@/components/PluginsPanel";
 import { cn } from "@/lib/cn";
-import type { MausState } from "@/lib/mascot";
+import type { NationState } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
 import { api } from "@/state/store";
 
 export interface SceneProps {
   playing: boolean;
-  onCue?: (state: MausState) => void;
+  onCue?: (state: NationState) => void;
   onEnded?: () => void;
   label: string;
 }

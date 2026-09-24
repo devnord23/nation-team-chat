@@ -330,7 +330,11 @@ function desktopDataDir() {
   // then pass this exact resolved path to the utility child. server/config.ts
   // intentionally treats an empty OMB_DATA_DIR differently, so inheriting it
   // without normalization would lease one directory and write another.
-  return process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".openmausbot");
+  const explicit = process.env.NATION_DATA_DIR ?? process.env.OMB_DATA_DIR;
+  if (explicit !== undefined) return explicit;
+  const current = path.join(app.getPath("home"), ".nationteamchat");
+  const legacy = path.join(app.getPath("home"), ".openmausbot");
+  return fs.existsSync(current) || !fs.existsSync(legacy) ? current : legacy;
 }
 
 async function stopUtilityServer(proc, timeoutMs = UTILITY_SERVER_STOP_TIMEOUT_MS) {

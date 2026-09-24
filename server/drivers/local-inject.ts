@@ -359,7 +359,7 @@ export async function mergeLocalInject(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ModelCatalog> {
   const vitest = env.VITEST ?? process.env.VITEST;
-  const probe = env.OPENMAUSBOT_PROBE_LOCAL_INJECT ?? process.env.OPENMAUSBOT_PROBE_LOCAL_INJECT;
+  const probe = env.NATION_PROBE_LOCAL_INJECT ?? env.OPENMAUSBOT_PROBE_LOCAL_INJECT ?? (process.env.NATION_PROBE_LOCAL_INJECT ?? process.env.OPENMAUSBOT_PROBE_LOCAL_INJECT);
   if (vitest === "true" && probe !== "1") return catalog;
   const extras = await probeLocalInjects(env, fetchImpl);
   if (!extras.length) return catalog;

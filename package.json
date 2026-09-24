@@ -3,17 +3,13 @@
   "private": true,
   "version": "0.1.85",
   "description": "Your own team of AI bots, in a chat app. Persistent, named AI teammates that share one durable computer.",
-  "homepage": "https://github.com/devnord23/nation-team-chat",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/devnord23/nation-team-chat.git"
-  },
+  "homepage": "https://thenation.city/swarm/",
   "author": {
     "name": "NATION",
     "url": "https://thenation.city"
   },
   "license": "Apache-2.0",
-  "desktopName": "com.openmausbot.app.desktop",
+  "desktopName": "city.thenation.team.desktop",
   "type": "module",
   "main": "electron/main.mjs",
   "engines": {
@@ -38,7 +34,7 @@
     "mcp": "node --experimental-strip-types scripts/mcp-server.ts",
     "control:omb": "node --experimental-strip-types scripts/control-omb.ts",
     "dev:desktop": "node scripts/prepare-cloudflared.mjs --current && electron .",
-    "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
+    "build": "tsc -b && tsc -p tsconfig.server.json && vite build && npm run brand-guard",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
     "test": "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",
     "test:electron": "node --test \"electron/*.node-test.mjs\"",
@@ -81,7 +77,8 @@
     "control-plane:types": "pnpm --filter @openmausbot/control-plane types",
     "control-plane:check": "pnpm --filter @openmausbot/control-plane check",
     "control-plane:test": "pnpm --filter @openmausbot/control-plane test",
-    "control-plane:dry-run": "pnpm --filter @openmausbot/control-plane dry-run"
+    "control-plane:dry-run": "pnpm --filter @openmausbot/control-plane dry-run",
+    "brand-guard": "node scripts/brand-guard.mjs"
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",

@@ -1,8 +1,8 @@
 // Config + data dirs. One file, ~/.openmausbot/config.json, env fallbacks:
 //   { "xai": {"key":"xai-â€¦"}, "composio": {"apiKey":"ak_â€¦"}, "box": {"token":"â€¦"},
 //     "instances": { "<instanceId>": {"driver":"grok", â€¦} } }
-import { readFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { nationDataDir } from "./nation-compat.ts";
 import { join } from "node:path";
 import { z } from "zod";
 import { normalizeImageGenerationUrl, type ImageGenerationConfig } from "../shared/image-generation.ts";
@@ -743,21 +743,12 @@ export function providerReloadKeys(patch: object): string[] {
 }
 
 // OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
-export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".openmausbot");
-const LEGACY_DATA_DIR = join(homedir(), ".opengrokbot");
+export const DATA_DIR = nationDataDir();
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 
 export function ensureDirs() {
-  // one-time migration from the pre-rename data dir â€” bots, transcripts,
-  // config and keys all carry over
-  if (!existsSync(DATA_DIR) && existsSync(LEGACY_DATA_DIR)) {
-    try {
-      renameSync(LEGACY_DATA_DIR, DATA_DIR);
-    } catch {
-      /* cross-device or busy â€” fall through to a fresh dir */
-    }
-  }
+  // The compatibility resolver reuses old data in place; no destructive migration.
   for (const dir of [DATA_DIR, EVENTS_DIR, NATIVE_DIR]) mkdirSync(dir, { recursive: true });
   migrateLegacyFeatureFlags();
 }

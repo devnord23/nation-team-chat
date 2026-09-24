@@ -26,7 +26,7 @@ import type { GroupGoalRunCardData } from "../shared/group-goal-run.ts";
 import { isMentionBoundary, isMentionNameContinuation } from "../shared/mention-boundary.ts";
 import type { HandedState } from "./delta-context.ts";
 import type {
-  BotActivity, GroupDefaultResponder, GroupTask as GroupTaskRecord, MausColor,
+  BotActivity, GroupDefaultResponder, GroupTask as GroupTaskRecord, NationColor,
   OptionCardData, TaskClosedBy, TaskOpenedBy, TaskUsage, WireBot, WireGroup,
   WireMessage, WireTask, BotProject as BotProjectRecord,
 } from "../shared/wire.ts";
@@ -36,7 +36,7 @@ export type {
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
 } from "../shared/wire.ts";
 export type { GroupTask as GroupTaskRecord, BotProject as BotProjectRecord } from "../shared/wire.ts";
-export type { InstalledPlaybook, InstalledPackageMetadata, MausColor, MausExpression } from "../shared/wire.ts";
+export type { InstalledPlaybook, InstalledPackageMetadata, NationColor, NationExpression } from "../shared/wire.ts";
 
 
 /** One transcript line, serialized as stored — the shared wire shape. */
@@ -392,7 +392,7 @@ function tightenRegistryFile(file: string): void {
 }
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
 
-const COLORS: MausColor[] = [
+const COLORS: NationColor[] = [
   "green",
   "blue",
   "red",
@@ -409,7 +409,7 @@ const COLORS: MausColor[] = [
  * The six NATION bot-face assets in public/bot-faces/, cycled across new bots
  * in order so the roster gets variety out of the box.
  */
-const BOT_FACES: Array<{ url: string; color: MausColor }> = [
+const BOT_FACES: Array<{ url: string; color: NationColor }> = [
   { url: "/bot-faces/coordinator.svg", color: "green"  },
   { url: "/bot-faces/researcher.svg",  color: "purple" },
   { url: "/bot-faces/builder.svg",     color: "cyan"   },

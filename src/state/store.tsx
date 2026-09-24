@@ -17,7 +17,7 @@ import {
 import type { CloudBackend, EffortLevel, ServerFrame } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
-import type { MausColor, MausMotion } from "@/lib/mascot";
+import type { NationColor, NationMotion } from "@/lib/mascot";
 import type { BotAvatarCrop } from "../../shared/bot-avatar";
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
@@ -62,7 +62,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
   });
 }
 
-export type { MausColor } from "@/lib/mascot";
+export type { NationColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
 export interface OptionCardData {
@@ -177,7 +177,7 @@ export interface Message {
   /** Stable client identity for at-most-once chat POST retries. */
   sendId?: string;
   /** rooms: which member said this (sender attribution). */
-  from?: { botId: string; name: string; color: MausColor };
+  from?: { botId: string; name: string; color: NationColor };
   /** a user-role line another bot delivered into this conversation
    * (ask_bot, delegate_bot, start_thread): the words are that bot's, not
    * the person's. Rendered as the peer speaking — see lib/peer-message. */
@@ -185,7 +185,7 @@ export interface Message {
   /** emoji reactions; by = "user" or a member botId. */
   reactions?: Array<{ emoji: string; by: string }>;
   /** comm chips: "Messaged @X" linking to the bot⇄bot channel. */
-  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: MausColor };
+  comm?: { groupId: string; threadId?: string; withBotId: string; withName: string; withColor: NationColor };
   /** thread chips: "Opened thread #Title on Bot" linking to that thread */
   threadRef?: { botId: string; threadId: string; title: string };
   /** sent while the bot was mid-turn; auto-sends when the turn settles.
@@ -356,7 +356,7 @@ export interface Bot {
   /** The SOUL.md mirror on disk differs from the record; the Soul editor offers apply/discard. */
   soulDrift?: boolean;
   notifications: boolean;
-  color: MausColor;
+  color: NationColor;
   mascotExpression?: string | null;
   /** Which body the bot wears. Unknown/absent values fall back to the cursor. */
   mascotBody?: MascotBodyId | null;
@@ -852,7 +852,7 @@ export interface AppState {
   mascotMotion: {
     botId: string;
     nonce: number;
-    kind: Exclude<MausMotion, "none">;
+    kind: Exclude<NationMotion, "none">;
   } | null;
   /** Queued follow-up lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
@@ -1230,7 +1230,7 @@ function updateBot(state: AppState, botId: string, fn: (b: Bot) => Bot): AppStat
 function withMascotMotion(
   state: AppState,
   botId: string,
-  kind: Exclude<MausMotion, "none">,
+  kind: Exclude<NationMotion, "none">,
 ): AppState {
   return {
     ...state,

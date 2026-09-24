@@ -6,13 +6,13 @@
 import { useEffect, useState } from "react";
 import { Hash, Send } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { MausColor } from "@/lib/mascot";
+import type { NationColor } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
 import type { SceneProps } from "./OrbitingApps";
 
 /** Soft-tower face image used in place of the animated mascot in scene demos. */
-function FaceImg({ color, size }: { color: MausColor; size: number }) {
-  const FACE_MAP: Record<MausColor, string> = {
+function FaceImg({ color, size }: { color: NationColor; size: number }) {
+  const FACE_MAP: Record<NationColor, string> = {
     green: "coordinator", blue: "researcher", red: "builder",
     orange: "analyst", purple: "creator", cyan: "operator",
     pink: "coordinator", yellow: "researcher", teal: "builder", coral: "analyst",
@@ -32,7 +32,7 @@ function FaceImg({ color, size }: { color: MausColor; size: number }) {
 
 const CHANNELS_MS = 6000;
 
-const MEMBERS: Array<{ name: string; title: string; color: MausColor }> = [
+const MEMBERS: Array<{ name: string; title: string; color: NationColor }> = [
   { name: "NATION agent", title: "Chief of staff", color: "green" },
   { name: "Researcher", title: "Finds and checks facts", color: "blue" },
   { name: "Writer", title: "Drafts and edits", color: "orange" },

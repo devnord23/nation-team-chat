@@ -51,7 +51,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm check:electron
       - name: production UI build
-        run: pnpm exec vite build
+        run: pnpm exec vite build && pnpm brand-guard
 
   vitest:
     # Admit the expensive runner fan-out only after the quick checks pass.

@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
-import type { MausState } from "@/lib/mascot";
+import type { NationState } from "@/lib/mascot";
 import { reducedMotion } from "@/lib/onboarding";
 
 const PAD = 8;
@@ -69,7 +69,7 @@ export function Spotlight({
   anchor: string | null;
   placement: "above" | "below" | "right";
   /** Kept for API compatibility; visual expression is no longer rendered. */
-  mascot?: MausState;
+  mascot?: NationState;
   children: ReactNode;
   /** "Step 2 of 6", shown small under the text. */
   progress?: string;
