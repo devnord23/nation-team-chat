@@ -29,6 +29,7 @@ export interface NationCreditsCtxValue {
   open: boolean;
   openSheet: () => void;
   closeSheet: () => void;
+  openSubscription: () => void;
 }
 
 export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
@@ -36,6 +37,7 @@ export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
   open: false,
   openSheet: () => {},
   closeSheet: () => {},
+  openSubscription: () => {},
 });
 
 export function useNationCredits() {
