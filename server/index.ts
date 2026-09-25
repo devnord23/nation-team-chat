@@ -5,6 +5,7 @@ import { searchProvider, webRead, webSearch, webToolPrices, webToolsStatus, WebT
 import type { CreditAccount } from "./nation-credits.ts";
 import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
 import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
+import { teamMapFor } from "./team-map-view.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
@@ -13988,33 +13989,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // transcripts: this projection carries only ids, status relationships,
     // optional delegation labels, and timestamps.
     if (method === "GET" && path === "/api/team-map") {
-      const visible = new Set(store.bots.filter((bot) => !bot.hidden).map((bot) => bot.id));
-      const collaborations = store.groups
-        .filter(
-          (group) =>
-            group.dm === true &&
-            group.memberIds.length === 2 &&
-            group.memberIds.every((botId) => visible.has(botId)),
-        )
-        .map((group) => ({
-          groupId: group.id,
-          botIds: [group.memberIds[0], group.memberIds[1]] as [string, string],
-          lastAt: store.messagesFor(group.threadId).at(-1)?.at ?? group.createdAt,
-        }))
-        .sort((a, b) => b.lastAt - a.lastAt);
-      const queued = pendingDelegationSnapshot().flatMap((item) => {
-        if (!visible.has(item.sourceBotId) || !visible.has(item.toBotId)) return [];
-        return [{ sourceBotId: item.sourceBotId, targetBotId: item.toBotId, reason: item.reason }];
-      });
-      const running = [...delegationWatch.entries()].flatMap(([threadId, watch]) => {
-        if (!visible.has(watch.toBotId)) return [];
-        const channel = watch.channelId ? store.group(watch.channelId) : undefined;
-        const sourceBotId = watch.sourceBotId ??
-          channel?.memberIds.find((botId) => botId !== watch.toBotId);
-        if (!sourceBotId || !visible.has(sourceBotId)) return [];
-        return [{ sourceBotId, targetBotId: watch.toBotId, threadId, groupId: channel?.id }];
-      });
-      return json(res, 200, { collaborations, queued, running });
+      const viewer = viewerOf(auth);
+      return json(res, 200, teamMapFor({
+        visibleBotIds: new Set(store.bots.filter((bot) => !bot.hidden).map((bot) => bot.id)),
+        directRooms: store.groups
+          .filter((group) => group.dm === true && group.memberIds.length === 2)
+          .map((group) => ({
+            groupId: group.id,
+            threadId: group.threadId,
+            botIds: [group.memberIds[0], group.memberIds[1]] as [string, string],
+            lastAt: store.messagesFor(group.threadId).at(-1)?.at ?? group.createdAt,
+          })),
+        queued: pendingDelegationSnapshot(),
+        running: [...delegationWatch.entries()].map(([threadId, watch]) => {
+          const channel = watch.channelId ? store.group(watch.channelId) : undefined;
+          return {
+            threadId, toBotId: watch.toBotId, sourceThreadId: watch.sourceThreadId, groupId: channel?.id,
+            sourceBotId: watch.sourceBotId ?? channel?.memberIds.find((botId) => botId !== watch.toBotId),
+          };
+        }),
+      }, (threadId) => canSeeThread(viewer, threadId)));
     }
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ routines calendar Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
