@@ -30,9 +30,16 @@ it("the admin controls models and agent tools; members cannot", async () => {
     if (url.pathname === "/api/auth/sign-out") return json({ success: true });
     if (url.pathname === "/search-api/web/search") return json({ web: { results: [] } });
     if (url.pathname.endsWith("/chat/completions")) {
-      modelRequests.push({ model: body.model, tools: (body.tools ?? []).map((item: any) => item.function.name) });
+      const tools: string[] = (body.tools ?? []).map((item: any) => item.function.name);
+      modelRequests.push({ model: body.model, tools });
+      const lastUser = [...body.messages].reverse().find((item: any) => item.role === "user");
+      const toolReply = body.messages.slice(body.messages.lastIndexOf(lastUser) + 1).find((item: any) => item.role === "tool");
+      const wantsKey = /need xai/.test(JSON.stringify(lastUser?.content ?? "")) && tools.includes("agents_request_credential") && !toolReply;
+      const delta = wantsKey
+        ? { tool_calls: [{ index: 0, id: "cred-1", type: "function", function: { name: "agents_request_credential", arguments: JSON.stringify({ credential_id: "xaiApiKey", reason: "fixture" }) } }] }
+        : { content: toolReply ? `Tool said: ${JSON.parse(toolReply.content).result}` : "Hello." };
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.end("data: " + JSON.stringify({ choices: [{ delta: { content: "Hello." }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 } }) + "\n\ndata: [DONE]\n\n");
+      res.end("data: " + JSON.stringify({ choices: [{ delta, finish_reason: "tool_calls" in delta ? "tool_calls" : "stop" }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 } }) + "\n\ndata: [DONE]\n\n");
       return;
     }
     if (url.pathname.startsWith("/api/v3")) return json({ items: [] });
@@ -113,6 +120,24 @@ it("the admin controls models and agent tools; members cannot", async () => {
     expect(single[0].tools).toContain("web_search");
     expect(single[0].tools).not.toContain("web_read");
     expect((await owner("/api/admin/controls")).models).toMatchObject({ enabled: false, fast: "fixture/default-admin", strong: "fixture/default-admin" });
+
+    // A member is never asked for a provider key: no credential card, and the
+    // agent hears the capability isn't set up here.
+    const settleAll = async () => {
+      for (let i = 0; i < 5; i++) {
+        const state = await runControlOmb(["wait", "--bot", bot.id, "--task", thread, "--timeout", "25"], { env: { OPENMAUSBOT_URL: fixture.info.url } }) as any;
+        if (state.status !== "needs-user") return state;
+        const messages = (await request(`/api/threads/${thread}/messages`, { cookie: member })).body.messages as any[];
+        const open = messages.find((item) => item.card?.requestId && !item.card.answered)?.card;
+        if (!open) return state;
+        await request(`/api/bots/${bot.id}/respond`, { method: "POST", body: { threadId: thread, requestId: open.requestId, behavior: "allow" }, cookie: member });
+      }
+    };
+    await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "need xai", threadId: thread }, cookie: member });
+    await settleAll();
+    const transcript = (await request(`/api/threads/${thread}/messages`, { cookie: member })).body.messages as any[];
+    expect(transcript.some((item) => item.kind === "secret")).toBe(false);
+    expect(transcript.filter((item) => item.role === "bot" && item.kind === "text").at(-1)?.text).toMatch(/isn't set up in this workspace/);
   } finally {
     await fixture.close();
     provider.closeAllConnections();

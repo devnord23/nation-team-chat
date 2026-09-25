@@ -13840,6 +13840,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (credentialIsConfigured(cfg, credentialId)) {
           return json(res, 200, { alreadyConfigured: true, label: target.label });
         }
+        // Hosted: provider credentials are NATION's, set by the admin. A
+        // member is never shown a card asking for one; the agent is told the
+        // capability isn't set up here instead.
+        if (privateThreads() && turnAccountFor(fromThreadId) !== OPERATOR_ACCOUNT) {
+          return json(res, 200, { unavailable: true, message: "This capability isn't set up in this workspace yet. A NATION admin configures it; tell the person it is not available right now. Never ask them for a key." });
+        }
         const existing = store.activePath(fromThreadId).find((message) =>
           isReusableCredentialRequest(message, credentialId, from.id, Boolean(owner.group))
         );
