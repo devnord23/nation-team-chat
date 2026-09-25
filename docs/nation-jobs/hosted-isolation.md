@@ -16,6 +16,8 @@ can be established, the resource is withheld (fail closed).
 | Agent computer (Box, VPS) for a workspace bot | `botId--u-<sha256(env, account)>`. It is created on first use and reused on later turns and sessions. The operator keeps the bot's original computer. |
 | Built-in browser session for a workspace bot | Same key as the computer. A member never gets the bot's saved browser profile. |
 | Host desktop / Local VM | Operator only. A member's turn never reaches them. |
+| Bot folders and working directory (Claude / Codex / local CLI engines) | Members work in `workspaces/botId--m-<account>` and `task-workspaces/botId--m-<account>/<thread>`, never in the operator's project folder, the bot's own folder or another member's. A member's turn never runs a host-filesystem engine unless the operator sets `NATION_MEMBER_HOST_ENGINES=1`: that engine is a process on this server with no OS sandbox between accounts. With NATION API credits on, every turn is NATION API anyway. |
+| Bot-to-bot delegation conversations | One per (account, bot pair), billed to the delegating member. |
 | Bot memory in a private conversation | `botId--m-<sha256(account)>` |
 | Uploaded attachments | Served to the uploader, or to anyone who can see a conversation that carries the attachment. |
 | Team Map delegation labels / edges | Shown only when the viewer can open the conversation(s) they came from. |
@@ -27,7 +29,9 @@ can be established, the resource is withheld (fail closed).
   turn runs and bills as the member who triggered it. It uses that member's
   own computer and browser for the bot, unless the room explicitly uses a
   **team computer**, which is shared by design and is only used in rooms.
-- **Room memory**: `botId--team`, separate from every private namespace.
+- **Room memory and room files**: `botId--team`, separate from every private
+  namespace. Shared by all team rooms of that bot: every member can already
+  read every team room, so a team note is team-visible by design.
 - **Bots themselves** (name, avatar, settings) are workspace-wide. Only the
   operator configures them.
 

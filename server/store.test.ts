@@ -1719,6 +1719,21 @@ describe("Store task working folder", () => {
     expect(store.pinTaskCwd(bot.id, next.threadId)).toBe("/tmp/project-b");
   });
 
+  it("pins a hosted member's task only to their own folder, never the bot's project folder or an earlier pin", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, { cwd: "/tmp/operator-project" });
+    expect(store.pinTaskCwd(bot.id, bot.threadId, "/data/task-workspaces/b--m-alice/t1", { accountOnly: true })).toBe("/data/task-workspaces/b--m-alice/t1");
+    // an earlier pin (e.g. the project folder from before scoping) is replaced
+    const legacy = store.createTask(bot.id, "legacy")!;
+    expect(store.pinTaskCwd(bot.id, legacy.threadId)).toBe("/tmp/operator-project");
+    expect(store.pinTaskCwd(bot.id, legacy.threadId, "/data/task-workspaces/b--m-alice/t2", { accountOnly: true })).toBe("/data/task-workspaces/b--m-alice/t2");
+    expect(store.taskByThread(bot.id, legacy.threadId)?.cwd).toBe("/data/task-workspaces/b--m-alice/t2");
+    // and the operator's ordinary pinning is unchanged
+    const operator = store.createTask(bot.id, "operator")!;
+    expect(store.pinTaskCwd(bot.id, operator.threadId, "/data/task-workspaces/b/t3")).toBe("/tmp/operator-project");
+  });
+
   it("pins the default (null) when the bot has no folder, so a later folder can't move a live session", () => {
     const store = new Store(selection);
     const bot = store.createBot();
