@@ -798,6 +798,8 @@ type InternalCapability = {
   roomCoordination?: boolean;
   ownThreadCreation?: boolean;
   externalRuntime?: ExternalRuntimeGrant;
+  /** Hosted per-account computer this turn's computer tools act on. */
+  computerKey?: string;
 };
 // A capability lives for the exact provider-turn generation, including while
 // that turn is parked on a human approval. The long ceiling is only an orphan
@@ -1391,7 +1393,20 @@ async function forgetTemporaryBrowser(botId: string): Promise<void> {
   if (closed) await browserRuntime.close(session);
   else console.warn(`temporary browser ${session}: could not close its session; run agent-browser --session ${session} close on this server`);
 }
-async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string }) {
+/** Erase one member's own browser session for a bot (bot deletion). */
+async function forgetAccountBrowser(computerKey: string): Promise<void> {
+  const engine = browserEngineStatus();
+  if (engine.kind !== "ready") return;
+  const session = currentBrowserSession(computerKey, undefined);
+  const closed = await clearBrowserSessionState(engine.binaryPath, session, {
+    env: { PATH: augmentedPath() }, encryptionKey: browserEngineEncryptionKey(),
+  }).catch(() => false);
+  if (closed) await browserRuntime.close(session);
+  else console.warn(`browser session ${session}: could not be cleared after its bot was deleted`);
+}
+async function browserIntegration(botId: string, profile: string | undefined, turn?: { threadId: string; generation: string },
+  /** Hosted: the account's own browser session for this bot; never a shared profile. */
+  sessionOwner?: string) {
   const status = browserEngineStatus();
   if (status.kind !== "ready") {
     if (!engineUnavailableLogged) {
@@ -1403,7 +1418,8 @@ async function browserIntegration(botId: string, profile: string | undefined, tu
   // A profile that no longer exists falls back to the bot's own session.
   const profileTarget = profile && profile !== "guest" ? browserProfilePartitionTarget(cfg, profile) : null;
   const partitionId = profile === "guest" ? "guest" : (profileTarget?.partitionId ?? "");
-  const session = currentBrowserSession(botId, profile);
+  if (sessionOwner && sessionOwner !== botId) profile = undefined;
+  const session = currentBrowserSession(sessionOwner ?? botId, profile);
   const spec = agentBrowserIntegration({
       binaryPath: status.binaryPath,
       session,
@@ -1415,7 +1431,7 @@ async function browserIntegration(botId: string, profile: string | undefined, tu
   await prepareBrowserSessionState(status.binaryPath, session, { env: spec.env, persistent: profile !== "guest", isCurrent: () => {
     const current = store.bot(botId);
     return !!current && current.browser !== false && builtInBrowserEnabled(cfg)
-      && currentBrowserSession(current.id, current.browserProfile) === session
+      && currentBrowserSession(sessionOwner ?? current.id, sessionOwner && sessionOwner !== botId ? undefined : current.browserProfile) === session
       && (!turn || activeInternalGenerationByThread.get(turn.threadId) === turn.generation);
   } });
   if (!turn) return { profile: partitionId, session, spec, integration: spec };
@@ -1602,6 +1618,25 @@ function memoryKeyFor(botId: string, threadId: string): string {
   const digest = createHash("sha256").update("nation-private-memory-v1\0").update(threadOwnerOf(threadId)).digest("hex").slice(0, 16);
   return `${botId}--m-${digest}`;
 }
+/** Which computer a turn of this bot in this conversation may use.
+ *  - single-user install: the bot's own computer, as always;
+ *  - hosted: the computer of the account the turn runs for (a private
+ *    conversation's owner; for a shared room, the member who triggered it).
+ *    The operator keeps the bot's original computer; every member gets their
+ *    own, keyed to (installation, account, bot) and created on first use.
+ *  null: no account can be established, so no computer at all (fail closed). */
+function computerKeyFor(botId: string, threadId: string): string | null {
+  if (!privateThreads()) return botId;
+  const account = isSharedRoomThread(threadId)
+    ? threadSponsorId(threadId)
+    : threadOwnership.recorded(threadId) ?? threadSponsorId(threadId);
+  if (!account) return null;
+  if (account === OPERATOR_ACCOUNT) return botId;
+  const digest = createHash("sha256").update("nation-computer-v1\0").update(ENVIRONMENT_ID).update("\0").update(account).digest("hex").slice(0, 24);
+  const key = `${botId}--u-${digest}`;
+  threadOwnership.registerComputer(key, botId, account);
+  return key;
+}
 /** A routine is visible with its conversation, or to the account that made it. */
 function routineVisible(viewer: ThreadViewer, routine: { id?: unknown; routineId?: unknown; sourceThreadId?: unknown; resultsThreadId?: unknown } | undefined): boolean {
   if (viewer === null || !routine) return true;
@@ -1720,7 +1755,7 @@ const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
 ]);
 
 /** The loopback endpoint a bot's computer proxy polls before acting. */
-function controlIntegration(botId: string, threadId: string, generation: string, localVmTarget?: LocalVmTarget) {
+function controlIntegration(botId: string, threadId: string, generation: string, localVmTarget?: LocalVmTarget, computerKey?: string) {
   return {
     url: `http://127.0.0.1:${PORT}/api/internal/computer-control?botId=${encodeURIComponent(botId)}`,
     token: mintInternalCapability({
@@ -1729,6 +1764,7 @@ function controlIntegration(botId: string, threadId: string, generation: string,
       generation,
       depth: 0,
       kind: "computer",
+      ...(computerKey && computerKey !== botId ? { computerKey } : {}),
       ...(localVmTarget ? { localVmTarget } : {}),
       ...(teamComputerTurns.get(threadId) ? { teamComputerId: teamComputerTurns.get(threadId)!.computerId } : {}),
       skillAuthoring: false,
@@ -4506,18 +4542,20 @@ async function mountBotVps(
   bot: BotRecord,
   owner: TurnOwner,
   opts: { start: boolean; onClaimed: (capture: () => Promise<{ png: string; format: string }>) => void },
+  /** Hosted: the account's own computer for this bot (defaults to the bot's). */
+  computerKey: string = bot.id,
 ) {
-  const vpsResource = `computer:vps:${vpsSshAlias(cfg)}:${bot.id}`;
+  const vpsResource = `computer:vps:${vpsSshAlias(cfg)}:${computerKey}`;
   const remote = opts.start
-    ? await vps.vpsComputerAction("provision", cfg, bot.id)
-    : await vps.inspectVpsForAuto(cfg, bot.id);
+    ? await vps.vpsComputerAction("provision", cfg, computerKey)
+    : await vps.inspectVpsForAuto(cfg, computerKey);
   if (!remote?.ready || !remote.sshAlias) return { problem: remote?.problem ?? null };
   const targetCfg = { ...cfg, vps: { sshAlias: remote.sshAlias } };
-  const vpsMcp = vps.vpsComputerMcp(targetCfg, bot.id, remote.container_id ?? undefined);
-  const vpsControl = controlIntegration(bot.id, owner.threadId, owner.generation);
+  const vpsMcp = vps.vpsComputerMcp(targetCfg, computerKey, remote.container_id ?? undefined);
+  const vpsControl = controlIntegration(bot.id, owner.threadId, owner.generation, undefined, computerKey);
   // Live frames only once this turn holds the desktop: a poller on a desktop
   // another turn is driving would publish that turn's screen as this one's.
-  const vpsCapture = () => vps.vpsComputerScreenshot(targetCfg, bot.id);
+  const vpsCapture = () => vps.vpsComputerScreenshot(targetCfg, computerKey);
   autoVmClaims.set(owner.threadId, {
     owner,
     lazy: true,
@@ -4542,13 +4580,15 @@ async function attachBotBox(
   bot: BotRecord,
   owner: TurnOwner,
   opts: { explicitCloud: boolean; canMount: boolean; remoteAgent: boolean },
+  /** Hosted: the account's own computer for this bot (defaults to the bot's). */
+  computerKey: string = bot.id,
 ) {
   // Explicit cloud turns can provision/wake the same bot's Box. Claim before
   // any network await so setup itself cannot race another turn.
-  if (opts.explicitCloud) await bindTurnComputer(owner, `computer:box-bot:${bot.id}`, true);
+  if (opts.explicitCloud) await bindTurnComputer(owner, `computer:box-bot:${computerKey}`, true);
   let b: Awaited<ReturnType<typeof box.findBox>> | null;
   try {
-    b = await box.findBox(cfg, bot.id);
+    b = await box.findBox(cfg, computerKey);
   } catch (error) {
     // Auto may fall through when an optional provider is offline, but a
     // durable deletion fence must never be mistaken for "no computer".
@@ -4563,8 +4603,8 @@ async function attachBotBox(
   let lifecycle = lifecycleOf(opts.explicitCloud);
   if (lifecycle === "provision") {
     broadcast({ kind: "computer", botId: bot.id, state: "provisioning" });
-    await box.provisionBox(cfg, bot.id, bot.name);
-    b = await box.findBox(cfg, bot.id);
+    await box.provisionBox(cfg, computerKey, bot.name);
+    b = await box.findBox(cfg, computerKey);
     lifecycle = lifecycleOf(true);
   }
   // an archived box answers every action with an error until it resumes Ã¢â‚¬â€
@@ -4572,16 +4612,16 @@ async function attachBotBox(
   // tool call at a time.
   if (lifecycle === "wake") {
     broadcast({ kind: "computer", botId: bot.id, state: "waking" });
-    b = (await box.readyBox(cfg, bot.id)) ?? b;
+    b = (await box.readyBox(cfg, computerKey)) ?? b;
     lifecycle = lifecycleOf(true);
   }
   if (!b || lifecycle !== "attach") return null;
   const machine = b;
   await bindTurnComputer(owner, `computer:box:${machine.id}`, opts.remoteAgent);
   return {
-    capture: () => box.screenshotBox(cfg, bot.id, machine.id),
+    capture: () => box.screenshotBox(cfg, computerKey, machine.id),
     integration: opts.canMount
-      ? { kind: "box" as const, boxId: machine.id, token: cfg.box!.token!, control: controlIntegration(bot.id, owner.threadId, owner.generation) }
+      ? { kind: "box" as const, boxId: machine.id, token: cfg.box!.token!, control: controlIntegration(bot.id, owner.threadId, owner.generation, undefined, computerKey) }
       : null,
   };
 }
@@ -4600,7 +4640,14 @@ function managedBoxOwners(): box.ManagedBoxOwner[] {
       Boolean(routines?.activeRunForBot(bot.id)) ||
       activeVpsThreads.has(bot.id) ||
       computerControl.snapshot(bot.id).held,
-  })), ...teamComputers.list().map(computer => ({
+  })), ...threadOwnership.allComputers().flatMap(({ key, botId }) => {
+    // Hosted per-account computers: owned (and deleted) with their bot, and
+    // never mistaken for an unowned machine by inventory.
+    const bot = store.bot(botId);
+    if (!bot) return [];
+    return [{ botId: key, name: bot.name, inUse: bot.busy === true || hasDirectDispatch(bot.id) || activeGroupTurnForBot(bot.id) !== null
+      || Boolean(routines?.activeRunForBot(bot.id)) || activeVpsThreads.has(bot.id) || computerControl.snapshot(key).held }];
+  }), ...teamComputers.list().map(computer => ({
     botId: teamComputerOwner(computer.id), name: computer.name, inUse: teamComputerInUse(computer),
   }))];
 }
@@ -7013,7 +7060,12 @@ async function startTurn(
       if (dwebUrl) integrations.dweb = { url: dwebUrl };
       // Cloud routines always use Box/BoxAgent. The per-bot backend applies
       // only to ordinary turns that mount a computer into the local agent.
-      const teamComputer = inheritedTeamComputer(bot);
+      // Hosted: the account's own computer for this bot, never another
+      // member's and never a shared one (team computers serve rooms only).
+      // null = no account established: no computer and no browser at all.
+      const accountComputer = computerKeyFor(bot.id, threadId);
+      const memberComputer = privateThreads() && accountComputer !== bot.id;
+      const teamComputer = privateThreads() ? undefined : inheritedTeamComputer(bot);
       const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend === "box" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       // Box's native runner owns its computer tools. Local drivers mount
@@ -7034,7 +7086,11 @@ async function startTurn(
       if (plan.computer !== undefined && plan.computer !== "cloud" && instance.driverKind === "boxAgent") {
         throw new Error("the Computer engine works on the cloud computer Ã¢â‚¬â€ set Works on to Cloud, or choose another engine");
       }
-      const wants = plan.computer;
+      // A member's turn never reaches this server's own desktop or a shared
+      // Local VM; those are the install's, not the account's.
+      const wants = privateThreads() && (accountComputer === null || (memberComputer && (plan.computer === "vm" || plan.computer === "local")))
+        ? "off" as const
+        : plan.computer;
       let previewCapture: (() => Promise<{ png: string; format: string }>) | null = null;
       let browserCapture: (() => Promise<{ png: string; format: string }>) | null = null;
       let computerKind: "box" | "vps" | "vm" | "local" | null = null;
@@ -7247,7 +7303,7 @@ async function startTurn(
                 );
               }
             },
-          });
+          }, accountComputer ?? bot.id);
           if ("integration" in mounted) {
             integrations.localComputer = mounted.integration;
             computerKind = "vps";
@@ -7274,7 +7330,7 @@ async function startTurn(
           explicitCloud: wants === "cloud",
           canMount: mountsCloudComputer,
           remoteAgent: instance.driverKind === "boxAgent",
-        });
+        }, accountComputer ?? bot.id);
         if (attached) {
           previewCapture = attached.capture;
           if (attached.integration) {
@@ -7295,7 +7351,7 @@ async function startTurn(
       // Auto reaches a Local VM this bot already has before it ever touches the
       // host's own desktop: on a headless server that VM is the only desktop
       // there is, and a person who prepared one meant it to be used.
-      if (wants === undefined && !integrations.computer && !integrations.localComputer && await attachLocalVm(false)) computerKind = "vm";
+      if (wants === undefined && !memberComputer && !integrations.computer && !integrations.localComputer && await attachLocalVm(false)) computerKind = "vm";
       // An unattended run on a bot with a VPS configured never lands on the
       // host's own desktop instead: a scheduled job clicking on someone's
       // laptop is worse than a scheduled job that fails and says why.
@@ -7304,6 +7360,7 @@ async function startTurn(
         !integrations.computer &&
         !integrations.localComputer &&
         wants === undefined &&
+        !memberComputer &&
         !unattendedVps &&
         shouldMountLocalComputer({
           requested: undefined,
@@ -7431,7 +7488,9 @@ async function startTurn(
         instance.adapter.capabilities.browserMcp === true
       ) {
         const selectedProfile = liveBot.browserProfile;
-        browser = await browserIntegration(bot.id, selectedProfile, { threadId, generation: dispatchClaimId });
+        browser = accountComputer === null
+          ? null
+          : await browserIntegration(bot.id, selectedProfile, { threadId, generation: dispatchClaimId }, memberComputer ? accountComputer : undefined);
         if (browser) integrations.browser = browser.integration;
         // The browser lost its frame source when the Electron surface was
         // removed: previewCapture is set by the computer branches above, and
@@ -8180,7 +8239,8 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             error: `${vpsInventory.problem ?? "VPS computer inventory is unavailable"}. The bot was kept so its computer can be retried safely`,
           });
         }
-        const ownedVpsComputers = vpsInventory.instances.filter((instance) => instance.ownerBotId === bot.id);
+        const accountComputerKeys = new Set(threadOwnership.computersOf(bot.id).map((computer) => computer.key));
+        const ownedVpsComputers = vpsInventory.instances.filter((instance) => instance.ownerBotId === bot.id || accountComputerKeys.has(instance.ownerBotId ?? ""));
 
         if ((botBoxRecovery.length > 0 || botBoxDeletions.length > 0) && !box.boxConfigured(cfg)) {
           return deletionResponse(409, {
@@ -8193,7 +8253,7 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
             error: `${cloudInventory.problem ?? "cloud computer inventory is unavailable"}. The bot was kept so its computer can be retried safely`,
           });
         }
-        const ownedBoxComputers = cloudInventory.instances.filter((instance) => instance.ownerBotId === bot.id);
+        const ownedBoxComputers = cloudInventory.instances.filter((instance) => instance.ownerBotId === bot.id || accountComputerKeys.has(instance.ownerBotId ?? ""));
 
         // Revalidate a reviewed Chief-of-Staff request and establish the
         // browser cleanup intent before the first irreversible provider
@@ -8279,6 +8339,11 @@ async function deleteBotWithLifecycle(botId: string, revalidate: () => void = ()
           calendarCalls!.removeBot(bot.id);
           browserLive.closeForBot(bot.id);
           await forgetTemporaryBrowser(bot.id);
+          // Members' own computers and browser sessions go with the bot.
+          for (const key of accountComputerKeys) {
+            await forgetAccountBrowser(key);
+            threadOwnership.forgetComputer(key);
+          }
         } catch (error) {
           if (browserCleanupRequest) {
             // Store removal is already durable once the in-memory owner is
@@ -9049,6 +9114,12 @@ async function runGroupMemberTurn(
   // shared policy, so a room cannot become the loophole that hands a bot
   // set to Off the browser its own settings withhold everywhere else.
   const roomTeamComputer = inheritedTeamComputer(readyBot);
+  // Hosted rooms: an explicit team computer is shared on purpose; otherwise
+  // the turn uses the triggering member's own computer for this bot, so a
+  // room is never a way into another member's machine. null = no account
+  // could be established: no computer and no browser.
+  const roomAccountComputer = computerKeyFor(readyBot.id, threadId);
+  const roomMemberComputer = privateThreads() && roomAccountComputer !== readyBot.id;
   const roomPlan = resolveSurface({
     destination: roomTeamComputer ? "cloud" : readyBot.computer,
     browserOn:
@@ -9063,9 +9134,10 @@ async function runGroupMemberTurn(
   }
   // One place per room turn as well: a team computer reached on Auto means
   // no separate built-in browser.
-  if (roomPlan.browser && !(roomPlan.computer === undefined && roomTeamComputer)) {
+  if (roomPlan.browser && !(roomPlan.computer === undefined && roomTeamComputer) && roomAccountComputer !== null) {
     const selectedProfile = readyBot.browserProfile;
-    const browser = await browserIntegration(readyBot.id, selectedProfile, { threadId, generation: internalGeneration });
+    const browser = await browserIntegration(readyBot.id, selectedProfile, { threadId, generation: internalGeneration },
+      roomMemberComputer ? roomAccountComputer : undefined);
     if (browser) integrations.browser = browser.integration;
   }
   // Stop/delete may land while browser state is being prepared. Capability
@@ -9093,13 +9165,13 @@ async function runGroupMemberTurn(
   const roomSetupIsCurrent = () => !isCancelled?.() &&
     groupSpeakers.get(threadId) === roomSpeaker &&
     activeInternalGenerationByThread.get(threadId) === internalGeneration;
-  if (!roomTeamComputer && roomPlan.computer === "local") {
+  if (!roomTeamComputer && roomPlan.computer === "local" && !roomMemberComputer) {
     integrations.localComputer = await mountHostComputer(
       resourceOwner, readyBot.id, instance.adapter.capabilities.localComputerMcp === true);
     if (!roomSetupIsCurrent()) return false;
     roomComputerKind = "local";
   }
-  if (!roomTeamComputer && roomPlan.computer === "cloud") {
+  if (!roomTeamComputer && roomPlan.computer === "cloud" && roomAccountComputer !== null) {
     if (turnProvider(readyBot) === "vps") {
       const unsupported = vps.vpsDriverError(instance.driverKind, instance.adapter.capabilities.computerMcp === true);
       if (unsupported) throw new Error(unsupported);
@@ -9113,7 +9185,7 @@ async function runGroupMemberTurn(
             startScreenPoller(readyBot.id, threadId, { computer: capture });
           }
         },
-      });
+      }, roomAccountComputer);
       if (!roomSetupIsCurrent()) return false;
       if (!("integration" in mounted)) throw new Error(mounted.problem ?? "the VPS computer could not be created or reached");
       integrations.localComputer = mounted.integration;
@@ -9121,7 +9193,7 @@ async function runGroupMemberTurn(
     } else {
       if (!box.boxConfigured(cfg)) throw new Error("Cloud box is not configured Ã¢â‚¬â€ add a Box API key or choose Local VM");
       const remoteAgent = instance.driverKind === "boxAgent";
-      const attached = await attachBotBox(readyBot, resourceOwner, { explicitCloud: true, canMount: remoteAgent || instance.driverKind === "nation-openrouter", remoteAgent });
+      const attached = await attachBotBox(readyBot, resourceOwner, { explicitCloud: true, canMount: remoteAgent || instance.driverKind === "nation-openrouter", remoteAgent }, roomAccountComputer);
       if (!roomSetupIsCurrent()) return false;
       if (!attached?.integration) throw new Error("the cloud computer could not be created or reached");
       integrations.computer = attached.integration;
@@ -9133,7 +9205,7 @@ async function runGroupMemberTurn(
 
   // Room and Goal turns use the speaker's desktop, never the coordinator's.
   // Claim the same lease as direct turns before asynchronous VM setup.
-  if (readyBot.computer === "vm") {
+  if (readyBot.computer === "vm" && !roomMemberComputer) {
     if (instance.adapter.capabilities.computerMcp !== true || instance.driverKind === "boxAgent") {
       throw new Error("this model engine cannot use the Local VM");
     }
@@ -12252,7 +12324,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!bot || bot.browser === false || bot.computer === "off" || !builtInBrowserEnabled(cfg)) {
           return json(res, 403, { error: "browser tools are not enabled for this bot" });
         }
-        const browser = await browserIntegration(bot.id, bot.browserProfile);
+        // Hosted: the session is the conversation owner's own, re-derived from
+        // the thread; never one a request names.
+        const sessionKey = computerKeyFor(bot.id, internalCapability.threadId);
+        if (sessionKey === null) return json(res, 403, { error: "browser tools are not enabled for this bot" });
+        const browser = await browserIntegration(bot.id, bot.browserProfile, undefined, sessionKey === bot.id ? undefined : sessionKey);
         if (!browser || browser.session !== internalCapability.browserSession) {
           return json(res, 409, { error: "this browser profile changed; start a new turn" });
         }
@@ -12263,7 +12339,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           requireActiveInternalCapability();
           const current = store.bot(bot.id);
           if (!current || current.browser === false || current.computer === "off" || !builtInBrowserEnabled(cfg) ||
-              currentBrowserSession(current.id, current.browserProfile) !== browser.session) {
+              (sessionKey === bot.id ? currentBrowserSession(current.id, current.browserProfile) : currentBrowserSession(sessionKey, undefined)) !== browser.session) {
             throw Object.assign(new Error("Browser access changed while connecting."), { status: 409 });
           }
           if (body.method === "tools/call" && !claimTurnResource(internalCapability, `browser:${browser.session}`)) {
@@ -13753,8 +13829,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const botId = url.searchParams.get("botId") ?? "";
         const bot = store.bot(botId);
         if (!bot) return json(res, 404, { error: "no such bot" });
+        if (botId !== internalCapability.botId) return json(res, 403, { error: "this capability belongs to another bot" });
         if (method === "GET") {
-          const snapshot = botComputerControlSnapshot(botId, internalCapability.teamComputerId);
+          // A per-account computer has its own control state; the query's
+          // botId never chooses it, the capability minted for the turn does.
+          const snapshot = internalCapability.computerKey
+            ? computerControl.snapshot(internalCapability.computerKey)
+            : botComputerControlSnapshot(botId, internalCapability.teamComputerId);
           const slot = autoVmClaims.get(internalCapability.threadId);
           const lazyClaim = slot && slot.owner.generation === internalCapability.generation ? slot : undefined;
           if (!snapshot.held && lazyClaim?.lazy && !lazyClaim.begin) {
@@ -13809,7 +13890,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (method === "POST") {
           const body = await readInternalBody();
-          const controlKey = internalCapability.teamComputerId ? teamComputerOwner(internalCapability.teamComputerId) : botId;
+          const controlKey = internalCapability.computerKey ?? (internalCapability.teamComputerId ? teamComputerOwner(internalCapability.teamComputerId) : botId);
           const { snapshot, requestId } = computerControl.requestHelpLease(controlKey, body.reason);
           // worth a buzz: the bot is blocked on the person's hands, which
           // is exactly the "blocked on you" rule notify.ts encodes.
@@ -13829,7 +13910,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if (method === "DELETE") {
           const body = await readInternalBody();
-          const snapshot = computerControl.expireHelp(internalCapability.teamComputerId ? teamComputerOwner(internalCapability.teamComputerId) : botId, body.requestId);
+          const snapshot = computerControl.expireHelp(internalCapability.computerKey ?? (internalCapability.teamComputerId ? teamComputerOwner(internalCapability.teamComputerId) : botId), body.requestId);
           return json(res, 200, { held: snapshot.held, helpOpen: snapshot.helpReason !== null });
         }
         return json(res, 405, { error: "method not allowed" });

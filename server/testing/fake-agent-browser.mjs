@@ -23,7 +23,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (frame.method === "tools/list") return reply(frame.id, { tools });
   if (frame.method === "tools/call") {
     if (process.env.FAKE_AGENT_BROWSER_LOG) appendFileSync(process.env.FAKE_AGENT_BROWSER_LOG, JSON.stringify({ call: frame.params.name, arguments: frame.params.arguments }) + "\n");
-    return reply(frame.id, { content: [{ type: "text", text: `fixture browser ${frame.params.name} ok` }] });
+    return reply(frame.id, { content: [{ type: "text", text: `fixture browser ${frame.params.name} ok session=${process.env.AGENT_BROWSER_SESSION ?? ""}` }] });
   }
   reply(frame.id, {});
 });

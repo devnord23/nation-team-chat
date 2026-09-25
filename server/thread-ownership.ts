@@ -19,12 +19,15 @@ export const OPERATOR_ACCOUNT = "nation-operator";
 const fileSchema = z.object({
   owners: z.record(z.string(), z.string()).default({}),
   active: z.record(z.string(), z.string()).default({}),
+  /** per-account computer key -> the bot and account it belongs to */
+  computers: z.record(z.string(), z.object({ botId: z.string(), accountId: z.string() }).strict()).default({}),
 }).strict();
 
 export class ThreadOwnership {
   private owners = new Map<string, string>();
   /** `${accountId}\0${botId}` -> threadId */
   private active = new Map<string, string>();
+  private computers = new Map<string, { botId: string; accountId: string }>();
 
   private readonly file: string | undefined;
 
@@ -35,6 +38,7 @@ export class ThreadOwnership {
       const parsed = fileSchema.parse(JSON.parse(readFileSync(file, "utf8")));
       this.owners = new Map(Object.entries(parsed.owners));
       this.active = new Map(Object.entries(parsed.active));
+      this.computers = new Map(Object.entries(parsed.computers));
     } catch {
       // An unreadable map must not open anything up: every conversation
       // then reads as the operator's until its owner is recorded again.
@@ -65,6 +69,26 @@ export class ThreadOwnership {
     this.save();
   }
 
+  /** Remember a per-account computer so inventory and bot deletion find it. */
+  registerComputer(key: string, botId: string, accountId: string): void {
+    const current = this.computers.get(key);
+    if (current?.botId === botId && current.accountId === accountId) return;
+    this.computers.set(key, { botId, accountId });
+    this.save();
+  }
+
+  computersOf(botId: string): Array<{ key: string; accountId: string }> {
+    return [...this.computers].filter(([, owner]) => owner.botId === botId).map(([key, owner]) => ({ key, accountId: owner.accountId }));
+  }
+
+  allComputers(): Array<{ key: string; botId: string; accountId: string }> {
+    return [...this.computers].map(([key, owner]) => ({ key, ...owner }));
+  }
+
+  forgetComputer(key: string): void {
+    if (this.computers.delete(key)) this.save();
+  }
+
   forget(threadId: string): void {
     let changed = this.owners.delete(threadId);
     for (const [key, value] of this.active) if (value === threadId) { this.active.delete(key); changed = true; }
@@ -74,7 +98,8 @@ export class ThreadOwnership {
   private save(): void {
     if (!this.file) return;
     const temp = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify({ owners: Object.fromEntries(this.owners), active: Object.fromEntries(this.active) }), { mode: 0o600 });
+    writeFileSync(temp, JSON.stringify({ owners: Object.fromEntries(this.owners), active: Object.fromEntries(this.active),
+      computers: Object.fromEntries(this.computers) }), { mode: 0o600 });
     renameSync(temp, this.file);
   }
 }

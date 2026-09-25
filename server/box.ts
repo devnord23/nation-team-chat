@@ -403,7 +403,9 @@ async function requestRecordedBoxDeletion(
 
 function boxBotNameParts(botId: string): { prefix: string; hash: string } {
   const prefix = botId.slice(0, 8).toLowerCase().replace(/[^a-z0-9]/g, "") || "bot";
-  const hash = createHash("sha256").update(botId).digest("hex").slice(0, 6);
+  // Hosted per-account computers share their bot's prefix, so their names
+  // carry a collision-resistant hash; a bot's own name is unchanged.
+  const hash = createHash("sha256").update(botId).digest("hex").slice(0, botId.includes("--u-") ? 20 : 6);
   return { prefix, hash };
 }
 
