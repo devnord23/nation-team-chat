@@ -11,31 +11,67 @@ export function micros(usd: number): number {
 }
 export function creditError(message: string, status = 400): Error & { status: number } { return Object.assign(new Error(message), { status }); }
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-export interface CreditSettings { freeUsd: number; markup: number; lowUsd: number; packs: number[]; grantsPerIp: number; confirmations: number }
+
+export interface CreditTier { id: string; name: string; usd: number; creditUsd: number; popular: boolean }
+export interface CreditSettings { freeUsd: number; markup: number; lowUsd: number; packs: number[]; grantsPerIp: number; confirmations: number; tiers: CreditTier[] }
+
+const DEFAULT_TIERS: CreditTier[] = [
+  { id: "starter", name: "Starter", usd: 15, creditUsd: 15, popular: false },
+  { id: "builder", name: "Builder", usd: 49, creditUsd: 49, popular: true },
+  { id: "swarm",   name: "Swarm",   usd: 99, creditUsd: 99, popular: false },
+];
+
 export function creditSettings(env: NodeJS.ProcessEnv = process.env): CreditSettings {
   const number = (key: string, fallback: number, min: number, max: number) => {
     const value = env[key] === undefined ? fallback : Number(env[key]);
     if (!Number.isFinite(value) || value < min || value > max) throw creditError(`Invalid ${key}`);
     return value;
   };
-  const packs = (env.NATION_PACKS_USD ?? "10,25,100").split(",").map(value => Number(value.trim()));
+  const packs = (env.NATION_PACKS_USD ?? "15,49,99").split(",").map(value => Number(value.trim()));
   if (!packs.length || packs.length > 20 || packs.some(value => !Number.isFinite(value) || value <= 0 || value > 1_000_000 || !Number.isInteger(value * 100))) throw creditError("Invalid NATION_PACKS_USD");
   const grantsPerIp = number("NATION_FREE_GRANTS_PER_IP_PER_DAY", 2, 1, 1000);
   const confirmations = number("NATION_CONFIRMATIONS", 3, 1, 10000);
   if (!Number.isInteger(grantsPerIp) || !Number.isInteger(confirmations)) throw creditError("Grant and confirmation limits must be whole numbers");
+  const defaultByUsd = new Map(DEFAULT_TIERS.map(t => [t.usd, t]));
+  const tiers: CreditTier[] = [...new Set(packs)].map((usd, i) => {
+    const def = defaultByUsd.get(usd);
+    return def ?? { id: `pack${i}`, name: `$${usd} pack`, usd, creditUsd: usd, popular: false };
+  });
   return { freeUsd: number("NATION_FREE_CREDIT_USD", 3, 2, 5), markup: number("NATION_CREDIT_MARKUP", 1, 0.01, 100),
-    lowUsd: number("NATION_LOW_BALANCE_USD", 0.5, 0, 1000), packs: [...new Set(packs)], grantsPerIp, confirmations };
+    lowUsd: number("NATION_LOW_BALANCE_USD", 0.5, 0, 1000), packs: [...new Set(packs)], grantsPerIp, confirmations, tiers };
 }
 export interface CreditAccount { id: string; verified: boolean; email?: string; exempt?: boolean }
-export interface CreditInvoice { id: string; user_id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; created_at: number; expires_at: number; paid_tx: string | null; from_block: string }
-export interface CreditChain { id: number; name: string; symbol: string; token: string; treasury: string; rpc: string }
+/** token_amount: expected ERC-20 transfer uint256 value as decimal string; empty string means use amount_micros (legacy USDC invoices). */
+export interface CreditInvoice { id: string; user_id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; created_at: number; expires_at: number; paid_tx: string | null; from_block: string; token_amount: string }
+/** decimals: ERC-20 token decimals (6 for USDC/USDG, 18 for $NATION). */
+export interface CreditChain { id: number; name: string; symbol: string; token: string; treasury: string; rpc: string; decimals: number }
+
+/**
+ * Compute the expected ERC-20 transfer uint256 value for an invoice.
+ * For 6-decimal tokens (USDC/USDG) this equals amountMicros directly.
+ * For 18-decimal tokens ($NATION) this converts USD micros → token units via NATION_TOKEN_USD_PRICE.
+ * Returns result as a decimal string safe for BigInt.
+ */
+export function invoiceTokenAmount(amountMicros: number, chain: CreditChain, env: NodeJS.ProcessEnv = process.env): string {
+  if (chain.decimals === 6) return String(amountMicros);
+  const priceUsd = Number(env.NATION_TOKEN_USD_PRICE ?? "");
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) throw creditError("NATION_TOKEN_USD_PRICE must be set to a positive number to use $NATION payments.", 503);
+  // token_units = floor(amountMicros * 10^(decimals-6) * USD_SCALE / round(priceUsd * USD_SCALE))
+  const scale = BigInt(10 ** (chain.decimals - 6));
+  const priceMicros = BigInt(Math.round(priceUsd * USD_SCALE));
+  return String((BigInt(amountMicros) * scale * BigInt(USD_SCALE)) / priceMicros);
+}
+
 export function creditChains(env: NodeJS.ProcessEnv = process.env): CreditChain[] {
-  const specs = [
-    { id: 8453, name: "Base", symbol: "USDC", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", treasury: env.NATION_TREASURY_BASE, rpc: env.NATION_RPC_BASE || "https://mainnet.base.org" },
-    { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", treasury: env.NATION_TREASURY_ROBINHOOD, rpc: env.NATION_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com" },
+  const specs: Array<{ id: number; name: string; symbol: string; token: string; treasury: string | undefined; rpc: string; decimals: number }> = [
+    { id: 8453, name: "Base", symbol: "USDC", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", treasury: env.NATION_TREASURY_BASE, rpc: env.NATION_RPC_BASE || "https://mainnet.base.org", decimals: 6 },
+    // $NATION on Robinhood Chain — only included when NATION_TOKEN_USD_PRICE is configured.
+    ...(env.NATION_TOKEN_USD_PRICE ? [{ id: 4663, name: "Robinhood Chain", symbol: "$NATION", token: "0xc839A88A05B231515a82c71EE97b4F18973C1340", treasury: env.NATION_TREASURY_ROBINHOOD, rpc: env.NATION_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com", decimals: 18 } as const] : []),
+    // USDG on Robinhood Chain — legacy path, always included when NATION_TREASURY_ROBINHOOD is set.
+    { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", treasury: env.NATION_TREASURY_ROBINHOOD, rpc: env.NATION_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com", decimals: 6 },
   ];
   return specs.flatMap(spec => spec.treasury && /^0x[0-9a-f]{40}$/i.test(spec.treasury) && !/^0x0{40}$/i.test(spec.treasury)
-    ? [{ ...spec, treasury: spec.treasury.toLowerCase() }] : []);
+    ? [{ ...spec, treasury: spec.treasury.toLowerCase(), token: spec.token.toLowerCase() }] : []);
 }
 const DISPOSABLE = new Set(["mailinator.com", "guerrillamail.com", "guerrillamail.net", "10minutemail.com", "10minutemail.net", "tempmail.com", "temp-mail.org", "yopmail.com", "yopmail.fr", "dispostable.com", "trashmail.com", "getnada.com", "sharklasers.com", "grr.la", "guerrillamailblock.com", "maildrop.cc", "mohmal.com", "fakeinbox.com", "throwawaymail.com"]);
 export function disposableEmail(email: string, extra = process.env.NATION_DISPOSABLE_EMAIL_DOMAINS ?? ""): boolean {
@@ -49,8 +85,10 @@ export class CreditLedger {
   readonly db: DatabaseSync;
   readonly inFlight = new Set<string>();
   readonly settings: CreditSettings;
-  constructor(file: string, settings = creditSettings()) {
+  readonly env: NodeJS.ProcessEnv;
+  constructor(file: string, settings = creditSettings(), env: NodeJS.ProcessEnv = process.env) {
     this.settings = settings;
+    this.env = env;
     if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     if (file !== ":memory:") chmodSync(file, 0o600);
@@ -62,13 +100,18 @@ export class CreditLedger {
       CREATE INDEX IF NOT EXISTS credit_ledger_user ON credit_ledger(user_id, created_at);
       CREATE TABLE IF NOT EXISTS credit_grants(user_id TEXT PRIMARY KEY REFERENCES credit_accounts(id), ip_hash TEXT NOT NULL, device_hash TEXT NOT NULL UNIQUE, day TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS credit_grants_ip_day ON credit_grants(ip_hash, day);
-      CREATE TABLE IF NOT EXISTS credit_invoices(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES credit_accounts(id), chain INTEGER NOT NULL, treasury TEXT NOT NULL, token TEXT NOT NULL, pack_micros INTEGER NOT NULL, amount_micros INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, paid_tx TEXT UNIQUE, from_block TEXT NOT NULL, UNIQUE(chain,amount_micros));
+      CREATE TABLE IF NOT EXISTS credit_invoices(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES credit_accounts(id), chain INTEGER NOT NULL, treasury TEXT NOT NULL, token TEXT NOT NULL, pack_micros INTEGER NOT NULL, amount_micros INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, paid_tx TEXT UNIQUE, from_block TEXT NOT NULL, token_amount TEXT NOT NULL DEFAULT '', UNIQUE(chain,amount_micros));
       CREATE TABLE IF NOT EXISTS credit_wallets(session_id TEXT PRIMARY KEY, address TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_challenges(id TEXT PRIMARY KEY, session_id TEXT NOT NULL, address TEXT NOT NULL, message TEXT NOT NULL, expires_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_calls(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, state TEXT NOT NULL, provider_id TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_sponsors(thread_id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_cursors(chain INTEGER PRIMARY KEY, block TEXT NOT NULL);
     `);
+    // Forward-compatible migration: add token_amount column to existing databases that predate this field.
+    const cols = (this.db.prepare("PRAGMA table_info(credit_invoices)").all() as { name: string }[]).map(c => c.name);
+    if (!cols.includes("token_amount")) {
+      this.db.exec("ALTER TABLE credit_invoices ADD COLUMN token_amount TEXT NOT NULL DEFAULT ''");
+    }
   }
   close() { this.db.close(); }
   transaction<T>(work: () => T): T {
@@ -158,7 +201,8 @@ export class CreditLedger {
         const amount = pack + randomInt(1, 1_000_000);
         if (this.db.prepare("SELECT 1 FROM credit_invoices WHERE chain=? AND amount_micros=?").get(chain.id, amount)) continue;
         const id = randomUUID();
-        this.db.prepare("INSERT INTO credit_invoices VALUES(?,?,?,?,?,?,?,?,?,NULL,?)").run(id, account.id, chain.id, chain.treasury, chain.token.toLowerCase(), pack, amount, now, now + 30 * 60_000, String(block));
+        const tokenAmt = invoiceTokenAmount(amount, chain, this.env);
+        this.db.prepare("INSERT INTO credit_invoices(id,user_id,chain,treasury,token,pack_micros,amount_micros,created_at,expires_at,paid_tx,from_block,token_amount) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?)").run(id, account.id, chain.id, chain.treasury, chain.token.toLowerCase(), pack, amount, now, now + 30 * 60_000, String(block), tokenAmt);
         return this.invoice(id)!;
       }
       throw creditError("Payment requests are busy. Please try again.", 503);

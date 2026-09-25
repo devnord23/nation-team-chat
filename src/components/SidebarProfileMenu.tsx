@@ -18,6 +18,8 @@ import {
   Loader2,
   RefreshCw,
   Settings as SettingsIcon,
+  CreditCard,
+  Coins,
 } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
@@ -30,6 +32,7 @@ import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, openExternalLink } from "@/lib/app-links";
+import { useNationCredits } from "@/lib/nation-credits-ctx";
 
 /** "Milind Soni" Ã¢â€ â€™ "MS", "milind" Ã¢â€ â€™ "M", "you@x.dev" Ã¢â€ â€™ "Y", unset Ã¢â€ â€™ "?" */
 export function profileInitials(profile?: { name?: string; email?: string }): string {
@@ -189,25 +192,40 @@ export function SidebarProfileMenu() {
   const update = useUpdateItem();
   const [aboutOpen, setAboutOpen] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
+  const credits = useNationCredits();
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
 
   const items: SidebarMenuItem[] = [
-
     {
       key: "settings",
       label: t("sidebar.menu.settings"),
       icon: <SettingsIcon size={18} />,
       onSelect: () => dispatch({ type: "toggleAppSettings" }),
     },
+    ...(credits.status?.topUpEnabled || credits.status?.exempt
+      ? [
+          {
+            key: "add-credits",
+            label: credits.status?.exempt ? "Top up / Billing" : "Add credits",
+            icon: <CreditCard size={18} />,
+            onSelect: () => credits.openSheet(),
+          } satisfies SidebarMenuItem,
+          {
+            key: "billing",
+            label: "Billing & usage",
+            icon: <Coins size={18} />,
+            onSelect: () => dispatch({ type: "toggleAppSettings", open: true, section: "usage" }),
+          } satisfies SidebarMenuItem,
+        ]
+      : []),
     {
       key: "shortcuts",
       label: "Keyboard shortcuts",
       icon: <Keyboard size={18} />,
       trailing: <ShortcutHint id="shortcuts-cheat-sheet" />,
       onSelect: () => {
-        // The menu item unmounts; let the dialog restore the profile button.
         triggerRef.current?.closest("button")?.focus();
         dispatch({ type: "toggleShortcuts", open: true });
       },
@@ -248,9 +266,19 @@ export function SidebarProfileMenu() {
             )}
           >
             <InitialsAvatar initials={profileInitials(profile)} size={28} />
-            <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{name}</span>
-            {/* an update is the one thing worth interrupting the name for, so
-              * it sits on the row rather than waiting to be found in the menu */}
+            <span className="min-w-0 flex-1 truncate">
+              <span className="block truncate text-[14px] text-ink leading-tight">{name}</span>
+              {credits.status && !credits.status.exempt && (
+                <span className="block truncate text-[11px] text-ink-secondary leading-tight">
+                  {credits.status.label}
+                </span>
+              )}
+              {credits.status?.exempt && (
+                <span className="block truncate text-[11px] text-ink-secondary leading-tight">
+                  owner / admin
+                </span>
+              )}
+            </span>
             {update && updateNoteworthy(update.phase, update.pending) && (
               <span
                 title={update.label}

@@ -26,7 +26,9 @@ export async function verifyCreditPayment(invoice: CreditInvoice, hash: string, 
     try {
       const decoded = decodeEventLog({ abi: [transferEvent], data: log.data, topics: log.topics as [Hex, ...Hex[]], strict: true });
       if (decoded.args.to.toLowerCase() !== invoice.treasury.toLowerCase()) continue;
-      if (decoded.args.value === BigInt(invoice.amount_micros) && decoded.args.value >= BigInt(invoice.pack_micros)) return invoice.amount_micros;
+      // token_amount is the expected ERC-20 transfer value; for 6-decimal tokens it equals amount_micros.
+      const expectedTokenAmount = BigInt(invoice.token_amount || invoice.amount_micros);
+      if (decoded.args.value === expectedTokenAmount && decoded.args.value >= BigInt(invoice.token_amount ? invoice.pack_micros : invoice.amount_micros)) return invoice.amount_micros;
     } catch { /* another event from the same contract is not a payment */ }
   }
   throw creditError("The transfer token, destination or exact amount does not match this payment request.");
@@ -62,7 +64,7 @@ export function startCreditWatcher(ledger: CreditLedger): () => void {
         for (const treasury of new Set(invoices.map(invoice => invoice.treasury))) {
           const logs = await rpc.getLogs({ address: chain.token as Hex, event: transferEvent, args: { to: treasury as Hex }, fromBlock: start, toBlock: to, strict: true });
           for (const log of logs) {
-            const invoice = invoices.find(invoice => invoice.treasury === treasury && BigInt(invoice.amount_micros) === log.args.value);
+            const invoice = invoices.find(invoice => invoice.treasury === treasury && BigInt(invoice.token_amount || invoice.amount_micros) === log.args.value);
             if (!invoice || !log.transactionHash) continue;
             await confirmCreditPayment(ledger, invoice, log.transactionHash, rpc);
           }
