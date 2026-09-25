@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import type { EIP1193Provider, Hex } from "viem";
 import { api, useStore } from "@/state/store";
+import { SettingRow } from "./SettingsPrimitives";
 
 type Chain = { id: number; name: string; symbol: string; token: Hex; treasury: Hex };
 type Invoice = { id: string; chain: number; treasury: Hex; token: Hex; amount_micros: number; expires_at: number; paid_tx: string | null };
 type Status = { balanceUsd: number; label: string; verified: boolean; exempt: boolean; lowBalance: boolean; topUpEnabled: boolean; topUpMessage: string; starterMessage: string; packs: number[]; chains: Chain[]; invoices: Invoice[] };
-const button = "rounded-xl bg-accent px-4 py-2 font-medium text-accent-ink disabled:opacity-50";
+const btn = "rounded-xl bg-accent px-4 py-2 font-medium text-accent-ink disabled:opacity-50";
 const field = "w-full rounded-xl border border-hairline/50 bg-inset p-3 text-ink";
+
 async function injectedWallet() {
   const { createWalletClient, custom } = await import("viem");
   const provider = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
@@ -15,7 +17,9 @@ async function injectedWallet() {
   return createWalletClient({ transport: custom(provider) });
 }
 
-export function NationCredits() {
+/** Shared state and handlers for the credits modal. Both the top strip and the
+ * Settings row mount their own independent instance; each polls the same API. */
+function useCreditsContent() {
   const { state } = useStore();
   const [status, setStatus] = useState<Status | null>(null);
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -36,11 +40,12 @@ export function NationCredits() {
     return () => clearInterval(timer);
   }, [state.connected, open, refresh]);
   useEffect(() => { if (open) closeRef.current?.focus(); }, [open]);
+
   const run = async (work: () => Promise<void>) => {
     if (busy) return;
     setBusy(true); setError("");
     try { await work(); await refresh(); }
-    catch (error) { setError(error instanceof Error ? error.message : "Please try again."); }
+    catch (err) { setError(err instanceof Error ? err.message : "Please try again."); }
     finally { setBusy(false); }
   };
   const verify = () => run(async () => {
@@ -62,9 +67,9 @@ export function NationCredits() {
     const chain = defineChain({ id: invoice.chain, name: invoice.chain === 8453 ? "Base" : "Robinhood Chain", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: { default: { http: [invoice.chain === 8453 ? "https://mainnet.base.org" : "https://rpc.mainnet.chain.robinhood.com"] } } });
     try { await wallet.switchChain({ id: chain.id }); }
-    catch (error) {
-      const code = (error as { code?: number; cause?: { code?: number } }).cause?.code ?? (error as { code?: number }).code;
-      if (code !== 4902) throw error;
+    catch (err) {
+      const code = (err as { code?: number; cause?: { code?: number } }).cause?.code ?? (err as { code?: number }).code;
+      if (code !== 4902) throw err;
       await wallet.addChain({ chain }); await wallet.switchChain({ id: chain.id });
     }
     const [account] = await wallet.requestAddresses();
@@ -77,19 +82,47 @@ export function NationCredits() {
     if (!invoice) return;
     await api("/api/credits/confirm", { method: "POST", body: JSON.stringify({ invoiceId: invoice.id, txHash: hash.trim() }) });
   });
-  if (!status) return null;
-  const selectedChain = status.chains.find(chain => chain.id === (invoice?.chain ?? chainId));
-  const paid = Boolean(invoice?.paid_tx);
-  return <>
+
+  return { status, open, setOpen, busy, error, invoice, setInvoice, hash, setHash, pack, setPack, chainId, setChainId, closeRef, verify, createInvoice, pay, confirm };
+}
+
+/** Pure strip row. Exported so tests can render it directly without async state. */
+export function NationCreditsStrip({ status, onOpen }: { status: Status; onOpen: () => void }) {
+  return (
     <div className="flex flex-wrap items-center justify-end gap-3 border-b border-hairline/30 bg-panel px-4 py-2 text-xs text-ink">
       <span>{status.exempt ? "NATION API" : status.label}</span>
       {status.lowBalance && status.verified && <span>Your teammates are ready when you are. Add credit to keep going.</span>}
-      {!status.verified && <button className="underline" onClick={() => setOpen(true)}>Get free starter credit</button>}
-      {status.topUpEnabled && !status.exempt ? <button className="font-medium underline" onClick={() => setOpen(true)}>Top up</button> : !status.exempt && <span>{status.topUpMessage}</span>}
+      {!status.verified && <button className="underline" onClick={onOpen}>Get free starter credit</button>}
+      {status.topUpEnabled
+        ? <button className="font-medium underline" onClick={onOpen}>Top up</button>
+        : !status.exempt
+          ? <span>{status.topUpMessage}</span>
+          : status.topUpMessage
+            ? <span className="text-ink-secondary">{status.topUpMessage}</span>
+            : null
+      }
     </div>
-    {open && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+  );
+}
+
+/** Shared modal. Rendered by both the strip component and the Settings row. */
+function NationCreditsModal({ status, open, onClose, busy, error, invoice, setInvoice, hash, setHash, pack, setPack, chainId, setChainId, closeRef, verify, createInvoice, pay, confirm }: {
+  status: Status; open: boolean; onClose: () => void;
+  busy: boolean; error: string;
+  invoice: Invoice | null; setInvoice: (v: Invoice | null) => void;
+  hash: string; setHash: (v: string) => void;
+  pack: number; setPack: (v: number) => void;
+  chainId: number; setChainId: (v: number) => void;
+  closeRef: React.RefObject<HTMLButtonElement | null>;
+  verify: () => void; createInvoice: () => void; pay: () => void; confirm: () => void;
+}) {
+  if (!open) return null;
+  const selectedChain = status.chains.find(chain => chain.id === (invoice?.chain ?? chainId));
+  const paid = Boolean(invoice?.paid_tx);
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
       <section role="dialog" aria-modal="true" aria-labelledby="nation-credit-title" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-panel p-6 text-ink shadow-2xl" onKeyDown={event => {
-        if (event.key === "Escape" && !busy) setOpen(false);
+        if (event.key === "Escape" && !busy) onClose();
         if (event.key === "Tab") {
           const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];
           const first = controls[0], last = controls.at(-1);
@@ -97,15 +130,16 @@ export function NationCredits() {
           else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
         }
       }}>
-        <div className="flex items-center justify-between gap-4"><h2 id="nation-credit-title" className="text-xl font-semibold">NATION credit</h2><button ref={closeRef} onClick={() => setOpen(false)} disabled={busy} aria-label="Close credit panel">Close</button></div>
+        <div className="flex items-center justify-between gap-4"><h2 id="nation-credit-title" className="text-xl font-semibold">NATION credit</h2><button ref={closeRef} onClick={onClose} disabled={busy} aria-label="Close credit panel">Close</button></div>
         <p className="mt-2 text-lg">{status.label}</p>
         <p className="mt-2 text-sm text-ink-secondary">Your credit never expires. You pay only when you choose to top up. No automatic or recurring charges.</p>
-        {!status.verified ? <div className="mt-5 space-y-3"><p>{status.starterMessage}</p><p className="text-sm text-ink-secondary">Sign in with your verified email, or verify a wallet with a free signature. No payment is needed to start.</p><button className={button} disabled={busy} onClick={() => void verify()}>Verify wallet for starter credit</button></div>
+        {status.exempt && <p className="mt-2 text-sm text-ink-secondary">Usage is not charged to this account. Test payments still credit the ledger if they complete.</p>}
+        {!status.verified ? <div className="mt-5 space-y-3"><p>{status.starterMessage}</p><p className="text-sm text-ink-secondary">Sign in with your verified email, or verify a wallet with a free signature. No payment is needed to start.</p><button className={btn} disabled={busy} onClick={() => void verify()}>Verify wallet for starter credit</button></div>
           : !status.topUpEnabled ? <p className="mt-5">Top up coming soon</p>
           : <div className="mt-5 space-y-4">
             <label className="block">Credit pack<select className={field} value={pack} onChange={event => setPack(Number(event.target.value))}>{status.packs.map(value => <option key={value} value={value}>${value} credit</option>)}</select></label>
             <label className="block">Payment network<select className={field} value={chainId} onChange={event => setChainId(Number(event.target.value))}>{status.chains.map(chain => <option key={chain.id} value={chain.id}>{chain.symbol} on {chain.name}</option>)}</select></label>
-            <button className={button} disabled={busy} onClick={() => void createInvoice()}>Create payment request</button>
+            <button className={btn} disabled={busy} onClick={() => void createInvoice()}>Create payment request</button>
             {!invoice && status.invoices.some(item => !item.paid_tx) && <div className="space-y-2"><p className="text-sm">Recent payment requests</p>{status.invoices.filter(item => !item.paid_tx).map(item => <button key={item.id} className="block underline" onClick={() => { setInvoice(item); setHash(""); }}>Resume {(item.amount_micros / 1e6).toFixed(6)} payment</button>)}</div>}
             {invoice && <div className="space-y-3 rounded-2xl bg-inset p-4">
               {paid ? <p role="status">Payment verified. Your credit is ready.</p> : <>
@@ -114,9 +148,9 @@ export function NationCredits() {
                 <code className="block break-all text-xs">{invoice.treasury}</code>
                 <div className="w-fit rounded-xl bg-white p-3"><QRCodeSVG value={`ethereum:${invoice.token}@${invoice.chain}/transfer?address=${invoice.treasury}&uint256=${invoice.amount_micros}`} size={176} /></div>
                 <p className="text-xs text-ink-secondary">Pay within 30 minutes. Matching late transfers are still credited. Your wallet may require a separate network fee in ETH.</p>
-                <button className={button} disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)} onClick={() => void pay()}>Connect wallet and pay</button>
+                <button className={btn} disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)} onClick={() => void pay()}>Connect wallet and pay</button>
                 <label className="block text-sm">Already paid? Transaction hash<input className={field} value={hash} onChange={event => setHash(event.target.value)} placeholder="0x…" spellCheck={false} /></label>
-                <button className={button} disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())} onClick={() => void confirm()}>Check payment</button>
+                <button className={btn} disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())} onClick={() => void confirm()}>Check payment</button>
                 {hash && <p className="text-xs">Waiting for network confirmations. You can check again without sending another payment.</p>}
               </>}
             </div>}
@@ -124,7 +158,39 @@ export function NationCredits() {
         {busy && <p role="status" className="mt-3 text-sm">Please wait…</p>}
         {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
       </section>
-    </div>}
+    </div>
+  );
+}
+
+/** Top-strip credits display shown in the chat shell. */
+export function NationCredits() {
+  const content = useCreditsContent();
+  if (!content.status) return null;
+  const status = content.status;
+  return <>
+    <NationCreditsStrip status={status} onOpen={() => content.setOpen(true)} />
+    <NationCreditsModal {...content} status={status} onClose={() => content.setOpen(false)} />
   </>;
 }
 
+/** Settings → Usage row that lets the owner open the same payment modal as members. */
+export function NationCreditsSettingsRow() {
+  const content = useCreditsContent();
+  if (!content.status) return null;
+  const { status } = content;
+  return <>
+    <SettingRow
+      title="Billing & Credits"
+      subtitle={status.topUpEnabled
+        ? "Add credit for your team's API usage."
+        : status.topUpMessage || "Top up coming soon"
+      }
+    >
+      {status.topUpEnabled
+        ? <button className="ui-button" onClick={() => content.setOpen(true)}>Top up</button>
+        : <span className="text-[13px] text-ink-secondary">{status.topUpMessage || "Coming soon"}</span>
+      }
+    </SettingRow>
+    <NationCreditsModal {...content} status={status} onClose={() => content.setOpen(false)} />
+  </>;
+}
