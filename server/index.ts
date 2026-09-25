@@ -1614,8 +1614,16 @@ function recallableThreads(fromThreadId: string, threadIds: string[]): string[] 
 }
 /** Bot memory written in a private conversation is that account's alone;
  * rooms keep the bot's shared memory. Off a hosted workspace: the bot's. */
+/** Hosted legacy memory policy. Before memory was scoped per account, every
+ * conversation of a bot, private ones included, wrote to the bot's own
+ * namespace (`botId`). In a hosted workspace that namespace is quarantined:
+ * no turn reads, searches or writes it, and it is kept untouched on disk for
+ * the operator to review in the bot's Memory settings (operator only). Shared
+ * rooms use a separate team namespace instead; single-user installs keep
+ * the bot's own namespace exactly as before. */
 function memoryKeyFor(botId: string, threadId: string): string {
-  if (!privateThreads() || isSharedRoomThread(threadId)) return botId;
+  if (!privateThreads()) return botId;
+  if (isSharedRoomThread(threadId)) return `${botId}--team`;
   const digest = createHash("sha256").update("nation-private-memory-v1\0").update(threadOwnerOf(threadId)).digest("hex").slice(0, 16);
   return `${botId}--m-${digest}`;
 }
@@ -9356,7 +9364,7 @@ async function runGroupMemberTurn(
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
   }
-  const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace });
+  const roomMemory = memorySystemPrompt(memoryKeyFor(bot.id, threadId), { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace });
   // The same brief a 1:1 turn gets: what this member said lately in its
   // other conversations, so a standup is answered from what happened. A
   // brief can carry a private chat into the room; as with session_search

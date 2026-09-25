@@ -73,10 +73,10 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       const afterUser = body.messages.slice(body.messages.lastIndexOf(lastUser) + 1);
       const toolReply = afterUser.find((item: any) => item.role === "tool");
       // the request is the prompt's last line; earlier lines replay context
-      const ask = text.trim().split(/\\n|\n/).at(-1) ?? "";
+      const ask = text.trim().split(/\\n|\n/).filter((line: string) => line.trim() && !/^\(Reply to /.test(line)).at(-1) ?? "";
       const wanted = /emails/i.test(ask) ? "apps_gmail_fetch_emails" : /github issues/i.test(ask) ? "apps_github_list_issues"
-        : /^remember /i.test(ask) ? "agents_memory_update" : "";
-      const args = wanted === "agents_memory_update" ? JSON.stringify({ action: "append", text: ask.replace(/^remember /i, "") }) : "{}";
+        : /(?:^|\s)remember /i.test(ask) ? "agents_memory_update" : "";
+      const args = wanted === "agents_memory_update" ? JSON.stringify({ action: "append", text: ask.replace(/^.*?\bremember /i, "") }) : "{}";
       const delta = wanted && tools.includes(wanted) && !toolReply
         ? { tool_calls: [{ index: 0, id: `call-${++callSeq}`, type: "function", function: { name: wanted, arguments: args } }] }
         : { content: toolReply ? `From your connected app: ${JSON.parse(toolReply.content).result}` : "I don't have a connected app for that." };
@@ -485,6 +485,14 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     expect((await settle(aliceDefault, alice)).status).toBe("settled");
     expect(JSON.stringify(await messages(bobDefault, bob))).not.toContain("Say hello without a thread");
 
+    // Legacy memory: what the bot's own namespace held before memory was
+    // scoped per account (it may have come from anyone's private chat) is
+    // quarantined in hosted mode: kept for the operator, never in any prompt.
+    await owner(`/api/bots/${bot.id}/memory`, "PUT", { text: "- Legacy note Heron-44 from someone's old private chat" });
+    expect((await request(`/api/bots/${bot.id}/memory`, { cookie: bob })).status).toBe(403);
+    expect(JSON.stringify(await owner(`/api/bots/${bot.id}/memory`))).toContain("Heron-44");
+    const legacyStart = modelRequests.length;
+
     // Memory saved in Alice's private conversation stays hers.
     await request(`/api/bots/${bot.id}/messages`, { method: "POST", body: { text: "remember Alice codename Falcon-7", threadId: aliceThread }, cookie: alice });
     expect((await settle(aliceThread, alice)).status).toBe("settled");
@@ -512,6 +520,9 @@ it("hosted members connect and use only their own apps through NATION API", asyn
     const roomCalls = modelRequests.filter((item) => JSON.stringify(item.body.messages).includes("Team note from Bob"));
     expect(roomCalls.length, JSON.stringify(roomForAlice.body).slice(0, 1500)).toBeGreaterThan(0);
     expect(roomCalls.some((item) => systemOf(item).includes("Falcon-7"))).toBe(false);
+    // Legacy memory reached no turn at all, private or room, and is kept for the operator.
+    expect(modelRequests.slice(legacyStart).some((item) => JSON.stringify(item.body).includes("Heron-44"))).toBe(false);
+    expect(JSON.stringify(await owner(`/api/bots/${bot.id}/memory`))).toContain("Heron-44");
 
     // F. bot access OFF: no connector tools mount, nothing executes
     const callsBeforeOptOut = mcpCalls.length;
