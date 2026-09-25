@@ -26,6 +26,7 @@ import { existsSync, readFileSync, rmSync, mkdirSync } from "node:fs";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
 import { basename as pathBasename, dirname as pathDirname, extname, join, resolve as pathResolve } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
@@ -489,6 +490,11 @@ import {
 import { json, readBody, setBodyGuard, setResponseOwner, setResponseProjector } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
+import {
+  ServerViewerRelay,
+  createVpsViewerRoutes,
+  handleServerViewerUpgrade,
+} from "./routes/vps-viewer.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -3798,6 +3804,7 @@ function closeSessionStreams(sessionId: string): void {
 sessions.onSessionRevoked((sessionId) => {
   providerAuthSessions.revokeOwner(sessionId);
   closeSessionStreams(sessionId);
+  serverViewer.closeSession(sessionId);
 });
 
 /** Every frame is numbered, and the last few hundred are kept, so a client
@@ -11804,6 +11811,9 @@ process.once("exit", stopCreditWatcher);
 const creditReconciliation = setInterval(() => { void reconcileModelSpend(); }, 30_000);
 creditReconciliation.unref();
 
+const serverViewer = new ServerViewerRelay();
+ROUTES.push(createVpsViewerRoutes(serverViewer));
+
 const toolResults = new ToolResults();
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   creditContext.enterWith(null);
@@ -19339,7 +19349,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
         return json(res, 415, { error: "content-type must be application/json" });
       }
-      return json(res, 200, bot.cloudBackend === "vps" ? vps.closeVpsDesktopTunnel(bot.id) : { closed: false });
+      return json(res, 200, bot.cloudBackend === "vps" ? (serverViewer.closeBot(bot.id), vps.closeVpsDesktopTunnel(bot.id)) : { closed: false });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/computer\/(provision|join|sleep|exec|screenshot|remove)$/);
     if (m && method === "POST") {
@@ -19375,7 +19385,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (m[2] === "join" && !computerControl.snapshot(key).held) return json(res, 409, { error: "Take control before opening this shared desktop" });
         const release = m[2] === "sleep" ? claimTeamComputerLifecycle(teamComputer) : claimBotComputerLifecycle(key);
         try {
-          if (m[2] === "join") return json(res, 200, await box.joinReadyBox(cfg, key));
+          if (m[2] === "join") { res.setHeader("cache-control", "private, no-store"); return json(res, 200, await box.joinReadyBox(cfg, key)); }
           if (m[2] === "screenshot") {
             res.setHeader("cache-control", "private, no-store");
             return json(res, 200, await box.screenshotBox(cfg, key));
@@ -19409,7 +19419,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return json(res, 409, { error: "the VPS computer is being used by this bot Ã¢â‚¬â€ interrupt the turn first" });
           }
           if (m[2] === "join") {
-            return json(res, 200, await vps.vpsComputerJoin(cfg, botId));
+            const joinResult = await vps.vpsComputerJoin(cfg, botId);
+            res.setHeader("cache-control", "private, no-store");
+            if (auth.kind === "session") {
+              return json(res, 200, {
+                ...joinResult,
+                joinUrl: serverViewer.rewriteJoinUrl(botId, joinResult.joinUrl, auth.session.id),
+              });
+            }
+            return json(res, 200, joinResult);
           }
           const action = m[2] === "provision" ? "provision" : m[2] === "remove" ? "remove" : "stop";
           return json(res, 200, await vps.vpsComputerAction(action, cfg, botId));
@@ -19451,6 +19469,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           case "provision":
             return json(res, 200, await box.provisionBox(cfg, botId, bot.name));
           case "join":
+            res.setHeader("cache-control", "private, no-store");
             return json(res, 200, await (activeBoxTurn || threadPreview ? box.joinReadyBox(cfg, botId) : box.joinBox(cfg, botId)));
           case "sleep":
             return json(res, 200, await box.sleepBox(cfg, botId));
@@ -19478,6 +19497,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 const server = createServer(handleRequest);
+// Forward WebSocket upgrades on the /vps-viewer/ prefix to the server-side
+// noVNC relay.  All other upgrade requests are rejected.
+const vpsUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) =>
+  handleServerViewerUpgrade(serverViewer, req, socket, head, sessions, SESSION_COOKIE);
+server.on("upgrade", vpsUpgrade);
 
 calendarCalls.start();
 
@@ -19612,6 +19636,7 @@ let tunnelListener: ReturnType<typeof createServer> | null = null;
 if (TUNNEL_SOCKET) {
   if (process.platform !== "win32") rmSync(TUNNEL_SOCKET, { force: true });
   tunnelListener = createServer(handleRequest);
+  tunnelListener.on("upgrade", vpsUpgrade);
   tunnelListener.listen(TUNNEL_SOCKET, () => {
     console.log(`openmausbot tunnel listener on ${TUNNEL_SOCKET}`);
   });

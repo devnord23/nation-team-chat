@@ -68,6 +68,7 @@ with Image.open(sys.argv[1]) as image:
     image.convert("RGB").save(output, format="JPEG", quality=70)
 sys.stdout.write(base64.b64encode(output.getvalue()).decode("ascii"))' "$1" 2>/dev/null || { base64 < "$1" | tr -d "\\n"; }`;
 const INTERNAL_VIEWER_PORT = 6901;
+export { INTERNAL_VIEWER_PORT };
 const VIEWER_VERSION = "1";
 const lifecycleLocks = new Map<string, Promise<void>>();
 
