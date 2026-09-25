@@ -73,7 +73,7 @@ it("hosted members connect and use only their own apps through NATION API", asyn
       const afterUser = body.messages.slice(body.messages.lastIndexOf(lastUser) + 1);
       const toolReply = afterUser.find((item: any) => item.role === "tool");
       // the request is the prompt's last line; earlier lines replay context
-      const ask = text.trim().split(/\\n|\n/).filter((line: string) => line.trim() && !/^\(Reply to /.test(line)).at(-1) ?? "";
+      const ask = text.trim().split(/\\n|\n/).filter((line: string) => line.trim() && !line.startsWith("(Reply to ")).at(-1) ?? "";
       const wanted = /emails/i.test(ask) ? "apps_gmail_fetch_emails" : /github issues/i.test(ask) ? "apps_github_list_issues"
         : /(?:^|\s)remember /i.test(ask) ? "agents_memory_update" : "";
       const args = wanted === "agents_memory_update" ? JSON.stringify({ action: "append", text: ask.replace(/^.*?\bremember /i, "") }) : "{}";
