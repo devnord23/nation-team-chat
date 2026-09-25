@@ -62,6 +62,14 @@
       "destination": "https://server.aurk.org/nation-team-chat/.well-known/nationteamchat/:path*"
     },
     {
+      "source": "/subscription",
+      "destination": "/swarm/index.html"
+    },
+    {
+      "source": "/subscription/",
+      "destination": "/swarm/index.html"
+    },
+    {
       "source": "/swarm",
       "destination": "/swarm/index.html"
     },

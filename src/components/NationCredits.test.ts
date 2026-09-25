@@ -10,11 +10,11 @@ vi.mock("@/state/store", () => ({
 }));
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 
-import { NationCreditsStrip } from "./NationCredits";
+import { NationCreditsStrip, TierCard } from "./NationCredits";
 
 type Status = Parameters<typeof NationCreditsStrip>[0]["status"];
 
-const chain = { id: 8453, name: "Base", symbol: "USDC", token: "0x1" as Hex, treasury: "0x2" as Hex };
+const chain = { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: "0x1" as Hex, treasury: "0x2" as Hex };
 const base: Status = {
   balanceUsd: 5, label: "$5.00 credit", verified: true, exempt: false,
   lowBalance: false, topUpEnabled: true, topUpMessage: "", starterMessage: "",
@@ -70,5 +70,35 @@ describe("NationCreditsStrip", () => {
       createElement(NationCreditsStrip, { status: { ...base, verified: false, exempt: true }, onOpen: vi.fn() }),
     );
     expect(html).toContain("Get free starter credit");
+  });
+});
+
+describe("TierCard", () => {
+  const tier = { id: "starter", name: "Starter", usd: 15, creditUsd: 15, popular: false };
+
+  it("renders tier name, price and Choose plan CTA", () => {
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { tier, onSelect: vi.fn(), disabled: false }),
+    );
+    expect(html).toContain("Starter");
+    expect(html).toContain("$15");
+    expect(html).toContain("Choose plan");
+    expect(html).not.toContain("Pay");
+    expect(html).not.toContain("USDC");
+  });
+
+  it("marks the Most popular badge on popular tiers", () => {
+    const popular = { ...tier, popular: true, id: "builder", name: "Builder", usd: 49, creditUsd: 49 };
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { tier: popular, onSelect: vi.fn(), disabled: false }),
+    );
+    expect(html).toContain("Most popular");
+  });
+
+  it("is disabled when disabled=true", () => {
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { tier, onSelect: vi.fn(), disabled: true }),
+    );
+    expect(html).toContain("disabled");
   });
 });

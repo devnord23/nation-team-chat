@@ -40,7 +40,6 @@ type StripStatus = {
   invoices: Array<{ id: string; chain: number; treasury: string; token: string; amount_micros: number; expires_at: number; paid_tx: string | null }>;
 };
 
-type Chain = CreditStatus["chains"][number];
 type Invoice = CreditStatus["invoices"][number];
 
 // ─── wallet helpers ───────────────────────────────────────────────────────────
@@ -84,30 +83,16 @@ export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; on
 }
 
 // ─── Tier card ───────────────────────────────────────────────────────────────
-function TierCard({
+/** Tapping any tier card navigates to the subscription page. Exported for tests. */
+export function TierCard({
   tier,
-  selected,
-  payWithNation,
-  nationPriceUsd,
   onSelect,
   disabled,
 }: {
   tier: CreditTier;
-  selected: boolean;
-  payWithNation: boolean;
-  nationPriceUsd: number | null;
   onSelect: () => void;
   disabled: boolean;
 }) {
-  const usdLabel = `$${tier.usd}`;
-  const nationLabel =
-    nationPriceUsd && nationPriceUsd > 0
-      ? `≈ ${(tier.usd / nationPriceUsd).toFixed(2)} $NATION`
-      : `≈ ${Math.round(tier.usd * 0.8)} $NATION`;
-  const ctaLabel = payWithNation
-    ? `Pay ${nationLabel} worth of $NATION`
-    : `Pay ${usdLabel} with USDC`;
-
   return (
     <button
       type="button"
@@ -115,9 +100,7 @@ function TierCard({
       onClick={onSelect}
       className={cn(
         "relative flex flex-col gap-3 rounded-2xl border p-5 text-left transition-all",
-        selected
-          ? "border-accent bg-accent/8 shadow-sm ring-1 ring-accent/40"
-          : "border-hairline/60 bg-panel hover:border-accent/40 hover:bg-raised/50",
+        "border-hairline/60 bg-panel hover:border-accent/40 hover:bg-raised/50",
         disabled && "opacity-50 pointer-events-none",
       )}
     >
@@ -126,73 +109,17 @@ function TierCard({
           Most popular
         </span>
       )}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
-          <p className="mt-0.5 text-[22px] font-bold text-ink">
-            {payWithNation ? nationLabel : usdLabel}
-          </p>
-        </div>
-        {payWithNation && (
-          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
-            Save ~20%
-          </span>
-        )}
+      <div>
+        <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
+        <p className="mt-0.5 text-[22px] font-bold text-ink">${tier.usd}</p>
       </div>
       <p className="text-[12px] text-ink-secondary">
         ${tier.creditUsd} permanent credit · never expires
       </p>
-      <div
-        className={cn(
-          "mt-1 w-full rounded-xl py-2.5 text-center text-[13px] font-semibold",
-          selected
-            ? "bg-accent text-accent-ink"
-            : "bg-raised/70 text-ink hover:bg-raised",
-        )}
-      >
-        {ctaLabel}
+      <div className="mt-1 w-full rounded-xl bg-raised/70 py-2.5 text-center text-[13px] font-semibold text-ink hover:bg-raised">
+        Choose plan
       </div>
     </button>
-  );
-}
-
-// ─── Payment token toggle ─────────────────────────────────────────────────────
-function TokenToggle({
-  payWithNation,
-  hasNation,
-  onChange,
-}: {
-  payWithNation: boolean;
-  hasNation: boolean;
-  onChange: (nation: boolean) => void;
-}) {
-  if (!hasNation) return null;
-  return (
-    <div className="flex items-center justify-center gap-1 rounded-xl border border-hairline/50 bg-inset p-1 text-sm">
-      <button
-        type="button"
-        onClick={() => onChange(true)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
-          payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
-        )}
-      >
-        <span className="font-semibold text-accent">$NATION</span>
-        <span className="rounded-full bg-accent/15 px-1.5 py-px text-[10px] font-semibold text-accent">
-          Save ~20%
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(false)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
-          !payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
-        )}
-      >
-        USDC
-      </button>
-    </div>
   );
 }
 
@@ -325,17 +252,12 @@ export function NationCredits() {
   const [error, setError] = useState("");
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [hash, setHash] = useState("");
-  const [selectedTier, setSelectedTier] = useState<number>(15);
-  const [payWithNation, setPayWithNation] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     const value: CreditStatus = await api("/api/credits/status");
     setStatus(value);
-    setSelectedTier((cur) =>
-      value.packs.includes(cur) ? cur : (value.packs[1] ?? value.packs[0] ?? 15),
-    );
     setInvoice((cur) =>
       cur ? (value.invoices.find((i) => i.id === cur.id) ?? cur) : null,
     );
@@ -380,6 +302,15 @@ export function NationCredits() {
   const openSheet = useCallback(() => setOpen(true), []);
   const closeSheet = useCallback(() => setOpen(false), []);
 
+  // Auto-open the credits sheet when the SPA is served at /subscription
+  // (vercel.json rewrites /subscription → /swarm/index.html).
+  useEffect(() => {
+    const { pathname } = window.location;
+    if (pathname === "/subscription" || pathname === "/subscription/") {
+      setOpen(true);
+    }
+  }, []);
+
   const run = async (work: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
@@ -411,24 +342,6 @@ export function NationCredits() {
         method: "POST",
         body: JSON.stringify({ challengeId: challenge.challengeId, signature }),
       });
-    });
-
-  const resolveChain = (useNation: boolean): Chain | undefined => {
-    if (!status) return undefined;
-    if (useNation) return status.chains.find((c) => c.symbol === "$NATION");
-    return status.chains.find((c) => c.symbol === "USDC") ?? status.chains.find((c) => c.id === 8453);
-  };
-
-  const createInvoice = (tierUsd: number) =>
-    run(async () => {
-      const chain = resolveChain(payWithNation);
-      if (!chain) throw new Error("No payment network available for the selected currency.");
-      const inv: Invoice = await api("/api/credits/invoices", {
-        method: "POST",
-        body: JSON.stringify({ chain: chain.id, packUsd: tierUsd }),
-      });
-      setInvoice(inv);
-      setHash("");
     });
 
   const pay = () =>
@@ -494,7 +407,6 @@ export function NationCredits() {
       });
     });
 
-  const hasNation = Boolean(status?.chains.some((c) => c.symbol === "$NATION"));
   const tiers: CreditTier[] = status?.tiers ?? [];
 
   return (
@@ -603,38 +515,19 @@ export function NationCredits() {
                     </p>
                   )}
 
-                  <TokenToggle
-                    payWithNation={payWithNation}
-                    hasNation={hasNation}
-                    onChange={setPayWithNation}
-                  />
-
-                  {/* tier cards */}
+                  {/* tier cards — clicking navigates to the subscription page */}
                   <div className="grid gap-3 sm:grid-cols-3">
                     {tiers.map((tier) => (
                       <TierCard
                         key={tier.id}
                         tier={tier}
-                        selected={selectedTier === tier.usd}
-                        payWithNation={payWithNation && hasNation}
-                        nationPriceUsd={status.nationPriceUsd}
-                        onSelect={() => setSelectedTier(tier.usd)}
+                        onSelect={() => { window.location.href = "https://thenation.city/subscription"; }}
                         disabled={busy}
                       />
                     ))}
                   </div>
 
-                  <button
-                    className={cn(btn, "w-full")}
-                    disabled={busy}
-                    onClick={() => void createInvoice(selectedTier)}
-                  >
-                    {payWithNation && hasNation
-                      ? `Pay with $NATION · save ~20%`
-                      : `Pay with USDC`}
-                  </button>
-
-                  {/* resume pending invoices */}
+                  {/* resume pending invoices (created before the subscription redirect) */}
                   {status.invoices.some((i) => !i.paid_tx) && (
                     <div className="space-y-1.5 pt-1">
                       <p className="text-[12px] font-medium text-ink-secondary">
