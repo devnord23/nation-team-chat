@@ -4,6 +4,7 @@
   stills  python3 tools/render.py stills 0 0.5 1.25 --out out/stills
   sheet   python3 tools/render.py sheet --out out/review-sheet.png     one still per beat, 8 bars x 4 beats
   video   python3 tools/render.py video --out out/frames.mkv           60 fps, 4 temporal subframes per frame
+  final   python3 tools/render.py final                                 mux with out/audio_loop.wav into the MP4
 
 Every frame is drawn by the page's seek(t): nothing depends on wall-clock time.
 Video mode renders subframes at 240 fps (centred on each output frame) and
@@ -111,6 +112,8 @@ def render_chunk(args):
     with sync_playwright() as pw:
         browser, page, errors = open_page(pw)
         for f in range(f0, f1):
+            if (f - f0) % 60 == 0:
+                print(f"{part.name}: frame {f - f0}/{f1 - f0}", flush=True)
             for s in range(sub):
                 t = (f + ((s + 0.5) / sub - 0.5) * shutter) / fps
                 png = shot(page, t % loop)
@@ -138,6 +141,17 @@ def cmd_video(a):
     print("wrote", a.out, frames, "frames")
 
 
+def cmd_final(a):
+    """Encode the delivery file: H.264 High 4:2:0 at 60 fps with the mixed loop audio."""
+    subprocess.run([
+        "ffmpeg", "-y", "-loglevel", "error", "-i", a.video, "-i", a.audio,
+        "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "slow", "-crf", str(a.crf), "-profile:v", "high",
+        "-pix_fmt", "yuv420p", "-r", "60", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+        "-c:a", "aac", "-b:a", "320k", "-ar", "48000", "-shortest", "-movflags", "+faststart", a.out,
+    ], check=True)
+    print("wrote", a.out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -155,8 +169,13 @@ def main():
     v.add_argument("--sub", type=int, default=4)
     v.add_argument("--loop", type=float, default=16.0)
     v.add_argument("--workers", type=int, default=4)
+    f = sp.add_parser("final")
+    f.add_argument("--video", default=str(ROOT / "out" / "frames.mkv"))
+    f.add_argument("--audio", default=str(ROOT / "out" / "audio_loop.wav"))
+    f.add_argument("--crf", type=int, default=14)
+    f.add_argument("--out", default=str(ROOT / "out" / "nation-swarm-loop.mp4"))
     a = ap.parse_args()
-    {"stills": cmd_stills, "sheet": cmd_sheet, "video": cmd_video}[a.cmd](a)
+    {"stills": cmd_stills, "sheet": cmd_sheet, "video": cmd_video, "final": cmd_final}[a.cmd](a)
 
 
 if __name__ == "__main__":

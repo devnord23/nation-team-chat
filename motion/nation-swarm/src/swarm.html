@@ -148,7 +148,6 @@ class Box {
     return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2, rad: this.rad.at(tau) };
   }
 }
-const rect = (l, t, w, h, rad) => [l, t, l + w, t + h, rad];
 const centered = (cx, cy, w, h, rad) => [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, rad];
 
 // ---------------------------------------------------------------- svg helpers
@@ -241,10 +240,9 @@ const ICONS = {
 function icon(parent, name, color, size = 28, sw = 2.2) {
   const g = el("g", {}, parent);
   const p = el("path", { d: ICONS[name], fill: "none", stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
-  const dot = name === "more" || name === "browser" || name === "wallet";
   g._size = size;
+  // Dots are zero-length strokes with round caps; the "more" dots are drawn heavier to read at small sizes.
   set(p, { "stroke-width": (sw * 24 / size) * (name === "more" ? 1.9 : 1) });
-  if (dot && name !== "more") { /* dots use the same stroke; round caps make them dots */ }
   g._path = p;
   return g;
 }
@@ -564,7 +562,8 @@ const P = {
   head: [PC_C[0] + 22, PC_C[1] + 32],
   rest3: [760, 420],
   row: [220, 124 + 86 + 36],
-  rest4: [830, 470],
+  rest4: [820, 400],
+  back: [360, 250],
 };
 const cur = new CursorPath(...P.chip)
   .move(b(2) + 0.07, ...P.role, 0.36)
@@ -584,6 +583,7 @@ const cur = new CursorPath(...P.chip)
   .move(b(26) + 0.14, ...P.rest3, 0.5, -0.1)
   .move(b(29) + 0.04, ...P.row, 0.4, 0.12)
   .move(b(30) + 0.14, ...P.rest4, 0.5, -0.1)
+  .move(b(31) + 0.25, ...P.back, 0.6, 0.08, 0)
   .move(b(31) + 0.62, ...P.chip, 0.78, 0.16, 0.012);
 const CLICKS = [b(2), b(3), b(4), b(12), b(14), b(16), b(20), b(21), b(23), b(25), b(26), b(30)];
 function pressAt(tau, t) { const e = mod(tau - t + 0.03, LOOP); return e < 0.2 ? bump(clamp(e / 0.16)) : 0; }
@@ -763,7 +763,6 @@ const curG = el("g", { filter: "url(#shadow-cursor)" }, overlay);
 el("path", { d: "M5.2 2.8L5.2 21.4L9.9 17L13.1 24.1L16.3 22.7L13.2 15.8L19.6 15.8Z", fill: "#0A0A0A", stroke: WHITE, "stroke-width": 1.5, "stroke-linejoin": "round" }, curG);
 
 // ---------------------------------------------------------------- draw
-const R4 = a => a; // readability alias
 function shell(bodyN, tabN, s, face, tabOpacity = 1) {
   rr(bodyN, s.l, s.t, s.w, s.h, s.rad);
   const [x, y, w, h, r] = tabRect(s.t, face.fx, face.fw);
@@ -817,11 +816,10 @@ function drawChief(tau, p) {
   });
   // Capital curls and arch appear with the column.
   const cu = clamp(curls.at(tau), 0, 1.1);
-  const k = LK * cu, cc = [0, -24];
+  const cc = [0, -24];
   set(cCapital, { transform: `translate(${cc[0]} ${cc[1]}) scale(${cu.toFixed(4)}) translate(${-cc[0]} ${-cc[1]}) translate(${-640 * LK} ${-640 * LK}) scale(${LK})`, opacity: clamp(cu * 1.6) });
   const A = COL.arch, ar = A.R * cu, ir = A.r * cu;
   set(cArch, { d: `M${A.c[0] - ar} ${A.c[1]}A${ar} ${ar} 0 0 1 ${A.c[0] + ar} ${A.c[1]}L${A.c[0] + ir} ${A.c[1]}A${ir} ${ir} 0 0 0 ${A.c[0] - ir} ${A.c[1]}Z`, opacity: clamp(cu * 1.4) });
-  void k;
 
   // Texts.
   const tx = s.l + 196;
@@ -1125,7 +1123,6 @@ function drawBuildInside(tau, p) {
 
 function drawDeliverable(tau) {
   const oth = clamp(others.at(tau));
-  const ch = chief.at(tau);
   const gone = clamp(rowsGone.at(tau));
   rowN.forEach((r, i) => {
     const u = rowFly[i].at(tau);
@@ -1145,7 +1142,6 @@ function drawDeliverable(tau) {
     placeIcon(r.ic, l + 40, (t + bm) / 2, 1);
     set(r.t, { x: l + 74, y: (t + bm) / 2 + 9 });
     set(r.g, { opacity: o * oth });
-    void ch;
   });
 }
 
@@ -1215,6 +1211,29 @@ function seek(t) {
   drawPage(tau);
 }
 
+// ---------------------------------------------------------------- sound cues
+// UI sounds are placed from the same beat constants as the picture (tools/sfx.py reads this list).
+const typing = (t0, dur, n, keys) => Array.from({ length: keys }, (_, i) => ({ t: t0 + (dur * (i + 0.5)) / keys, k: "key", v: 0.55 + 0.45 * ((i * 7) % 5) / 4 }));
+const SOUNDS = [
+  ...CLICKS.map(t => ({ t, k: "click" })),
+  { t: GRAB, k: "grab" },
+  { t: DROP + 0.03, k: "drop" },
+  { t: b(5) + 0.02, k: "spawn" },
+  { t: b(6) + 0.05, k: "split" },
+  { t: b(10), k: "handoff", pan: -0.3 }, { t: b(10) + 0.13, k: "catch", pan: -0.35 },
+  { t: b(11), k: "handoff", pan: 0 }, { t: b(11) + 0.11, k: "catch", pan: 0 },
+  { t: b(13) - 0.04, k: "pcOn" },
+  ...typing(b(14) + 0.1, 0.36, QUERY.length, 10),
+  ...typing(b(17) + 0.16, 0.26, NEW.length, 6),
+  { t: b(19) + 0.02, k: "approve" },
+  { t: b(22), k: "ready" },
+  { t: b(24), k: "mem", n: 0 }, { t: b(24) + 0.09, k: "mem", n: 1 }, { t: b(24) + 0.18, k: "mem", n: 2 },
+  { t: b(25) + 0.02, k: "fold" },
+  { t: b(26) + 0.02, k: "unfold" },
+  { t: b(29) + 0.14, k: "deliver" },
+].map(e => ({ ...e, t: mod(e.t, LOOP) }));
+window.SOUNDS = SOUNDS;
+
 checkTracks();
 if (Math.hypot(cur.p[0] - cur.p0[0], cur.p[1] - cur.p0[1]) > 1e-6) throw new Error("cursor does not return to its start");
 
@@ -1223,15 +1242,35 @@ window.GRID = GRID;
 window.seek = seek;
 window.ready = document.fonts.ready.then(() => { seek(0); return true; });
 
-// Live preview (not used for rendering): draw the frame for the current time, nothing else.
+// Live preview (not used for rendering). Each frame asks a clock for the time and draws
+// seek(t), nothing else. Click to hear it: the audio clock then drives the picture.
+const AUDIO = "/*AUDIO*/";
 if (!/[?&]render\b/.test(location.search)) {
   document.body.classList.add("preview");
-  const t0 = performance.now();
   const q = new URLSearchParams(location.search);
   const fixed = q.has("t") ? parseFloat(q.get("t")) : null;
+  const t0 = performance.now();
+  let clock = () => (performance.now() - t0) / 1000;
+  const hint = document.createElement("div");
+  hint.textContent = "Click for sound";
+  hint.style.cssText = "position:fixed;left:16px;bottom:14px;font:500 13px Geist,sans-serif;color:#020C01;opacity:.5;pointer-events:none";
+  if (AUDIO.startsWith("data:") && fixed === null) document.body.appendChild(hint);
+  addEventListener("pointerdown", async () => {
+    if (!AUDIO.startsWith("data:") || clock.audio) return;
+    const ctx = new AudioContext();
+    const buf = await ctx.decodeAudioData(await (await fetch(AUDIO)).arrayBuffer());
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.loop = true; src.loopStart = 0; src.loopEnd = Math.min(LOOP, buf.duration);
+    src.connect(ctx.destination);
+    const start = ctx.currentTime + 0.05;
+    const offset = mod(clock(), LOOP);
+    src.start(start, offset);
+    clock = Object.assign(() => offset + Math.max(0, ctx.currentTime - start), { audio: true });
+    hint.remove();
+  });
   window.ready.then(() => {
     if (fixed !== null) { seek(fixed); return; }
-    const frame = now => { seek(((now - t0) / 1000) % LOOP); requestAnimationFrame(frame); };
+    const frame = () => { seek(mod(clock(), LOOP)); requestAnimationFrame(frame); };
     requestAnimationFrame(frame);
   });
 }

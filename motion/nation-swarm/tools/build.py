@@ -29,6 +29,20 @@ mark = (ROOT / "assets" / "nation-column-mark.svg").read_text()
 capital = re.search(r'id="capital" d="([^"]+)"', mark).group(1)
 src = src.replace('"/*CAPITAL*/"', json.dumps(capital))
 
-out = ROOT / "nation-swarm.html"
+# The mixed loop, for the live preview (Opus in Ogg: small, and decoders honour its pre-skip,
+# so Web Audio can loop it without a gap).
+audio = ROOT / "out" / "audio_loop.wav"
+if audio.exists():
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        ogg = pathlib.Path(d) / "loop.ogg"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(audio), "-c:a", "libopus", "-b:a", "160k", str(ogg)], check=True)
+        src = src.replace('"/*AUDIO*/"', json.dumps("data:audio/ogg;base64," + base64.b64encode(ogg.read_bytes()).decode()))
+
+import sys
+
+out = pathlib.Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "nation-swarm.html"
 out.write_text(src)
-print(f"wrote {out.relative_to(ROOT)} ({len(src) / 1024:.0f} KB), grid {grid}")
+print(f"wrote {out} ({len(src) / 1024:.0f} KB), grid {grid}")
