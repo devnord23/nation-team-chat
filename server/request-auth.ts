@@ -67,9 +67,14 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 }
 
 /** The origin a browser would send for this request: the proxy's scheme
- * when one says so (x-forwarded-proto), else plain http, plus the Host. */
+ * when one says so (x-forwarded-proto), else plain http, plus the public
+ * host. Prefer x-forwarded-host when a trusted adjacent proxy set it — Host
+ * alone is often the loopback/upstream target behind Vercel→nginx (or any
+ * reverse proxy), which would make same-origin cookie checks fail against a
+ * browser Origin on the public site. */
 export function requestOrigin(req: IncomingMessage): string | null {
-  const host = headerValue(req.headers.host)?.trim();
+  const forwardedHost = headerValue(req.headers["x-forwarded-host"])?.split(",")[0]?.trim();
+  const host = (forwardedHost || headerValue(req.headers.host))?.trim();
   if (!host) return null;
   const forwarded = headerValue(req.headers["x-forwarded-proto"])?.split(",")[0]?.trim().toLowerCase();
   const proto = forwarded === "https" || forwarded === "http" ? forwarded : "http";

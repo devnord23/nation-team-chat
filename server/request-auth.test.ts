@@ -56,11 +56,40 @@ describe("origin and cookies", () => {
     expect(requestOrigin(request({ host: "a:8799", "x-forwarded-proto": "https, http" }))).toBe("https://a:8799");
     expect(requestOrigin(request({}))).toBeNull();
   });
+  it("prefers x-forwarded-host over Host when a proxy rewrote the upstream target", () => {
+    // Vercel→nginx often leaves Host as 127.0.0.1:8799 / the internal name while
+    // stamping the public site on x-forwarded-host. Cookie CSRF checks must use that.
+    expect(requestOrigin(request({
+      host: "127.0.0.1:8799",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "thenation.city",
+    }))).toBe("https://thenation.city");
+    expect(requestOrigin(request({
+      host: "server.aurk.org",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "Thenation.City, server.aurk.org",
+    }))).toBe("https://thenation.city");
+    // Without x-forwarded-host, Host still wins (unchanged).
+    expect(requestOrigin(request({ host: "bots.example.com", "x-forwarded-proto": "https" }))).toBe("https://bots.example.com");
+  });
   it("treats absent or matching Origin as same-origin, anything else as foreign", () => {
     expect(isSameOrigin(request({ host: "a.example" }))).toBe(true);
     expect(isSameOrigin(request({ host: "a.example", origin: "http://a.example" }))).toBe(true);
     expect(isSameOrigin(request({ host: "a.example", "x-forwarded-proto": "https", origin: "https://a.example" }))).toBe(true);
     expect(isSameOrigin(request({ host: "a.example", origin: "https://evil.example" }))).toBe(false);
+    // Proxied same-site: browser Origin matches public host, not the upstream Host.
+    expect(isSameOrigin(request({
+      host: "127.0.0.1:8799",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "thenation.city",
+      origin: "https://thenation.city",
+    }))).toBe(true);
+    expect(isSameOrigin(request({
+      host: "127.0.0.1:8799",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "thenation.city",
+      origin: "https://evil.example",
+    }))).toBe(false);
   });
   it("parses cookies and names the session cookie per port and environment", () => {
     expect(parseCookies("a=1; omb_session_8799_abc=tok; b = 2")).toEqual(new Map([["a", "1"], ["omb_session_8799_abc", "tok"], ["b", "2"]]));
