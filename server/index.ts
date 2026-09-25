@@ -17238,7 +17238,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         : store.botByThread(threadId);
       if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
       const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-      const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true);
+      // Hosted room turns run on the routed NATION API engine (creditRoutedBot),
+      // not the bot's stored one, so their approvals are answered there.
+      const requestInstance = owner && creditsEnforced() ? "nationApi" : requestOwner?.modelSelection.instanceId ?? "";
+      const outcome = await answerRequest(threadId, requestInstance, requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true);
       return json(res, 200, { ok: true, outcome });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/interrupt$/);
