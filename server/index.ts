@@ -27,7 +27,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ToolResults, TOOL_RESULT_MAX_CHARS } from "./tool-results.ts";
-import { extname, join } from "node:path";
+import { basename as pathBasename, dirname as pathDirname, extname, join, resolve as pathResolve } from "node:path";
 import { authorizeExternalRuntime, externalRuntimeIsActive, type ExternalRuntimeGrant } from "./external-runtime.ts";
 
 import { z } from "zod";
@@ -222,7 +222,7 @@ import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-g
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessages, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessages, threadsMentioning, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { chiefForBot, INCIDENTS_THREAD_TITLE, IncidentLedger, incidentChip, incidentText, type Incident, type IncidentKind } from "./incidents.ts";
@@ -1637,6 +1637,47 @@ function computerKeyFor(botId: string, threadId: string): string | null {
   const key = `${botId}--u-${digest}`;
   threadOwnership.registerComputer(key, botId, account);
   return key;
+}
+/** Hosted: who uploaded an attachment (by its generated file name). */
+function claimAttachment(path: string): void {
+  if (!privateThreads()) return;
+  const owner = currentThreadAccount();
+  if (owner) threadOwnership.claim(`attachment:${pathBasename(path)}`, owner);
+}
+/** An uploaded file follows the conversation it was shared in. A member may
+ * open or re-send one they uploaded, a bot or room picture, or one a
+ * conversation they can see already carries; any other id reads as missing,
+ * including files from before ownership was recorded. */
+function attachmentVisible(viewer: ThreadViewer, name: string): boolean {
+  if (viewer === null) return true;
+  if (!/^[A-Za-z0-9-]+\.[a-z0-9]+$/.test(name)) return false;
+  if (threadOwnership.recorded(`attachment:${name}`) === viewer) return true;
+  const url = `/api/attachments/${name}`;
+  if (store.bots.some((bot) => bot.avatarUrl === url) || store.groups.some((group) => (group as { avatarUrl?: string }).avatarUrl === url)) return true;
+  return threadsMentioning(name).some((threadId) => canSeeThread(viewer, threadId));
+}
+/** Hosted: every attachment tag a member sends must point at a file in the
+ * attachment store that member may see; anything else is refused, so a
+ * guessed id or a host path can't be handed to an agent. */
+function unauthorizedAttachmentReference(viewer: ThreadViewer, body: unknown): boolean {
+  if (viewer === null) return false;
+  const tag = /<attached-(?:image|file)\b[^>]*?\bpath="([^"]*)"/g;
+  const strings: string[] = [];
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 6) return;
+    if (typeof value === "string") { if (value.includes("<attached-")) strings.push(value); }
+    else if (Array.isArray(value)) value.forEach((item) => walk(item, depth + 1));
+    else if (value && typeof value === "object") Object.values(value).forEach((item) => walk(item, depth + 1));
+  };
+  walk(body, 0);
+  for (const text of strings) {
+    for (const match of text.matchAll(tag)) {
+      const raw = match[1]!.replace(/&quot;/g, "\"").replace(/&amp;/g, "&");
+      const inside = pathResolve(ATTACHMENTS_DIR, raw);
+      if (pathDirname(inside) !== pathResolve(ATTACHMENTS_DIR) || !attachmentVisible(viewer, pathBasename(inside))) return true;
+    }
+  }
+  return false;
 }
 /** A routine is visible with its conversation, or to the account that made it. */
 function routineVisible(viewer: ThreadViewer, routine: { id?: unknown; routineId?: unknown; sourceThreadId?: unknown; resultsThreadId?: unknown } | undefined): boolean {
@@ -11914,6 +11955,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const botRoute = path.match(/^\/api\/bots\/([\w-]+)\/(messages(?:\/[\w-]+\/edit)?|active-branch|compact|interrupt|read|respond|always-allow|cards\/[\w-]+|secret-cards\/[\w-]+\/\w+|connector-cards\/[\w-]+\/\w+)$/);
       setBodyGuard(req, (body) => {
         if (!body || typeof body !== "object" || Array.isArray(body)) return;
+        if (unauthorizedAttachmentReference(viewer, body)) throw Object.assign(new Error("no such attachment"), { status: 404 });
         const botId = botRoute?.[1];
         const given = typeof body.threadId === "string" && body.threadId ? body.threadId : undefined;
         if (given && canSeeThread(viewer, given)) return;
@@ -14519,7 +14561,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (settled) return;
           settled = true;
           try {
-            resolve(await saveImageUpload(Buffer.concat(chunks), mime, uploadId));
+            const stored = await saveImageUpload(Buffer.concat(chunks), mime, uploadId);
+            claimAttachment(stored.path);
+            resolve(stored);
           } catch (e) {
             reject(e instanceof Error ? e : new Error(String(e)));
           }
@@ -14570,6 +14614,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // streamed byte count crosses the limit.
         const chunks = req.iterator({ destroyOnReturn: false }) as AsyncIterable<Buffer>;
         const saved = await saveFile(chunks, name, rawType ?? "", { uploadId, expectedBytes: declaredLength });
+        claimAttachment(saved.path);
         return json(res, 201, saved);
       } catch (error) {
         req.resume();
@@ -14581,6 +14626,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // refuses anything that is not a bare generated filename
     m = path.match(/^\/api\/attachments\/([\w.-]+)$/);
     if (m && method === "GET") {
+      if (!attachmentVisible(viewerOf(auth), m[1]!)) return json(res, 404, { error: "no such attachment" });
       const attachment = readAttachment(m[1]!);
       if (!attachment) return json(res, 404, { error: "no such attachment" });
       res.writeHead(200, {

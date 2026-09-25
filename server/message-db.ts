@@ -496,6 +496,14 @@ export function deleteThread(threadId: string): void {
   });
 }
 
+/** Conversations with a stored message that mentions this exact string
+ * (an attachment's generated file name). Used to authorize serving it. */
+export function threadsMentioning(fragment: string, limit = 500): string[] {
+  if (!fragment) return [];
+  const rows = db().prepare("SELECT DISTINCT thread_id FROM messages WHERE instr(json, ?) > 0 LIMIT ?").all(fragment, limit) as Array<{ thread_id: string }>;
+  return rows.map((row) => row.thread_id);
+}
+
 export interface SearchHit {
   threadId: string;
   messageId: string;
