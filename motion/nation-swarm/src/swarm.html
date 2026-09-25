@@ -429,7 +429,7 @@ for (const [i, p] of pod.entries()) if (i !== 1) p.to(b(30) + 0.3, HIDE, "", [0.
 // Build is the middle pod: it becomes the isolated PC, the tool strip, the wallet, its memory, a head.
 const build = pod[1];
 build.to(b(12) + 0.01, [podL(1) - 8, POD_T - 10, podL(1) + POD_W + 8, POD_B + 8, 40], "", SP.snap, SP.snap);
-build.to(b(12) + 0.2, PC, "tlrb", [0.44, 0.84], [0.52, 0.88]);
+build.to(b(12) + 0.08, PC, "tlrb", [0.44, 0.84], [0.52, 0.88]);
 build.to(b(20) + 0.04, STRIP, "tb", [0.36, 0.84], [0.44, 0.9]);
 build.to(b(21), WALLET, "lr", [0.36, 0.82], [0.44, 0.9]);
 build.to(b(23), MEMORY, "b", [0.36, 0.82], [0.44, 0.9]);
@@ -472,8 +472,16 @@ const podDip = [
   T(0, "dip.b").to(b(11) + 0.11, 9, SP.snap).to(b(11) + 0.22, 0, SP.ui),
   T(0, "dip.v"),
 ];
-const others = T(1, "others").to(b(12) + 0.12, 0, [0.34, 1]).to(b(27) + 0.08, 1, [0.2, 1]);
-const othersScale = T(1, "others.s").to(b(12) + 0.12, 0.94, [0.34, 1]).to(b(27) + 0.08, 1, [0.36, 0.84]);
+// While Build becomes a computer the others make room (the Chief up, Research left, Review right),
+// and they come back together for the company view. They leave the frame rather than fade.
+const AWAY = { chief: [0, -600], research: [-660, 30], review: [660, 30] };
+const away = {
+  chief: T(0, "away.chief").to(b(12) + 0.2, 1, [0.62, 0.95]).to(b(27), 0, [0.5, 0.88]),
+  research: T(0, "away.research").to(b(12) + 0.16, 1, [0.62, 0.95]).to(b(27) + 0.03, 0, [0.5, 0.88]),
+  review: T(0, "away.review").to(b(12) + 0.16, 1, [0.62, 0.95]).to(b(27) + 0.05, 0, [0.5, 0.88]),
+};
+const awayXY = (who, tau) => { const u = away[who].at(tau); return [AWAY[who][0] * u, AWAY[who][1] * u]; };
+const shift = ([dx, dy]) => (Math.abs(dx) + Math.abs(dy) < 1e-3 ? "" : `translate(${dx.toFixed(3)} ${dy.toFixed(3)})`);
 
 // ---- Task: rises at beat 7, grabbed at 8, dropped on the Chief at 9.
 const TASK_REST = centered(TEAM_C[0], 600, 452, 104, 30);
@@ -496,7 +504,7 @@ const slipTail = [T(SLIP0[0], "slip.tx"), T(SLIP0[1], "slip.ty")];
 const slipOn = T(0, "slip.on").to(b(10) - 0.03, 1, [0.1, 1]).to(b(12) + 0.18, 0, [0.22, 1]);
 
 // ---- Isolated PC content, beats 13 to 20.
-const screenOn = T(0, "screen").to(b(13) - 0.04, 1, [0.32, 0.96]).to(b(20) + 0.02, 0, [0.28, 1]);
+const screenOn = T(0, "screen").to(b(13) - 0.05, 1, [0.3, 1]).to(b(20) + 0.01, 0, [0.2, 1]);
 const addrH = T(56, "addr.h").to(b(16) + 0.04, 40, SP.ui).to(b(20) + 0.3, 56, [0.1, 1]);
 const diffOpen = T(0, "diff").to(b(18), 1, SP.ui).to(b(20) + 0.3, 0, [0.1, 1]);
 const hiSweep = T(0, "hi").ease(b(15) + 0.18, 1, 0.3).ease(b(16) + 0.2, 0, 0.01);
@@ -824,7 +832,7 @@ function drawChief(tau, p) {
   // Texts.
   const tx = s.l + 196;
   const nm = presence(tau, b(2) + 0.08, b(30), { travel: 12 });
-  showText(cName, tx, s.t + 78 + nm.dy, nm.o * clamp(others.at(tau) + 0.0), 0, nm.blur);
+  showText(cName, tx, s.t + 78 + nm.dy, nm.o, 0, nm.blur);
   const ra = presence(tau, b(2) + 0.12, b(3), { travel: 10 });
   const rb = presence(tau, b(3) + 0.14, b(30), { travel: 10 });
   const pressRole = pressAt(tau, b(3));
@@ -846,8 +854,7 @@ function drawChief(tau, p) {
   const so = clamp(slotHint.at(tau));
   rr(slotR, TASK_SLOT[0] - 6, TASK_SLOT[1] - 6, TASK_SLOT[2] - TASK_SLOT[0] + 12, TASK_SLOT[3] - TASK_SLOT[1] + 12, 40);
   set(slotG, { opacity: so });
-  const csc = othersScale.at(tau);
-  set(cG, { opacity: chiefHidden(tau) ? 0 : clamp(others.at(tau)), transform: Math.abs(csc - 1) < 1e-4 ? "" : `translate(${s.cx} ${s.cy}) scale(${csc.toFixed(4)}) translate(${-s.cx} ${-s.cy})` });
+  set(cG, { opacity: chiefHidden(tau) ? 0 : 1, transform: shift(awayXY("chief", tau)) });
   return s;
 }
 
@@ -860,7 +867,6 @@ function podShellRect(i, tau) {
 
 function drawPods(tau, p) {
   const vis = podVisible(tau);
-  const oth = clamp(others.at(tau));
   const rm = clamp(roleMix.at(tau));
   PODS.forEach((role, i) => {
     const n = podN[i];
@@ -883,9 +889,7 @@ function drawPods(tau, p) {
     let lo = lb.o;
     if (i === 1) lo *= clamp(bw.pod.at(tau) * 2 - 1);
     showText(n.name, s.cx, s.b - 36 + lb.dy, lo, 0, lb.blur);
-    const op = i === 1 ? 1 : oth;
-    const sc = i === 1 ? 1 : othersScale.at(tau);
-    set(n.g, { opacity: op, transform: sc === 1 ? "" : `translate(${s.cx} ${s.cy}) scale(${sc.toFixed(4)}) translate(${-s.cx} ${-s.cy})` });
+    set(n.g, { opacity: 1, transform: i === 1 ? "" : shift(awayXY(role, tau)) });
   });
   // Build above the Chief while it is a computer.
   const top = buildOnTop(tau);
@@ -922,7 +926,6 @@ function drawWork(tau) {
 function drawTask(tau, p) {
   const rise = taskRise.at(tau);
   const gone = clamp(taskGone.at(tau));
-  const oth = clamp(others.at(tau));
   let cx, cy, w, h;
   const rest = [(TASK_REST[0] + TASK_REST[2]) / 2, (TASK_REST[1] + TASK_REST[3]) / 2];
   const slot = [(TASK_SLOT[0] + TASK_SLOT[2]) / 2, (TASK_SLOT[1] + TASK_SLOT[3]) / 2];
@@ -954,8 +957,7 @@ function drawTask(tau, p) {
   placeIcon(taskCheck, -W0 / 2 + 50, 0, done, 0.6 + 0.4 * done);
   set(taskText, { x: -W0 / 2 + 86, y: 12 });
   const vis = tau > b(7) - 0.12 && tau < b(31);
-  const csc = othersScale.at(tau), ch = chief.at(tau);
-  set(taskG, { opacity: vis ? clamp(oth) * (1 - gone) : 0, transform: Math.abs(csc - 1) < 1e-4 ? "" : `translate(${ch.cx} ${ch.cy}) scale(${csc.toFixed(4)}) translate(${-ch.cx} ${-ch.cy})` });
+  set(taskG, { opacity: vis ? 1 - gone : 0, transform: shift(awayXY("chief", tau)) });
   // Slip: a small copy of the task that is handed down the line.
   const on = clamp(slipOn.at(tau));
   const hx = slipHead[0].at(tau), hy = slipHead[1].at(tau), tx = slipTail[0].at(tau), ty = slipTail[1].at(tau);
@@ -988,13 +990,12 @@ function drawBuildInside(tau, p) {
     set(d.g, { opacity: o });
   });
   // --- Screen: lights up at beat 13, folds away at beat 20.
-  const so = clamp(screenOn.at(tau), 0, 1.02);
-  const sx = s.l + 16, sy = s.t + PC_BAR, sw = s.w - 32, shFull = s.h - PC_BAR - 16;
-  const sh = Math.max(0, shFull * clamp(so));
+  const so = clamp(screenOn.at(tau), 0, 1);
+  const sx = s.l + 16, sy = s.t + PC_BAR, sw = s.w - 32, sh = Math.max(0, s.h - PC_BAR - 16);
   rr(screen, sx, sy, sw, sh, 26);
-  set(screen, { opacity: clamp(so * 3) });
+  set(screen, { fill: mixColor("#1B231A", WHITE, smooth(so)), opacity: clamp(so * 5) });
   rr(clipR, sx, sy, sw, sh, 26);
-  set(scr, { opacity: clamp(so * 3) });
+  set(scr, { opacity: clamp((so - 0.55) / 0.45) });
   // Browser: address bar and query, typed by the agent.
   const ax = sx + 22, ay = sy + 22, aw = sw - 44, ah = addrH.at(tau);
   const addrIn = tau > b(14) && tau < b(20) + 0.3 ? presence(tau, b(14) + 0.02, null).o : 0;
@@ -1122,7 +1123,6 @@ function drawBuildInside(tau, p) {
 }
 
 function drawDeliverable(tau) {
-  const oth = clamp(others.at(tau));
   const gone = clamp(rowsGone.at(tau));
   rowN.forEach((r, i) => {
     const u = rowFly[i].at(tau);
@@ -1141,7 +1141,7 @@ function drawDeliverable(tau) {
     rr(r.bg, l, t, rgt - l, bm - t, 20);
     placeIcon(r.ic, l + 40, (t + bm) / 2, 1);
     set(r.t, { x: l + 74, y: (t + bm) / 2 + 9 });
-    set(r.g, { opacity: o * oth });
+    set(r.g, { opacity: o });
   });
 }
 
