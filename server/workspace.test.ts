@@ -547,3 +547,18 @@ describe("writeMemoryFile atomicity", () => {
     expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });
+
+describe("hosted members and host-filesystem engines", () => {
+  it("names the engines that run on this server with file tools", async () => {
+    const { hostFilesystemEngine } = await import("./workspace.ts");
+    for (const kind of ["claudeAgent", "codex", "hermesAgent"]) expect(hostFilesystemEngine(kind), kind).toBe(true);
+    for (const kind of ["nation-openrouter", "boxAgent", "grok", "openai-compat", "minimax"]) expect(hostFilesystemEngine(kind), kind).toBe(false);
+  });
+
+  it("refuses them to members by default; only an explicit operator opt-in allows it", async () => {
+    const { memberHostEngineAllowed } = await import("./workspace.ts");
+    expect(memberHostEngineAllowed({})).toBe(false);
+    for (const value of ["0", "true", "yes", "", " 1"]) expect(memberHostEngineAllowed({ NATION_MEMBER_HOST_ENGINES: value }), value).toBe(false);
+    expect(memberHostEngineAllowed({ NATION_MEMBER_HOST_ENGINES: "1" })).toBe(true);
+  });
+});

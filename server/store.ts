@@ -1888,7 +1888,7 @@ export class Store {
    * current folder — unless the task already has a session (a thread from
    * before folders existed), which pins to the default so the folder can't
    * move under it. Returns the pinned value: a path, or null for default. */
-  pinTaskCwd(botId: string, threadId: string, fallbackCwd?: string, opts: { none?: boolean } = {}): string | null {
+  pinTaskCwd(botId: string, threadId: string, fallbackCwd?: string, opts: { none?: boolean; accountOnly?: boolean } = {}): string | null {
     const bot = this.bot(botId);
     const task = bot ? this.taskByThread(botId, threadId) : undefined;
     if (!bot || !task) return null;
@@ -1899,6 +1899,16 @@ export class Store {
         this.emit({ type: "bot", botId });
       }
       return null;
+    }
+    // Hosted member turns: only the account's own folder, never the bot's
+    // configured project folder, a legacy home-folder pin or another pin.
+    if (opts.accountOnly && fallbackCwd) {
+      if (task.cwd !== fallbackCwd) {
+        task.cwd = fallbackCwd;
+        this.saveBots();
+        this.emit({ type: "bot", botId });
+      }
+      return task.cwd;
     }
     if (task.cwd === undefined) {
       task.cwd = Object.keys(task.resumeCursors).length === 0 ? (bot.cwd ?? fallbackCwd ?? null) : null;
@@ -2199,12 +2209,14 @@ export class Store {
   resolvePairConversation(
     sender: Pick<BotRecord, "id" | "name">,
     recipientId: string,
-    options: { label?: string; working: (threadId: string) => boolean },
+    options: { label?: string; working: (threadId: string) => boolean;
+      /** Only conversations this accepts may be reused (hosted: the same account's). */
+      reusable?: (threadId: string) => boolean },
   ): { task: TaskRecord; created: boolean } | null {
     if (!this.bot(recipientId)) return null;
     const title = `@${sender.name}`;
     const opener = (kind: "pair" | "work", at = Date.now()): TaskOpenedBy => ({ botId: sender.id, name: sender.name, kind, at });
-    const fromSender = this.tasks(recipientId).filter((task) => task.openedBy?.botId === sender.id);
+    const fromSender = this.tasks(recipientId).filter((task) => task.openedBy?.botId === sender.id && (options.reusable?.(task.threadId) ?? true));
     let pair = fromSender.find((task) => task.openedBy?.kind === "pair");
     if (!pair) {
       const lastActivity = (task: TaskRecord) =>

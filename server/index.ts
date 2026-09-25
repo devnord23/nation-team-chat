@@ -301,6 +301,9 @@ import {
   ensureTaskWorkspace,
   workspaceLocationsPrompt,
   supportsWorkspaceFiles,
+  hostFilesystemEngine,
+  memberHostEngineAllowed,
+  MEMBER_HOST_ENGINE_REFUSAL,
   updateMemory,
   appendMemoryLog,
   isMemoryTopicName,
@@ -1689,6 +1692,25 @@ function unauthorizedAttachmentReference(viewer: ThreadViewer, body: unknown): b
     }
   }
   return false;
+}
+/** Whose folders a turn's files live in. Single-user, and the operator's own
+ * conversations: the bot's workspace, exactly as before. Hosted members:
+ * their account's own folder for this bot (the same key as their private
+ * memory), and a shared room's team folder. null: no account could be
+ * established, so the turn gets no folder at all. */
+function workspaceKeyFor(botId: string, threadId: string): string | null {
+  if (!privateThreads()) return botId;
+  if (isSharedRoomThread(threadId)) return memoryKeyFor(botId, threadId);
+  const account = turnAccountFor(threadId);
+  if (!account) return null;
+  return account === OPERATOR_ACCOUNT ? botId : memoryKeyFor(botId, threadId);
+}
+/** A hosted member's turn may not run an engine that shares this server's
+ * filesystem (see memberHostEngineAllowed); unknown account counts as member. */
+function refuseMemberHostEngine(threadId: string, driverKind: string): void {
+  if (!privateThreads() || !hostFilesystemEngine(driverKind) || memberHostEngineAllowed()) return;
+  if (turnAccountFor(threadId) === OPERATOR_ACCOUNT) return;
+  throw Object.assign(new Error(MEMBER_HOST_ENGINE_REFUSAL), { status: 403 });
 }
 /** A routine is visible with its conversation, or to the account that made it. */
 function routineVisible(viewer: ThreadViewer, routine: { id?: unknown; routineId?: unknown; sourceThreadId?: unknown; resultsThreadId?: unknown } | undefined): boolean {
@@ -7090,12 +7112,19 @@ async function startTurn(
       // desk, not the whole house Ã¢â‚¬â€ and the workspace is where its
       // MEMORY.md lives. API/box engines have no local filesystem story.
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
+      // Hosted: a member works in their own folders, never the operator's or
+      // another member's (see workspaceKeyFor), and never on a host engine
+      // unless the operator allowed it.
+      refuseMemberHostEngine(threadId, instance.driverKind);
+      const workspaceKey = worksInWorkspace ? workspaceKeyFor(bot.id, threadId) : bot.id;
+      if (workspaceKey === null) throw Object.assign(new Error("This conversation's account could not be established."), { status: 403 });
+      const accountWorkspace = workspaceKey !== bot.id;
       if (worksInWorkspace) {
-        ensureWorkspace(bot.id);
+        ensureWorkspace(workspaceKey);
         // baseline for the journal's turn-boundary diff (see the bus hook)
-        beginMemoryTurn(bot.id, threadId);
+        beginMemoryTurn(workspaceKey, threadId);
       }
-      const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(bot.id, threadId) : undefined;
+      const privateWorkspace = worksInWorkspace ? ensureTaskWorkspace(workspaceKey, threadId) : undefined;
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace && opts?.runOn !== "cloud",
       });
@@ -7110,7 +7139,7 @@ async function startTurn(
       if (opts?.runOn === "cloud") store.pinTaskCwd(bot.id, threadId, undefined, { none: true });
       const pinnedCwd =
         privateWorkspace && opts?.runOn !== "cloud"
-          ? store.pinTaskCwd(bot.id, threadId, privateWorkspace)
+          ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { accountOnly: accountWorkspace })
           : null;
       const cwd = pinnedCwd ?? undefined;
       if (cwd && !claimTurnResource(resourceOwner, workspaceResource(cwd))) {
@@ -7618,7 +7647,7 @@ async function startTurn(
         // to a turn whose engine actually mounted them (setupMode is already
         // false when they are not Ã¢â‚¬â€ see agentsMounted above)
         { id: "setup", label: "Setup", text: setupSystemPrompt(setupMode, { skills: skillAuthoring, cwd: liveBot?.cwd ?? bot.cwd }) },
-        { id: "files", label: "File locations", text: worksInWorkspace && opts?.runOn !== "cloud" ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
+        { id: "files", label: "File locations", text: worksInWorkspace && opts?.runOn !== "cloud" ? workspaceLocationsPrompt(workspaceKey, cwd, accountWorkspace ? undefined : liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
         { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note, canSelect: computerSelectionTurns.has(threadId) }) },
@@ -9369,9 +9398,13 @@ async function runGroupMemberTurn(
   // same workspace + memory as a 1:1 turn Ã¢â‚¬â€ the room is a different
   // conversation, not a different bot
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
-  const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
+  // Hosted rooms work in the bot's team folder (the room memory's), for
+  // every member alike; a member never triggers a host engine here either.
+  if (roomAccountComputer !== readyBot.id) refuseMemberHostEngine(threadId, instance.driverKind);
+  const roomWorkspaceKey = privateThreads() ? memoryKeyFor(bot.id, threadId) : bot.id;
+  const workspace = worksInWorkspace ? ensureWorkspace(roomWorkspaceKey) : undefined;
   // a room member's memory writes are journaled the same as a 1:1 turn's
-  if (workspace) beginMemoryTurn(bot.id, threadId);
+  if (workspace) beginMemoryTurn(roomWorkspaceKey, threadId);
   // The room's folder pins here Ã¢â‚¬â€ on the first turn that actually
   // dispatches, not at PATCH time Ã¢â‚¬â€ so a folder set on a never-used room
   // still takes effect, while a room that already worked somewhere never
@@ -9402,7 +9435,7 @@ async function runGroupMemberTurn(
     }
   }
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd) : "" },
+    { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(roomWorkspaceKey, cwd, readyBot.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
     { id: "computer", label: "Computer", text: computerPrompt(roomTeamComputer || roomComputerKind === "box" ? instance.driverKind === "boxAgent" ? "box-agent" : "box" : roomVmTarget ? localVmMode(cfg) === "per-bot" ? "vm-private" : "vm-shared" : roomComputerKind) },
     { id: "team-computer", label: "Team computer", text: teamComputerPrompt(roomTeamComputer) },
@@ -13361,6 +13394,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             if (verdicts.some(verdict => verdict !== "allow")) return json(res, 403, { error: "Denied by user; no work sent." });
             approvalGranted = true;
           }
+          // Hosted: a teammate's conversation with this bot is per account,
+          // like every private conversation, and its turns bill the account
+          // the delegating conversation runs for. Unknown account: refuse.
+          const delegatingAccount = privateThreads() ? turnAccountFor(address.threadId) : undefined;
+          if (privateThreads() && !destination && !delegatingAccount) return json(res, 403, { error: "This conversation's account could not be established; no work sent." });
+          const delegatingSponsor = creditsEnforced() ? threadSponsorAccount(address.threadId) : undefined;
           const accepted: { requestId: string; botId: string; duplicate: boolean; status: string }[] = [];
           const errors: { botId: string; error: string }[] = [];
           for (const target of targets) {
@@ -13379,9 +13418,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                   working: threadId => threadBusy(target.botId, threadId)
                     || queuedThreadPosition(target.botId, threadId) !== null
                     || roomHandoffs.activeDirect(threadId),
+                  ...(delegatingAccount ? { reusable: (threadId: string) => threadOwnership.recorded(threadId) === delegatingAccount } : {}),
                 });
                 if (!resolved) throw new Error("The recipient no longer exists");
                 target.threadId = resolved.task.threadId;
+                if (delegatingAccount) threadOwnership.claim(target.threadId, delegatingAccount);
+                if (delegatingSponsor) creditContext.run(delegatingSponsor, () => sponsorCreditThread(target.threadId));
                 if (resolved.created) createdThread = resolved.task.threadId;
                 if (delegatedFullAccess(internalSender, internalCapability.threadId, store.bot(target.botId)!)) {
                   grantDelegatedFullAccess(internalSender, store.bot(target.botId)!, target.threadId);
@@ -17229,7 +17271,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         : store.botByThread(threadId);
       if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
       const requestOwner = owner ? botForThread(owner.id, threadId) : null;
-      const outcome = await answerRequest(threadId, requestOwner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true);
+      // Hosted room turns run on the routed NATION API engine (creditRoutedBot),
+      // not the bot's stored one, so their approvals are answered there.
+      const requestInstance = owner && creditsEnforced() ? "nationApi" : requestOwner?.modelSelection.instanceId ?? "";
+      const outcome = await answerRequest(threadId, requestInstance, requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined, body.always === true);
       return json(res, 200, { ok: true, outcome });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/interrupt$/);

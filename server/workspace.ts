@@ -25,6 +25,22 @@ export function supportsWorkspaceFiles(driverKind: string): boolean {
   return !["grok", "openai-compat", "minimax", "boxAgent"].includes(driverKind);
 }
 
+/** Engines whose agent runs as a process on this server with its own file
+ * and shell tools (Claude, Codex, local CLIs). The NATION API chat runtime
+ * has no host file tools, and Box agents run on their cloud computer. */
+export function hostFilesystemEngine(driverKind: string): boolean {
+  return supportsWorkspaceFiles(driverKind) && driverKind !== "nation-openrouter";
+}
+
+/** Hosted workspaces: a member's turn never runs a host-filesystem engine
+ * unless the operator explicitly accepts that such a process shares this
+ * server's filesystem (there is no OS sandbox between accounts). Folders are
+ * still per account either way; this is the fail-closed default on top. */
+export const MEMBER_HOST_ENGINE_REFUSAL = "This agent's engine runs directly on the NATION server, so it isn't available to members of a hosted workspace. Ask an admin to switch it to NATION API or to its cloud computer.";
+export function memberHostEngineAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.NATION_MEMBER_HOST_ENGINES === "1";
+}
+
 /** Default task files are private to the thread, outside the bot's shared
  * memory folder. This is directory organization, not a shell sandbox. */
 export function ensureTaskWorkspace(botId: string, threadId: string): string {
