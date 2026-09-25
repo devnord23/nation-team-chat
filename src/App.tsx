@@ -135,7 +135,7 @@ function Shell() {
   }, [unreadCount]);
 
   useEffect(() => {
-    if (state.config?.isProductOwner && /^\/swarm\/(?:connectors|plugins|integrations|marketplace)\/?$/.test(window.location.pathname)) {
+    if (/^\/swarm\/(?:connectors|plugins|integrations|marketplace)\/?$/.test(window.location.pathname)) {
       dispatch({ type: "togglePlugins", open: true, surface: "apps" });
     }
   }, [state.config?.isProductOwner, dispatch]);
@@ -144,7 +144,7 @@ function Shell() {
   // The modal then opens with the correct Connect/Add account buttons and
   // quietly revalidates instead of rediscovering every account from scratch.
   useEffect(() => {
-    if (!state.connected || !state.config?.isProductOwner) return;
+    if (!state.connected) return;
     void preloadConnectedApps().catch(() => {});
   }, [state.connected, state.config?.isProductOwner]);
 
@@ -343,7 +343,7 @@ function Shell() {
       )}
       {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
-      {state.pluginsOpen && state.config?.isProductOwner && <PluginsPanel />}
+      {state.pluginsOpen && <PluginsPanel />}
       {state.newBotOpen && <NewBotDialog />}
       {state.shortcutsOpen && (
         <KeyboardShortcutsModal
