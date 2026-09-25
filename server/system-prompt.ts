@@ -77,6 +77,13 @@ export const COMPOSIO_PROMPT =
 /** NATION-managed web search and reader. */
 export const WEB_TOOLS_PROMPT =
   " You can search the web with web_search and read a public page as text with web_read. Use them for current events, facts you are unsure of, and documentation; read the most relevant results before answering and cite the links you relied on. Use the browser instead only when a page needs interaction or a login. If a web tool reports it is unavailable, say so plainly rather than guessing.";
+/** The web guidance for whichever of the two tools the admin left on. */
+export function webToolsPrompt(search: boolean, read: boolean): string {
+  if (search && read) return WEB_TOOLS_PROMPT;
+  if (search) return " You can search the web with web_search. Use it for current events, facts you are unsure of, and documentation, and cite the links you relied on. If it reports it is unavailable, say so plainly rather than guessing.";
+  if (read) return " You can read a public web page as text with web_read, for a link the person gave you or one you already know. Use the browser instead only when a page needs interaction or a login. If it reports it is unavailable, say so plainly rather than guessing.";
+  return "";
+}
 /** The same guidance for the chat runtime (NATION API and other chat
  * engines), whose connected-app tools are named apps_*. */
 export const APPS_PROMPT =

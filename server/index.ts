@@ -3,7 +3,7 @@ import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-pr
 import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId, threadSponsorAccount } from "./nation-credit-context.ts";
 import { searchProvider, webRead, webSearch, webToolPrices, webToolsStatus, WebToolError } from "./nation-web-tools.ts";
 import type { CreditAccount } from "./nation-credits.ts";
-import { modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
+import { allowedModelSlug, modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
 import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
 import { teamMapFor } from "./team-map-view.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -160,6 +160,9 @@ import {
   sharedComputersEnabled,
   builtInBrowserEnabled,
   webToolsEnabled,
+  webSearchEnabled,
+  webReadEnabled,
+  agentComputersEnabled,
   llmThreadTitlesEnabled,
   browserProfileReplacementConflict,
   browserProfilePartitionTarget,
@@ -360,7 +363,7 @@ import {
   buildSystemPrompt,
   computerPrompt,
   connectedAppsPrompt,
-  WEB_TOOLS_PROMPT,
+  webToolsPrompt,
   customMcpPrompt,
   CREDENTIAL_PROMPT,
   mentionPrompt,
@@ -1740,7 +1743,8 @@ function webToolsIntegration(botId: string, threadId: string, generation: string
   return {
     command: process.execPath,
     args: [SPAWNED_PROXIES.web],
-    env: { ...AGENTS_NODE_FLAG, OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`, OMB_WEB_TOKEN: token },
+    env: { ...AGENTS_NODE_FLAG, OMB_HARNESS_URL: `http://127.0.0.1:${PORT}`, OMB_WEB_TOKEN: token,
+      OMB_WEB_TOOLS: [webSearchEnabled(cfg) ? "search" : "", webReadEnabled(cfg) ? "read" : ""].filter(Boolean).join(",") },
   };
 }
 
@@ -4766,6 +4770,19 @@ function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): 
  * bot's own harness there with the computer tools built in, so nothing on this
  * machine relays clicks and screenshots. Every start/interrupt of a turn asks
  * here which engine owns it. */
+/** The allowed NATION API models per tier: the admin's saved choices
+ * (config.modelRouting) over the API environment. Routing off: every tier is
+ * the default model. */
+function routingCatalog() {
+  const saved = cfg.modelRouting ?? {};
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (saved.defaultModel) env.NATION_OPENROUTER_MODEL = saved.defaultModel;
+  for (const [tier, name] of [["fast", "NATION_MODEL_FAST"], ["standard", "NATION_MODEL_STANDARD"], ["strong", "NATION_MODEL_STRONG"]] as const) {
+    if (saved[tier]) env[name] = saved[tier];
+    if (saved.enabled === false) delete env[name];
+  }
+  return { ...modelRouteCatalog(env), enabled: saved.enabled !== false };
+}
 /** The cheaper allowed model a routed turn may fall back to, per thread. */
 const routedModelFallbacks = new Map<string, string>();
 function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string, text?: string): BotRecord | null {
@@ -4785,7 +4802,7 @@ function creditRoutedBot(bot: BotRecord | null | undefined, threadId: string, te
       browser: bot.computer === "browser" || (bot.browser !== false && builtInBrowserEnabled(cfg)),
       connectors: bot.composio !== false && connectorsMultiUser() && composio.configured(cfg, { accountId: "member" }),
     },
-  }, modelRouteCatalog());
+  }, routingCatalog());
   if (decision.fallback) routedModelFallbacks.set(threadId, decision.fallback);
   else routedModelFallbacks.delete(threadId);
   recordRoute({ ...decision, at: Date.now(), threadId, ...(sponsor ? { account: sponsor.id } : {}) });
@@ -7115,7 +7132,7 @@ async function startTurn(
       // null = no account established: no computer and no browser at all.
       const accountComputer = computerKeyFor(bot.id, threadId);
       const memberComputer = privateThreads() && accountComputer !== bot.id;
-      const teamComputer = privateThreads() ? undefined : inheritedTeamComputer(bot);
+      const teamComputer = privateThreads() || !agentComputersEnabled(cfg) ? undefined : inheritedTeamComputer(bot);
       const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend === "box" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       // Box's native runner owns its computer tools. Local drivers mount
@@ -7138,7 +7155,9 @@ async function startTurn(
       }
       // A member's turn never reaches this server's own desktop or a shared
       // Local VM; those are the install's, not the account's.
-      const wants = privateThreads() && (accountComputer === null || (memberComputer && (plan.computer === "vm" || plan.computer === "local")))
+      // The admin can switch agent computers off for every bot.
+      const wants = !agentComputersEnabled(cfg) ||
+        (privateThreads() && (accountComputer === null || (memberComputer && (plan.computer === "vm" || plan.computer === "local"))))
         ? "off" as const
         : plan.computer;
       let previewCapture: (() => Promise<{ png: string; format: string }>) | null = null;
@@ -7608,7 +7627,7 @@ async function startTurn(
         { id: "composio", label: "Connected apps", text: integrations.composio ? connectedAppsPrompt(instance.driverKind) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
-        { id: "web", label: "Web", text: integrations.web ? WEB_TOOLS_PROMPT : "" },
+        { id: "web", label: "Web", text: integrations.web ? webToolsPrompt(webSearchEnabled(cfg), webReadEnabled(cfg)) : "" },
         { id: "coordination", label: "Team", text: coordinationPrompt ? ` ${coordinationPrompt}` : "" },
         { id: "assignment", label: "Teammate task", text: coordinationNode ? `\n${coordinationSystemInstructions()}` : "" },
         { id: "outstanding", label: "Outstanding teammate work", text: outstandingAssignmentsPrompt(threadId) },
@@ -9163,7 +9182,7 @@ async function runGroupMemberTurn(
   // "Works on" decides here exactly as it decides a 1:1 turn: the same
   // shared policy, so a room cannot become the loophole that hands a bot
   // set to Off the browser its own settings withhold everywhere else.
-  const roomTeamComputer = inheritedTeamComputer(readyBot);
+  const roomTeamComputer = agentComputersEnabled(cfg) ? inheritedTeamComputer(readyBot) : undefined;
   // Hosted rooms: an explicit team computer is shared on purpose; otherwise
   // the turn uses the triggering member's own computer for this bot, so a
   // room is never a way into another member's machine. null = no account
@@ -9215,13 +9234,13 @@ async function runGroupMemberTurn(
   const roomSetupIsCurrent = () => !isCancelled?.() &&
     groupSpeakers.get(threadId) === roomSpeaker &&
     activeInternalGenerationByThread.get(threadId) === internalGeneration;
-  if (!roomTeamComputer && roomPlan.computer === "local" && !roomMemberComputer) {
+  if (!roomTeamComputer && roomPlan.computer === "local" && !roomMemberComputer && agentComputersEnabled(cfg)) {
     integrations.localComputer = await mountHostComputer(
       resourceOwner, readyBot.id, instance.adapter.capabilities.localComputerMcp === true);
     if (!roomSetupIsCurrent()) return false;
     roomComputerKind = "local";
   }
-  if (!roomTeamComputer && roomPlan.computer === "cloud" && roomAccountComputer !== null) {
+  if (!roomTeamComputer && roomPlan.computer === "cloud" && roomAccountComputer !== null && agentComputersEnabled(cfg)) {
     if (turnProvider(readyBot) === "vps") {
       const unsupported = vps.vpsDriverError(instance.driverKind, instance.adapter.capabilities.computerMcp === true);
       if (unsupported) throw new Error(unsupported);
@@ -9255,7 +9274,7 @@ async function runGroupMemberTurn(
 
   // Room and Goal turns use the speaker's desktop, never the coordinator's.
   // Claim the same lease as direct turns before asynchronous VM setup.
-  if (readyBot.computer === "vm" && !roomMemberComputer) {
+  if (readyBot.computer === "vm" && !roomMemberComputer && agentComputersEnabled(cfg)) {
     if (instance.adapter.capabilities.computerMcp !== true || instance.driverKind === "boxAgent") {
       throw new Error("this model engine cannot use the Local VM");
     }
@@ -9389,7 +9408,7 @@ async function runGroupMemberTurn(
     { id: "team-computer", label: "Team computer", text: teamComputerPrompt(roomTeamComputer) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomTeamComputer ? "cloud" : roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note }) },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
-    { id: "web", label: "Web", text: integrations.web ? WEB_TOOLS_PROMPT : "" },
+    { id: "web", label: "Web", text: integrations.web ? webToolsPrompt(webSearchEnabled(cfg), webReadEnabled(cfg)) : "" },
     { id: "recall", label: "Recall", text: integrations.agents ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
@@ -12323,10 +12342,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // NATION-managed web search and reader, metered to the turn's account.
       if (method === "POST" && (path === "/api/internal/web/search" || path === "/api/internal/web/read")) {
         const body = await readInternalBody();
-        if (!store.bot(internalCapability.botId) || !webToolsEnabled(cfg)) {
-          return json(res, 403, { error: "Web tools are turned off in this workspace." });
-        }
         const searching = path.endsWith("/search");
+        if (!store.bot(internalCapability.botId) || !(searching ? webSearchEnabled(cfg) : webReadEnabled(cfg))) {
+          return json(res, 403, { error: searching ? "Web search is turned off in this workspace." : "The web reader is turned off in this workspace." });
+        }
         const account = creditsEnforced() ? threadSponsorAccount(internalCapability.threadId) : undefined;
         if (creditsEnforced() && !account) return json(res, 403, { error: "Open this conversation to use your NATION credit." });
         const ledger = account ? nationLedger() : undefined;
@@ -18385,11 +18404,50 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!auth.scopes.includes("admin")) return json(res, 403, { error: "forbidden: admin scope required" });
       return json(res, 200, { enabled: webToolsEnabled(cfg), ...webToolsStatus(cfg) });
     }
+    // Admin-only: every NATION-managed agent capability in one place: the
+    // models and routing, the per-tool switches, the backing each tool uses
+    // and whether it is configured. Never a credential value: keys are
+    // write-only (PATCH /api/config) and only their configured state shows.
+    if (method === "GET" && path === "/api/admin/controls") {
+      if (!auth.scopes.includes("admin")) return json(res, 403, { error: "forbidden: admin scope required" });
+      const saved = cfg.modelRouting ?? {};
+      const source = (value: string | undefined, envName: string) => value ? "admin" : (process.env[envName] ?? "").trim() ? "environment" : "default";
+      const web = webToolsStatus(cfg);
+      const engine = browserEngineSummary();
+      const nationApi = nationOpenRouterStatus();
+      return json(res, 200, {
+        models: {
+          ...routingCatalog(),
+          sources: {
+            defaultModel: source(saved.defaultModel, "NATION_OPENROUTER_MODEL"),
+            fast: source(saved.fast, "NATION_MODEL_FAST"),
+            standard: source(saved.standard, "NATION_MODEL_STANDARD"),
+            strong: source(saved.strong, "NATION_MODEL_STRONG"),
+          },
+        },
+        tools: {
+          browser: { enabled: builtInBrowserEnabled(cfg), available: engine.kind === "engine" },
+          computers: { enabled: agentComputersEnabled(cfg), available: box.boxConfigured(cfg) || vpsSshAlias(cfg) !== null },
+          webSearch: { enabled: webSearchEnabled(cfg), available: web.search.configured },
+          webRead: { enabled: webReadEnabled(cfg), available: web.reader.configured },
+          connectedApps: { available: CONNECTORS_ENABLED && composio.configured(cfg) },
+        },
+        search: { provider: web.search.provider, source: web.search.source, prices: web.prices },
+        health: {
+          nationApi: { configured: nationApi.configured },
+          search: { configured: web.search.configured },
+          cloudComputer: { configured: box.boxConfigured(cfg) },
+          vps: { configured: vpsSshAlias(cfg) !== null },
+          browserEngine: { ready: engine.kind === "engine", ...(engine.kind === "engine" ? {} : { reason: engine.reason ?? "not installed" }) },
+          connectedApps: { configured: CONNECTORS_ENABLED && composio.configured(cfg) },
+        },
+      });
+    }
     // Admin-only: the allowed model per tier and recent routing receipts.
     // Not in CLIENT_ALLOW, and checked again here like the endpoints below.
     if (method === "GET" && path === "/api/admin/model-routing") {
       if (!auth.scopes.includes("admin")) return json(res, 403, { error: "forbidden: admin scope required" });
-      return json(res, 200, { catalog: modelRouteCatalog(), recent: recentRoutes().slice(-50) });
+      return json(res, 200, { catalog: routingCatalog(), recent: recentRoutes().slice(-50) });
     }
 
     // ── Nation admin-only OpenRouter endpoints ──
@@ -18420,6 +18478,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       if (hostedModels && ["instances", "anthropic", "openaiCompat", "xai", "opencodeGo"].some(key => Object.hasOwn(body, key))) return json(res, 403, { error: HOSTED_PROVIDER_SETTINGS_ERROR });
       const patch = parseConfigPatch(body);
+      // Routed models must be allowed NATION API slugs; "" clears one.
+      for (const key of ["defaultModel", "fast", "standard", "strong"] as const) {
+        const value = patch.modelRouting?.[key];
+        if (value && !allowedModelSlug(value)) return json(res, 400, { error: `${key} must be an allowed NATION API model id (provider/model)` });
+      }
       if (hostedModels && patch.defaultModelSelection) {
         const checked = checkedModelSelection(patch.defaultModelSelection);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });

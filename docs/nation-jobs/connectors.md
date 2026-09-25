@@ -65,3 +65,25 @@ directory and at the admin-only `GET /api/admin/model-routing`.
   browser tools, screenshots to the model, human control, billing authority.
 - `server/composio-principal.test.ts`, `server/nation-model-router.test.ts`,
   `server/drivers/openai-chat-tools.test.ts`: unit coverage.
+
+## Admin agent controls (`/admin` → Agent controls)
+
+One place for the operator to control NATION-managed agent capability.
+`GET /api/admin/controls` shows configured state only. Members get 403 on it
+and on every write, forged owner/admin headers included.
+
+- **Models and routing:** the default model and the Easy, Normal and Hard
+  tier models (`config.modelRouting`). These override `NATION_OPENROUTER_MODEL`
+  / `NATION_MODEL_FAST|STANDARD|STRONG`. Only `provider/model` ids are
+  accepted, and never Claude/Anthropic. With routing off, every hosted turn
+  uses the default model. Each value shows where it came from (admin,
+  environment or default).
+- **Per-tool switches** (`config.features`), each applied on the next turn:
+  agent computers (`computers`), built-in browser (`browser`), web search
+  (`webSearch`), web reader (`webRead`), and the master `webTools`.
+- **Search provider and keys** stay under Apps & computers. Keys are
+  write-only.
+- **Provider health:** NATION API, search provider, cloud computers, VPS,
+  browser engine and connected-apps backend, shown as configured/ready only.
+
+Covered by `server/nation-admin-controls.e2e.test.ts`.

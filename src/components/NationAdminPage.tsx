@@ -1,5 +1,6 @@
 import { NationIntegrationAdmin } from "./NationIntegrationAdmin";
 import { NationCreditAdmin } from "./NationCreditAdmin";
+import { NationAgentControls } from "./NationAgentControls";
 /**
  * Nation Admin Page — accessible only to the account owner (product admin).
  *
@@ -8,7 +9,7 @@ import { NationCreditAdmin } from "./NationCreditAdmin";
  * its authoritative owner verdict before rendering controls.
  */
 import { useState } from "react";
-import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Loader2, Server, ShieldCheck, SlidersHorizontal, XCircle } from "lucide-react";
 import { api } from "@/lib/api-client";
 import type { ConfigStatus } from "@/state/store";
 
@@ -124,13 +125,14 @@ function OpenRouterSection({ config }: { config: NationAdminConfig }) {
 
 const TABS = [
   { id: "openrouter", label: "NATION API", icon: Server },
+  { id: "controls", label: "Agent controls", icon: SlidersHorizontal },
   { id: "credits", label: "Credits", icon: ShieldCheck },
   { id: "integrations", label: "Apps & computers", icon: Server },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 export function NationAdminPage({ config }: { config: NationAdminConfig | null }) {
-  const [tab, setTab] = useState<TabId>(() => window.location?.hash === "#integrations" ? "integrations" : "openrouter");
+  const [tab, setTab] = useState<TabId>(() => window.location?.hash === "#integrations" ? "integrations" : window.location?.hash === "#controls" ? "controls" : "openrouter");
 
   const admin = isProductAdmin({
     remoteClient: Boolean(window.ogb?.remoteClient),
@@ -198,6 +200,7 @@ export function NationAdminPage({ config }: { config: NationAdminConfig | null }
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto max-w-[700px]">
           {tab === "openrouter" && <OpenRouterSection config={config!} />}
+          {tab === "controls" && <NationAgentControls />}
           {tab === "credits" && <NationCreditAdmin />}
           {tab === "integrations" && <NationIntegrationAdmin config={config!} />}
         </div>

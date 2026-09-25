@@ -37,6 +37,11 @@ export interface ModelRouteCatalog {
 
 const MODEL_SLUG = /^[a-z0-9][\w.-]*\/[\w.:-]+$/i;
 
+/** An allowed NATION API model slug (never a Claude/Anthropic one), or undefined. */
+export function allowedModelSlug(value: string | undefined): string | undefined {
+  return allowedModel(value);
+}
+
 function allowedModel(value: string | undefined): string | undefined {
   const model = value?.trim();
   if (!model || !MODEL_SLUG.test(model) || isClaudeOrAnthropicSlug(model)) return undefined;

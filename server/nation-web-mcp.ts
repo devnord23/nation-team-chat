@@ -34,6 +34,10 @@ const tools = [
   },
 ];
 
+// The admin can switch search and the reader off separately.
+const enabled = new Set((process.env.OMB_WEB_TOOLS ?? "search,read").split(",").filter(Boolean));
+const offered = tools.filter((tool) => enabled.has(tool.name));
+
 const reply = (id: unknown, result: unknown) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
 const text = (id: unknown, body: string, isError = false) => reply(id, { isError, content: [{ type: "text", text: body }] });
 
@@ -42,12 +46,12 @@ async function handle(line: string) {
   if (frame.id === undefined) return;
   if (frame.method === "initialize") return reply(frame.id, { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "nation-web", version: "1" } });
   if (frame.method === "ping") return reply(frame.id, {});
-  if (frame.method === "tools/list") return reply(frame.id, { tools });
+  if (frame.method === "tools/list") return reply(frame.id, { tools: offered });
   if (frame.method !== "tools/call") {
     return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: frame.id, error: { code: -32601, message: "Unknown method" } }) + "\n");
   }
   const name = frame.params?.name;
-  if (name !== "search" && name !== "read") return text(frame.id, "Unknown tool", true);
+  if ((name !== "search" && name !== "read") || !enabled.has(name)) return text(frame.id, "Unknown tool", true);
   try {
     const response = await fetch(`${harness}/api/internal/web/${name}`, {
       method: "POST",
