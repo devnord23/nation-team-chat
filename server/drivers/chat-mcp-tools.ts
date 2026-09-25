@@ -208,6 +208,20 @@ const validatorOptions = {
   // or describe an open tuple. Ajv still enforces every constraint.
   strictRequired: false, strictTypes: false, strictTuples: false,
 };
+
+// OpenAPI numeric size formats that ajv-formats does not include (ajv-formats
+// already covers int32 and int64). Computer tool schemas use these pervasively
+// for PIDs, screen coordinates, button codes, and similar integer fields.
+// Ajv strict+validateFormats raises a compile-time error for any unknown
+// format string, so we register real range validators here.
+const OPENAPI_BOUNDED_INT_FORMATS: ReadonlyArray<readonly [name: string, min: number, max: number]> = [
+  ["int8",   -128,        127],
+  ["uint8",  0,           255],
+  ["int16",  -32768,      32767],
+  ["uint16", 0,           65535],
+  ["uint32", 0,           4294967295],
+];
+
 function compileSchema(schema: Record<string, unknown>): ValidateFunction {
   const dialect = schema.$schema;
   if (dialect !== undefined && dialect !== "http://json-schema.org/draft-07/schema#" && dialect !== "https://json-schema.org/draft/2020-12/schema") {
@@ -220,8 +234,26 @@ function compileSchema(schema: Record<string, unknown>): ValidateFunction {
   // ajv-formats is CommonJS and exports the plugin as both module.exports
   // and .default; the latter also matches its NodeNext declaration.
   formats.default(compiler);
+  for (const [name, min, max] of OPENAPI_BOUNDED_INT_FORMATS) {
+    compiler.addFormat(name, { type: "number", validate: (n: number) => Number.isInteger(n) && n >= min && n <= max });
+  }
+  // uint64 range (0 to 2^64−1) exceeds IEEE 754 double precision; validate
+  // only that the JSON value is a non-negative integer.
+  compiler.addFormat("uint64", { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 });
   try { return compiler.compile(schema); }
   catch { throw new Error("MCP tool schema could not be validated; check its constraints, formats, and references"); }
+}
+
+// Returns a compiled validator, or null if the schema cannot be compiled.
+// A null result means the tool is skipped — the server and other tools from
+// the same server are unaffected.
+function tryCompileSchema(schema: Record<string, unknown>, server: string, toolName: string): ValidateFunction | null {
+  try {
+    return compileSchema(schema);
+  } catch (error) {
+    console.error(`[chat-mcp] skipping tool "${toolName}" from server "${server}": ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 function boundedText(value: string): string {
@@ -293,7 +325,8 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         if (definitions.length >= TOOL_COUNT) throw new Error("MCP tool count exceeds the 128-tool limit");
         if (!object(tool.inputSchema) || tool.inputSchema.type !== "object") throw new Error("MCP tools require an object input schema");
         if (Buffer.byteLength(JSON.stringify(tool.inputSchema)) > SCHEMA_BYTES) throw new Error("MCP tool schema exceeds the 64KB limit");
-        const schema = compileSchema(tool.inputSchema);
+        const schema = tryCompileSchema(tool.inputSchema, server, tool.name);
+        if (schema === null) continue;
         const shown = server === "apps" ? tool.name.replace(/^composio_/i, "") : tool.name;
         const base = `${server}_${shown}`.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64) || "mcp_tool";
         let name = base;
