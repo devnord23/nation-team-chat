@@ -2199,12 +2199,14 @@ export class Store {
   resolvePairConversation(
     sender: Pick<BotRecord, "id" | "name">,
     recipientId: string,
-    options: { label?: string; working: (threadId: string) => boolean },
+    options: { label?: string; working: (threadId: string) => boolean;
+      /** Only conversations this accepts may be reused (hosted: the same account's). */
+      reusable?: (threadId: string) => boolean },
   ): { task: TaskRecord; created: boolean } | null {
     if (!this.bot(recipientId)) return null;
     const title = `@${sender.name}`;
     const opener = (kind: "pair" | "work", at = Date.now()): TaskOpenedBy => ({ botId: sender.id, name: sender.name, kind, at });
-    const fromSender = this.tasks(recipientId).filter((task) => task.openedBy?.botId === sender.id);
+    const fromSender = this.tasks(recipientId).filter((task) => task.openedBy?.botId === sender.id && (options.reusable?.(task.threadId) ?? true));
     let pair = fromSender.find((task) => task.openedBy?.kind === "pair");
     if (!pair) {
       const lastActivity = (task: TaskRecord) =>

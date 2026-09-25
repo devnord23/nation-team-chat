@@ -13361,6 +13361,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             if (verdicts.some(verdict => verdict !== "allow")) return json(res, 403, { error: "Denied by user; no work sent." });
             approvalGranted = true;
           }
+          // Hosted: a teammate's conversation with this bot is per account,
+          // like every private conversation, and its turns bill the account
+          // the delegating conversation runs for. Unknown account: refuse.
+          const delegatingAccount = privateThreads() ? turnAccountFor(address.threadId) : undefined;
+          if (privateThreads() && !destination && !delegatingAccount) return json(res, 403, { error: "This conversation's account could not be established; no work sent." });
+          const delegatingSponsor = creditsEnforced() ? threadSponsorAccount(address.threadId) : undefined;
           const accepted: { requestId: string; botId: string; duplicate: boolean; status: string }[] = [];
           const errors: { botId: string; error: string }[] = [];
           for (const target of targets) {
@@ -13379,9 +13385,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                   working: threadId => threadBusy(target.botId, threadId)
                     || queuedThreadPosition(target.botId, threadId) !== null
                     || roomHandoffs.activeDirect(threadId),
+                  ...(delegatingAccount ? { reusable: (threadId: string) => threadOwnership.recorded(threadId) === delegatingAccount } : {}),
                 });
                 if (!resolved) throw new Error("The recipient no longer exists");
                 target.threadId = resolved.task.threadId;
+                if (delegatingAccount) threadOwnership.claim(target.threadId, delegatingAccount);
+                if (delegatingSponsor) creditContext.run(delegatingSponsor, () => sponsorCreditThread(target.threadId));
                 if (resolved.created) createdThread = resolved.task.threadId;
                 if (delegatedFullAccess(internalSender, internalCapability.threadId, store.bot(target.botId)!)) {
                   grantDelegatedFullAccess(internalSender, store.bot(target.botId)!, target.threadId);
