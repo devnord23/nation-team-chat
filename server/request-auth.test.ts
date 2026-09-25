@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearSessionCookie,
@@ -21,6 +21,7 @@ import {
   sanitizeSource,
   serializeSessionCookie,
   sessionCookieName,
+  trustedOrigin,
 } from "./request-auth.ts";
 import { SESSION_TTL_MS, SessionRegistry } from "./sessions.ts";
 
@@ -429,5 +430,97 @@ describe("an IPC listener (openmausbot serve --tunnel) is remote by construction
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("trusted front-end origins (web app served through a rewrite proxy)", () => {
+  const env = {
+    NATION_TRUSTED_ORIGINS: "https://thenation.city",
+    NATION_TRUSTED_ORIGIN_PATTERNS: "https://nation-team-chat-*-aurk1.vercel.app",
+  };
+  // What the backend sees for /swarm/api/* rewritten by Vercel: its own Host,
+  // the front end's Origin.
+  const proxied = (origin: string) => request({ host: "server.aurk.org", "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.7", origin }, "POST");
+
+  it("accepts the production origin and this team's preview deployments", () => {
+    for (const origin of [
+      "https://thenation.city",
+      "https://nation-team-chat-kwwauk9nb-aurk1.vercel.app",
+      "https://nation-team-chat-git-claude-happy-johnson-4i0ij8-aurk1.vercel.app",
+      "HTTPS://Nation-Team-Chat-kwwauk9nb-aurk1.vercel.app",
+    ]) expect(isSameOrigin(proxied(origin), env), origin).toBe(true);
+  });
+
+  it("rejects everything else, including look-alikes and arbitrary vercel.app origins", () => {
+    for (const origin of [
+      "https://evil.vercel.app",
+      "https://nation-team-chat-kwwauk9nb-evil.vercel.app",
+      "https://evil-nation-team-chat-kwwauk9nb-aurk1.vercel.app",
+      "https://nation-team-chat-x-aurk1.vercel.app.evil.example",
+      "https://nation-team-chat-a.b-aurk1.vercel.app",
+      "http://nation-team-chat-kwwauk9nb-aurk1.vercel.app",
+      "https://nation-team-chat-kwwauk9nb-aurk1.vercel.app:8443",
+      "https://thenation.city.evil.example",
+      "https://sub.thenation.city",
+      "http://thenation.city",
+      "null",
+      "",
+    ]) expect(isSameOrigin(proxied(origin || "x"), env), origin).toBe(false);
+    // nothing configured: only the request's own origin, exactly as before
+    expect(isSameOrigin(proxied("https://thenation.city"), {})).toBe(false);
+    expect(isSameOrigin(request({ host: "server.aurk.org", "x-forwarded-proto": "https", origin: "https://server.aurk.org" }), {})).toBe(true);
+  });
+
+  it("refuses unsafe allowlist entries instead of widening the policy", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const pattern of ["*", "https://*", "https://*.vercel.app", "https://*-aurk1.vercel.app", "https://nation-*.app",
+      "http://nation-team-chat-*-aurk1.vercel.app", "https://nation-team-chat-*-aurk1.vercel.app/swarm", "https://nation-*-*-aurk1.vercel.app",
+      "https://nation-team-chat-*-aurk1.vercel.app:443"]) {
+      expect(trustedOrigin("https://nation-team-chat-kwwauk9nb-aurk1.vercel.app", { NATION_TRUSTED_ORIGIN_PATTERNS: pattern }), pattern).toBe(false);
+      expect(trustedOrigin("https://evil.vercel.app", { NATION_TRUSTED_ORIGIN_PATTERNS: pattern }), pattern).toBe(false);
+    }
+    for (const exact of ["*", "https://thenation.city/swarm", "http://thenation.city", "https://thenation.city:8443"]) {
+      expect(trustedOrigin("https://thenation.city", { NATION_TRUSTED_ORIGINS: exact }), exact).toBe(false);
+    }
+    warn.mockRestore();
+  });
+
+  describe("through the request gate", () => {
+    let dir: string;
+    let sessions: SessionRegistry;
+    const cookieName = "omb_session_8799_env";
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "omb-origin-"));
+      sessions = new SessionRegistry({ file: join(dir, "sessions.json") });
+      vi.stubEnv("NATION_TRUSTED_ORIGINS", env.NATION_TRUSTED_ORIGINS);
+      vi.stubEnv("NATION_TRUSTED_ORIGIN_PATTERNS", env.NATION_TRUSTED_ORIGIN_PATTERNS);
+    });
+    afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
+    const cookieFor = (scopes: Array<"admin" | "client">) => {
+      const { code } = sessions.openPairing({ scopes });
+      const result = sessions.exchange({ code, label: "t", source: "1.2.3.4" });
+      if (!result.ok) throw new Error(result.error);
+      return `${cookieName}=${result.token}`;
+    };
+    const gate = (origin: string, cookie: string, path = "/api/bots/b/messages", method = "POST", extra: Record<string, string> = {}) =>
+      resolveRequestAuth(request({ host: "server.aurk.org", "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.7", origin, cookie, ...extra }, method),
+        { sessions, cookieName, streamPath: "/api/events", url: new URL(path, "https://server.aurk.org") });
+
+    it("lets a signed-in member's cookie work from the preview, keeps scopes, and refuses forged origins", () => {
+      const member = cookieFor(["client"]);
+      const preview = "https://nation-team-chat-kwwauk9nb-aurk1.vercel.app";
+      expect(gate(preview, member).auth?.kind).toBe("session");
+      expect(gate("https://thenation.city", member).auth?.kind).toBe("session");
+      expect(gate(preview, member, "/api/events", "GET").auth?.kind).toBe("session");
+      // the trusted origin does not grant admin
+      expect(gate(preview, member, "/api/admin/controls", "GET").error).toMatch(/lacks the admin scope/);
+      for (const origin of ["https://evil.vercel.app", "https://nation-team-chat-kwwauk9nb-evil.vercel.app", "https://attacker.example"]) {
+        expect(gate(origin, member).error, origin).toBe("forbidden: cross-origin request");
+        // forged forwarding headers do not help
+        expect(gate(origin, member, "/api/bots/b/messages", "POST", { "x-forwarded-host": "nation-team-chat-kwwauk9nb-aurk1.vercel.app", host: "nation-team-chat-kwwauk9nb-aurk1.vercel.app.evil.example" }).auth, origin).toBeNull();
+      }
+      // a trusted origin without a valid session is still just unauthenticated
+      expect(gate(preview, `${cookieName}=omb_sess_forged`).auth).toBeNull();
+    });
   });
 });
