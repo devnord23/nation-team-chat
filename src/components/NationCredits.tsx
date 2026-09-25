@@ -9,6 +9,9 @@
  *   – Bottom-left account chip (SidebarProfileMenu) → openSheet()
  *   – Top banner "Top up" link (low-balance / unverified warning)
  *   – Settings → Usage "NationCreditsSettingsRow" → openSheet()
+ *   – /subscription path (auto-opens sheet)
+ *   – /subscription?pack=15|49|99 (auto-creates invoice once status loaded)
+ *   – /subscription?asset=USDG|NATION (pre-selects payment token)
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -83,16 +86,37 @@ export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; on
 }
 
 // ─── Tier card ───────────────────────────────────────────────────────────────
-/** Tapping any tier card navigates to the subscription page. Exported for tests. */
+/** Exported for unit tests. Tapping the card calls onSelect directly — no
+ * separate "Pay" button is required at the parent level. */
 export function TierCard({
   tier,
+  selected,
+  payWithNation,
+  nationPriceUsd,
+  nationDiscount,
+  nonNationSymbol,
   onSelect,
   disabled,
 }: {
   tier: CreditTier;
+  selected: boolean;
+  payWithNation: boolean;
+  nationPriceUsd: number | null;
+  nationDiscount: number | null;
+  nonNationSymbol: string;
   onSelect: () => void;
   disabled: boolean;
 }) {
+  const usdLabel = `$${tier.usd}`;
+  const nationLabel =
+    nationPriceUsd && nationPriceUsd > 0
+      ? `≈ ${(tier.usd / nationPriceUsd).toFixed(2)} $NATION`
+      : `≈ ${Math.round(tier.usd * 0.8)} $NATION`;
+  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+  const ctaLabel = payWithNation
+    ? `Pay ${nationLabel} worth of $NATION`
+    : `Pay ${usdLabel} with ${nonNationSymbol}`;
+
   return (
     <button
       type="button"
@@ -109,9 +133,18 @@ export function TierCard({
           Most popular
         </span>
       )}
-      <div>
-        <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
-        <p className="mt-0.5 text-[22px] font-bold text-ink">${tier.usd}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
+          <p className="mt-0.5 text-[22px] font-bold text-ink">
+            {payWithNation ? nationLabel : usdLabel}
+          </p>
+        </div>
+        {payWithNation && (
+          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
+            Save ~{discountPct}%
+          </span>
+        )}
       </div>
       <p className="text-[12px] text-ink-secondary">
         ${tier.creditUsd} permanent credit · never expires
@@ -123,8 +156,55 @@ export function TierCard({
   );
 }
 
+// ─── Payment token toggle ─────────────────────────────────────────────────────
+/** Shown only when ≥2 payable symbols exist (hasNation = true). */
+export function TokenToggle({
+  payWithNation,
+  hasNation,
+  nonNationSymbol,
+  nationDiscount,
+  onChange,
+}: {
+  payWithNation: boolean;
+  hasNation: boolean;
+  nonNationSymbol: string;
+  nationDiscount: number | null;
+  onChange: (nation: boolean) => void;
+}) {
+  if (!hasNation) return null;
+  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+  return (
+    <div className="flex items-center justify-center gap-1 rounded-xl border border-hairline/50 bg-inset p-1 text-sm">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
+          payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+        )}
+      >
+        <span className="font-semibold text-accent">$NATION</span>
+        <span className="rounded-full bg-accent/15 px-1.5 py-px text-[10px] font-semibold text-accent">
+          Save ~{discountPct}%
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
+          !payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+        )}
+      >
+        {nonNationSymbol}
+      </button>
+    </div>
+  );
+}
+
 // ─── Checkout step ────────────────────────────────────────────────────────────
-function CheckoutPanel({
+/** Exported for unit tests. */
+export function CheckoutPanel({
   invoice,
   status,
   busy,
@@ -143,14 +223,16 @@ function CheckoutPanel({
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const chain = status.chains.find((c) => c.id === invoice.chain);
+  const chain = status.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
   const paid = Boolean(invoice.paid_tx);
   const isNation = chain?.symbol === "$NATION";
-  const displaySymbol = chain?.symbol ?? (invoice.chain === 8453 ? "USDC" : "USDG");
+  // Prefer chain metadata; fall back to USDG (the default Robinhood stablecoin).
+  const displaySymbol = chain?.symbol ?? "USDG";
   const displayAmount =
     isNation && invoice.token_amount
       ? (Number(BigInt(invoice.token_amount)) / 1e18).toFixed(6)
       : (invoice.amount_micros / 1e6).toFixed(6);
+  const networkName = chain?.name ?? "Robinhood Chain";
 
   return (
     <div className="space-y-4 rounded-2xl bg-inset p-5">
@@ -176,7 +258,7 @@ function CheckoutPanel({
               Send exactly {displayAmount} {displaySymbol}
             </p>
             <p className="text-ink-secondary">
-              Network: {chain?.name ?? (invoice.chain === 8453 ? "Base" : "Robinhood Chain")}
+              Network: {networkName}
             </p>
             <p className="text-xs text-ink-secondary">
               The unique amount identifies your payment — the full amount is credited.
@@ -252,8 +334,20 @@ export function NationCredits() {
   const [error, setError] = useState("");
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [hash, setHash] = useState("");
+  const [selectedTier, setSelectedTier] = useState<number>(15);
+
+  // Lazily initialize payWithNation from ?asset= URL param.
+  const [payWithNation, setPayWithNation] = useState(() => {
+    try {
+      const asset = new URLSearchParams(window.location.search).get("asset");
+      return /^(\$?nation)$/i.test(asset ?? "");
+    } catch { return false; }
+  });
+
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  // Pending deep-link pack: set once from URL, consumed on first status load.
+  const deepLinkPackRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     const value: CreditStatus = await api("/api/credits/status");
@@ -269,6 +363,22 @@ export function NationCredits() {
     const timer = setInterval(() => void refresh().catch(() => {}), open ? 5000 : 15000);
     return () => clearInterval(timer);
   }, [state.connected, open, refresh]);
+
+  // Auto-open sheet for /subscription path and parse ?pack= deep-link param.
+  useEffect(() => {
+    try {
+      const path = window.location.pathname;
+      if (/^\/subscription\/?$/.test(path)) setOpen(true);
+      const pack = new URLSearchParams(window.location.search).get("pack");
+      if (pack) {
+        const n = Number(pack);
+        if (Number.isInteger(n) && n > 0) {
+          deepLinkPackRef.current = n;
+          setOpen(true);
+        }
+      }
+    } catch { /* ignore when window.location not available */ }
+  }, []);
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
@@ -344,6 +454,28 @@ export function NationCredits() {
       });
     });
 
+  // Find the best chain for the current token selection.
+  // For USDG/non-NATION: prefer any chain whose symbol is not "$NATION".
+  const resolveChain = (useNation: boolean): Chain | undefined => {
+    if (!status) return undefined;
+    if (useNation) return status.chains.find((c) => c.symbol === "$NATION");
+    return status.chains.find((c) => c.symbol !== "$NATION");
+  };
+
+  // createInvoice accepts an optional useNation override so deep-link callers
+  // can specify the chain before the payWithNation state has propagated.
+  const createInvoice = (tierUsd: number, useNation = payWithNation) =>
+    run(async () => {
+      const chain = resolveChain(useNation);
+      if (!chain) throw new Error("No payment network available for the selected currency.");
+      const inv: Invoice = await api("/api/credits/invoices", {
+        method: "POST",
+        body: JSON.stringify({ chain: chain.id, packUsd: tierUsd }),
+      });
+      setInvoice(inv);
+      setHash("");
+    });
+
   const pay = () =>
     run(async () => {
       if (!invoice || invoice.expires_at <= Date.now())
@@ -355,18 +487,18 @@ export function NationCredits() {
       const transferAbi = parseAbi([
         "function transfer(address to, uint256 amount) returns (bool)",
       ]);
+      // Derive chain config from status; fall back to known chain defaults.
+      const chainMeta = status?.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
+      const rpcUrl =
+        invoice.chain === 8453
+          ? "https://mainnet.base.org"
+          : "https://rpc.mainnet.chain.robinhood.com";
       const chain = defineChain({
         id: invoice.chain,
-        name: invoice.chain === 8453 ? "Base" : "Robinhood Chain",
+        name: chainMeta?.name ?? (invoice.chain === 8453 ? "Base" : "Robinhood Chain"),
         nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
         rpcUrls: {
-          default: {
-            http: [
-              invoice.chain === 8453
-                ? "https://mainnet.base.org"
-                : "https://rpc.mainnet.chain.robinhood.com",
-            ],
-          },
+          default: { http: [rpcUrl] },
         },
       });
       try {
@@ -381,7 +513,7 @@ export function NationCredits() {
       }
       const [account] = await wallet.requestAddresses();
       if (!account) throw new Error("Choose a wallet account.");
-      // For 18-decimal tokens ($NATION) use token_amount; fall back to amount_micros (USDC/USDG).
+      // For 18-decimal tokens ($NATION) use token_amount; fall back to amount_micros (USDG/USDC).
       const transferAmount = invoice.token_amount
         ? BigInt(invoice.token_amount)
         : BigInt(invoice.amount_micros);
@@ -407,6 +539,33 @@ export function NationCredits() {
       });
     });
 
+  // Apply deep-link pack once status is available and conditions are met.
+  useEffect(() => {
+    if (!status || deepLinkPackRef.current === null) return;
+    const pack = deepLinkPackRef.current;
+    if (!status.verified || !status.topUpEnabled || !status.packs.includes(pack)) {
+      deepLinkPackRef.current = null;
+      return;
+    }
+    // Validate NATION selection is viable; if NATION was requested but isn't
+    // configured, fall back to the stable coin.
+    const hasNationChain =
+      status.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null;
+    const useNation = payWithNation && hasNationChain;
+    if (payWithNation && !hasNationChain) setPayWithNation(false);
+    deepLinkPackRef.current = null;
+    setSelectedTier(pack);
+    void createInvoice(pack, useNation);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // $NATION option requires both a chain entry AND a configured price.
+  const hasNation = Boolean(
+    status?.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null,
+  );
+  // The non-NATION stable coin symbol (e.g. "USDG").
+  const nonNationSymbol =
+    status?.chains.find((c) => c.symbol !== "$NATION")?.symbol ?? "USDG";
   const tiers: CreditTier[] = status?.tiers ?? [];
 
   return (
@@ -515,19 +674,35 @@ export function NationCredits() {
                     </p>
                   )}
 
-                  {/* tier cards — clicking navigates to the subscription page */}
+                  <TokenToggle
+                    payWithNation={payWithNation}
+                    hasNation={hasNation}
+                    nonNationSymbol={nonNationSymbol}
+                    nationDiscount={status.nationDiscount}
+                    onChange={setPayWithNation}
+                  />
+
+                  {/* tier cards — tapping a card immediately creates an invoice */}
                   <div className="grid gap-3 sm:grid-cols-3">
                     {tiers.map((tier) => (
                       <TierCard
                         key={tier.id}
                         tier={tier}
-                        onSelect={() => { window.location.href = "https://thenation.city/subscription"; }}
+                        selected={selectedTier === tier.usd}
+                        payWithNation={payWithNation && hasNation}
+                        nationPriceUsd={status.nationPriceUsd}
+                        nationDiscount={status.nationDiscount}
+                        nonNationSymbol={nonNationSymbol}
+                        onSelect={() => {
+                          setSelectedTier(tier.usd);
+                          void createInvoice(tier.usd);
+                        }}
                         disabled={busy}
                       />
                     ))}
                   </div>
 
-                  {/* resume pending invoices (created before the subscription redirect) */}
+                  {/* resume pending invoices */}
                   {status.invoices.some((i) => !i.paid_tx) && (
                     <div className="space-y-1.5 pt-1">
                       <p className="text-[12px] font-medium text-ink-secondary">
