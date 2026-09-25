@@ -395,7 +395,9 @@ export async function launchVerificationServer(
    * account service that signs members in with an emailed code. */
   hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string };
     /** Loopback stand-in search provider, and a reader allowed to fetch the fixture's own pages. */
-    webTools?: boolean },
+    webTools?: boolean;
+    /** NATION_TRUSTED_ORIGINS / NATION_TRUSTED_ORIGIN_PATTERNS for a front end behind a rewrite proxy. */
+    trustedOrigins?: { exact?: string; patterns?: string } },
   /** Programmatic tests only: enables the secret-gated test capability route. */
   testCapabilityKey?: string,
 ): Promise<VerificationServer> {
@@ -486,6 +488,8 @@ export async function launchVerificationServer(
     ...(hostedMembers.modelRoutes?.fast ? { NATION_MODEL_FAST: hostedMembers.modelRoutes.fast } : {}),
     ...(hostedMembers.modelRoutes?.standard ? { NATION_MODEL_STANDARD: hostedMembers.modelRoutes.standard } : {}),
     ...(hostedMembers.modelRoutes?.strong ? { NATION_MODEL_STRONG: hostedMembers.modelRoutes.strong } : {}),
+    ...(hostedMembers.trustedOrigins?.exact ? { NATION_TRUSTED_ORIGINS: hostedMembers.trustedOrigins.exact } : {}),
+    ...(hostedMembers.trustedOrigins?.patterns ? { NATION_TRUSTED_ORIGIN_PATTERNS: hostedMembers.trustedOrigins.patterns } : {}),
     ...(hostedMembers.webTools ? {
       NATION_SEARCH_PROVIDER: "brave", NATION_SEARCH_API_KEY: "search_fixture_key_only",
       NATION_SEARCH_API_URL: hostedMembers.providerApi + "/search-api", NATION_WEB_READER_ALLOW_LOOPBACK: "1",

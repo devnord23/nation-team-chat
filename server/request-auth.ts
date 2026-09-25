@@ -95,12 +95,87 @@ export function ipcPeer(req: IncomingMessage): boolean {
   return Boolean(socket) && socket.remoteAddress === undefined && socket.remoteFamily === undefined;
 }
 
-/** Origin absent (non-browser) or equal to this request's own origin. */
-export function isSameOrigin(req: IncomingMessage): boolean {
+/** Origin absent (non-browser), equal to this request's own origin, or a
+ * trusted front-end origin (see trustedOrigin). */
+export function isSameOrigin(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): boolean {
   const origin = headerValue(req.headers.origin);
   if (!origin) return true;
   const own = requestOrigin(req);
-  return own !== null && origin.trim().toLowerCase() === own;
+  if (own !== null && origin.trim().toLowerCase() === own) return true;
+  return trustedOrigin(origin, env);
+}
+
+// Front ends that serve this server's API from their own origin through a
+// rewrite proxy (the web app on Vercel: /swarm/api/* -> this server). The
+// browser's Origin is then the front end's, while Host is the backend's, so
+// the plain same-origin rule would refuse every credentialed write.
+//
+//   NATION_TRUSTED_ORIGINS          exact https origins, comma-separated
+//                                   e.g. https://thenation.city
+//   NATION_TRUSTED_ORIGIN_PATTERNS  https origins with ONE "*" inside the
+//                                   first host label, between a literal
+//                                   prefix and suffix, e.g.
+//                                   https://nation-team-chat-*-aurk1.vercel.app
+//
+// A bare "*", a wildcard spanning labels ("*.vercel.app"), a label that is
+// only a wildcard, http, ports and paths are all rejected, so this can never
+// open up arbitrary vercel.app (or any other shared-host) origins.
+const policyCache = new Map<string, { exact: Set<string>; patterns: RegExp[] }>();
+const LABEL_LITERAL = /^[a-z0-9-]+$/;
+
+export function trustedOriginPolicy(env: NodeJS.ProcessEnv = process.env): { exact: Set<string>; patterns: RegExp[] } {
+  const exactRaw = env.NATION_TRUSTED_ORIGINS ?? "";
+  const patternRaw = env.NATION_TRUSTED_ORIGIN_PATTERNS ?? "";
+  const key = `${exactRaw}\n${patternRaw}`;
+  const cached = policyCache.get(key);
+  if (cached) return cached;
+  const exact = new Set<string>();
+  for (const entry of exactRaw.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)) {
+    const origin = exactHttpsOrigin(entry);
+    if (origin) exact.add(origin);
+    else console.warn(`[auth] ignoring NATION_TRUSTED_ORIGINS entry ${JSON.stringify(entry.slice(0, 80))}: not an exact https origin`);
+  }
+  const patterns: RegExp[] = [];
+  for (const entry of patternRaw.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean)) {
+    const pattern = originPattern(entry);
+    if (pattern) patterns.push(pattern);
+    else console.warn(`[auth] ignoring NATION_TRUSTED_ORIGIN_PATTERNS entry ${JSON.stringify(entry.slice(0, 80))}: needs https://prefix-*-suffix.domain`);
+  }
+  const policy = { exact, patterns };
+  policyCache.set(key, policy);
+  return policy;
+}
+
+export function trustedOrigin(origin: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const normalized = exactHttpsOrigin(origin.trim().toLowerCase());
+  if (!normalized) return false;
+  const policy = trustedOriginPolicy(env);
+  return policy.exact.has(normalized) || policy.patterns.some((pattern) => pattern.test(normalized));
+}
+
+function exactHttpsOrigin(value: string): string | null {
+  if (!/^https:\/\/[a-z0-9.-]+$/.test(value)) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.port || url.username || url.password || url.origin !== value) return null;
+    const labels = url.hostname.split(".");
+    if (labels.length < 2 || labels.some((label) => !label || !LABEL_LITERAL.test(label) || label.length > 63)) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function originPattern(entry: string): RegExp | null {
+  const match = /^https:\/\/([a-z0-9-]+)\*([a-z0-9-]+)((?:\.[a-z0-9-]+){2,})$/.exec(entry);
+  if (!match) return null;
+  const [, prefix, suffix, rest] = match;
+  // both sides of the wildcard must pin the label to one project/team
+  if (prefix.length < 3 || suffix.length < 3 || rest.split(".").slice(1).some((label) => !label || label.length > 63)) return null;
+  const escape = (text: string) => text.replace(/[.-]/g, (char) => `\\${char}`);
+  const room = 63 - prefix.length - suffix.length;
+  if (room < 1) return null;
+  return new RegExp(`^https:\\/\\/${escape(prefix)}[a-z0-9-]{1,${room}}${escape(suffix)}${escape(rest)}$`);
 }
 
 /** Who to count a pairing attempt against. The server binds loopback, so a
