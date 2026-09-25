@@ -7,6 +7,14 @@ const PRIVATE_KEYS = new Set([
   "lastModel", "resumeCursors", "modelVariants", "nativeSessionId", "sessionConfigResult", "raw", "sessionId",
 ]);
 
+/** Backend connector vendor detail. The owner keeps it (they configure the
+ * backend and need its diagnostics); members only ever see NATION. */
+const MEMBER_PRIVATE_DETAIL = /composio|\bak_[a-z0-9]/i;
+function audienceError(item: string, admin: boolean): string {
+  const message = publicError(item);
+  return !admin && MEMBER_PRIVATE_DETAIL.test(message) ? publicError("") : message;
+}
+
 /** One projection for HTTP, live SSE and replay. Never mutate stored records.
  * User-authored text and normal work outputs are deliberately preserved. */
 export function publicResponse(value: unknown, admin = false): unknown {
@@ -21,9 +29,9 @@ export function publicResponse(value: unknown, admin = false): unknown {
     if (key === "runOn" && item === "maus") { out[key] = "nation"; continue; }
     if (key === "format" && typeof item === "string" && /^openmaus\.(backup|package|team)$/.test(item)) { out[key] = item.replace(/^openmaus\./, "nation."); continue; }
     if (runtimeError && key === "raw") continue;
-    if (runtimeError && ["message", "text", "delta"].includes(key) && typeof item === "string") out[key] = publicError(item);
-    else if (["error", "problem", "reason"].includes(key) && typeof item === "string") out[key] = publicError(item);
-    else if (failedTool && ["name", "output", "detail", "summary", "input"].includes(key) && typeof item === "string") out[key] = publicError(item);
+    if (runtimeError && ["message", "text", "delta"].includes(key) && typeof item === "string") out[key] = audienceError(item, admin);
+    else if (["error", "problem", "reason"].includes(key) && typeof item === "string") out[key] = audienceError(item, admin);
+    else if (failedTool && ["name", "output", "detail", "summary", "input"].includes(key) && typeof item === "string") out[key] = audienceError(item, admin);
     else if (failedTool && ["outputPath", "stack", "stderr"].includes(key)) continue;
     else if (!admin && input.type === "session.model-variants" && key === "variants") out[key] = { options: [] };
     else if (!admin && key === "name" && typeof item === "string" && ("ok" in input)) out[key] = publicError(item);

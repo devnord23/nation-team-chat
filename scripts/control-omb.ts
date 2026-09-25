@@ -390,9 +390,21 @@ export async function launchVerificationServer(
   nationFixtureApi?: string,
   /** Owned loopback Composio fixture only; never inherit project credentials. */
   composioFixtureApi?: string,
+  /** Hosted multi-member fixture: a loopback stand-in for the backend
+   * connected-apps project (per-account Sessions) and for the NATION
+   * account service that signs members in with an emailed code. */
+  hostedMembers?: { providerApi: string; memberEmails: string[]; modelRoutes?: { fast?: string; standard?: string; strong?: string };
+    /** Loopback stand-in search provider, and a reader allowed to fetch the fixture's own pages. */
+    webTools?: boolean },
+  /** Programmatic tests only: enables the secret-gated test capability route. */
+  testCapabilityKey?: string,
 ): Promise<VerificationServer> {
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
+  }
+  if (hostedMembers && (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(hostedMembers.providerApi)
+    || !hostedMembers.memberEmails.every((email) => /^[\w.+-]+@example\.test$/.test(email)))) {
+    throw new ControlOmbError("Hosted member verification requires an owned loopback provider and example.test members");
   }
   if (nationFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(nationFixtureApi)) {
     throw new ControlOmbError("NATION verification requires an owned loopback HTTP provider");
@@ -463,6 +475,22 @@ export async function launchVerificationServer(
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
   if (composioFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_BROKER_URL: composioFixtureApi + "/broker", OMB_COMPOSIO_BROKER_TOKEN: "a".repeat(64) });
+  if (testCapabilityKey) childEnv.OMB_TEST_INTERNAL_CAPABILITY_KEY = testCapabilityKey;
+  if (hostedMembers) Object.assign(childEnv, {
+    // A fixture-only project key: the server must never echo it to anyone.
+    COMPOSIO_API_KEY: "ak_hosted_fixture_only",
+    OMB_COMPOSIO_API: hostedMembers.providerApi + "/api/v3.1",
+    OMB_COMPOSIO_TOOLKITS_API: hostedMembers.providerApi + "/api/v3",
+    NATION_ACCOUNT_SERVICE_URL: hostedMembers.providerApi,
+    OMB_SIGNIN_MEMBER_EMAILS: hostedMembers.memberEmails.join(","),
+    ...(hostedMembers.modelRoutes?.fast ? { NATION_MODEL_FAST: hostedMembers.modelRoutes.fast } : {}),
+    ...(hostedMembers.modelRoutes?.standard ? { NATION_MODEL_STANDARD: hostedMembers.modelRoutes.standard } : {}),
+    ...(hostedMembers.modelRoutes?.strong ? { NATION_MODEL_STRONG: hostedMembers.modelRoutes.strong } : {}),
+    ...(hostedMembers.webTools ? {
+      NATION_SEARCH_PROVIDER: "brave", NATION_SEARCH_API_KEY: "search_fixture_key_only",
+      NATION_SEARCH_API_URL: hostedMembers.providerApi + "/search-api", NATION_WEB_READER_ALLOW_LOOPBACK: "1",
+    } : {}),
+  });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,

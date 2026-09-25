@@ -319,11 +319,11 @@ export function OwnerAccessSection({
             <div className="text-[15px] font-medium text-ink">Connected apps</div>
             <div className="mt-0.5 text-[13px] text-ink-secondary">
               {!connectedAppsConfigured
-                ? "Ask the owner to configure Composio at /admin, then connect apps in Plugins."
+                ? "Turn on connected apps in Admin → Apps & computers, then each person connects their own apps in Plugins."
                 : !canUseConnectedApps
                   ? "This bot's current engine cannot use connected apps."
                   : connectedAppsEnabled
-                    ? "Let this bot use your connected Gmail, Calendar, Slack, and other apps."
+                    ? "Let this bot use the connected apps of the person it is working for: each member's own Gmail, Notion and other apps, never anyone else's."
                     : "Keep your connected apps unavailable to this bot."}
             </div>
           </div>
@@ -336,7 +336,7 @@ export function OwnerAccessSection({
             onClick={() => patch({ composio: !connectedAppsEnabled })}
             title={
               !connectedAppsEnabled && !connectedAppsConfigured
-                ? "Configure Composio at /admin first"
+                ? "Turn on connected apps in Admin first"
                 : !connectedAppsEnabled && !canUseConnectedApps
                   ? "This engine cannot use connected apps"
                   : undefined

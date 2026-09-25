@@ -229,6 +229,12 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/threads\/[\w-]+\/respond$/ },
   { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/cards\/[\w-]+$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/secret-cards\/[\w-]+\/(?:resume|dismiss)$/ },
+  // Connected apps: each call acts only on the caller's own account (the
+  // handler derives it from the session; there is no account parameter).
+  { methods: ["GET"], path: /^\/api\/connectors(?:\/catalog|\/connected)?$/ },
+  { methods: ["POST"], path: /^\/api\/connectors\/[\w-]+\/authorize$/ },
+  { methods: ["DELETE"], path: /^\/api\/connectors\/[\w-]+(?:\/accounts\/[A-Za-z0-9][A-Za-z0-9_-]{0,127})?$/ },
+  { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/authorize$/ },
   { methods: ["GET"], path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/status$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/connector-cards\/[\w-]+\/(?:resume|dismiss)$/ },
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/always-allow$/ }, // must match a pending card

@@ -81,6 +81,16 @@ function render(bot: Bot, derived = makeDerived()) {
   );
 }
 
+describe("AccessSection connected apps copy", () => {
+  it("names no vendor, key or provider setup even for the owner", () => {
+    for (const derived of [makeDerived(), makeDerived({ connectedAppsConfigured: false, connectedAppsEnabled: false })]) {
+      const markup = render(makeBot(), derived);
+      expect(markup).toContain("Connected apps");
+      expect(markup).not.toMatch(/Composio|API key|project key|ak_/i);
+    }
+  });
+});
+
 describe("AccessSection always-allowed list", () => {
   it("keeps per-bot MCP changes disabled while any task is active", () => {
     fixture.servers = [{ name: "notes", enabled: true }, { name: "offline", enabled: false }];

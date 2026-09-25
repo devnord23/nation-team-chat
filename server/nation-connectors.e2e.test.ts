@@ -28,7 +28,7 @@ it("NATION mounts Gmail through Composio, waits for permission, and honors the b
     if (path.endsWith("/chat/completions")) {
       expect(req.headers.authorization).toBe("Bearer nation_fixture_key_only");
       modelRequests.push(body);
-      const tool = body.tools?.find((item: any) => item.function.name === "composio_gmail_fetch_emails");
+      const tool = body.tools?.find((item: any) => item.function.name === "apps_gmail_fetch_emails");
       const completed = body.messages.some((item: any) => item.role === "tool");
       const delta = requestTool && tool && !completed
         ? { tool_calls: [{ index: 0, id: "gmail-fixture", type: "function", function: { name: tool.function.name, arguments: "{}" } }] }
@@ -69,7 +69,7 @@ it("NATION mounts Gmail through Composio, waits for permission, and honors the b
     await api("/api/bots/" + bot.id, "PATCH", { composio: false });
     await api("/api/bots/" + bot.id + "/messages", "POST", { text: "Check the bot opt-out.", threadId: bot.threadId });
     expect((await wait()).status).toBe("settled");
-    expect(modelRequests.at(-1).tools.some((item: any) => item.function.name.startsWith("composio_"))).toBe(false);
+    expect(modelRequests.at(-1).tools.some((item: any) => item.function.name.startsWith("apps_"))).toBe(false);
     expect(toolCalls).toBe(1);
   } finally { await fixture.close(); provider.closeAllConnections(); await new Promise<void>(resolve => provider.close(() => resolve())); }
 }, 75_000);

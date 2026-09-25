@@ -13,5 +13,5 @@ export function managedConnectorUnavailableReason(
   slug: string,
 ): string | null {
   if (mode !== "managed" || !MANAGED_CUSTOM_AUTH_TOOLKITS.has(slug.trim().toLowerCase())) return null;
-  return "Twitter/X needs your own X Developer app and Composio auth config. Use self-hosted connected apps for now.";
+  return "Twitter/X needs the workspace's own X Developer app. Use self-hosted connected apps for now.";
 }

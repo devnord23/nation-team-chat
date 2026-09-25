@@ -1,21 +1,89 @@
-# Connected apps and agent computers
+# Connected apps, agent computers and model routing
 
-The workspace Plugins panel and trusted connection cards are restored. Composio
-project credentials, Box tokens and the VPS SSH alias are managed at /admin,
-under Apps & computers. Credentials remain write-only and owner-only.
+## Connected apps (Plugins)
 
-The existing Composio key must be paired with an OAuth connection for each app.
-An API key alone does not connect Gmail. Bot Access settings grant or revoke
-connected-app access; the MCP bridge validates the bot and turn capability
-before each relay. Workspace account management and arbitrary MCP configuration
-remain owner-only. Other members do not receive the owner's account inventory.
+NATION operates one backend connected-apps project. Members never see or
+enter its credential; they only authorize their own accounts (Connect Gmail,
+Connect GitHub, Connect Notion) through the provider's OAuth page.
 
-NATION API keeps billing authority when the selected computer is Box or VPS.
-VPS and browser stdio tools are mounted by the chat runtime. Box uses the existing
-Box command and screenshot APIs with a required per-turn control lease. All tools
-retain the normal approval flow. Screenshots are forwarded to the model in a
-bounded image message after the tool replies.
+- **Backend (operator, once):** set `COMPOSIO_API_KEY` on the API process, or
+  save the project key at `/admin` under Apps & computers. The key is
+  write-only and never returned by any API.
+- **Per account:** in a hosted workspace (NATION API credits or a hosted
+  sign-in), every verified NATION account gets its own derived provider user
+  id and its own Session. A member's inventory, OAuth links, disconnects and
+  tool calls use only that account. The operator keeps the installation's own
+  identity. The managed single-installation broker is never used for a member,
+  because it has no per-user dimension; with only a broker configured, members
+  see "not available in this workspace".
+- **Turns:** the account a turn is billed to is the account whose connected
+  apps it may use, fixed when its tools mount. A message queued while its
+  thread was busy runs as its own sender; a batch mixing members gets no
+  connected apps.
+- **Per bot:** the bot's Connected apps switch (owner-only, Access settings)
+  decides whether the tools mount at all. Every connector call goes through the
+  normal approval flow.
+- **Single-user installs** keep the upstream behaviour: one identity, managed
+  by the owner; paired client devices cannot manage it.
 
-Verification: connector authorization fixture, mock Gmail conversation including
-approval and per-bot opt-out, Box command isolation/human control, desktop
-screenshot transport, existing Composio tests, and the billing regression fixture.
+Plugins shows, for each person: backend unavailable, unreachable, sign-in
+needed, and per app not connected, waiting for sign-in, connected, or sign-in
+expired (Reconnect). A healthy backend with nothing connected shows Connect.
+
+## Agent computers
+
+NATION API remains the model and billing authority when a bot has a Box, VPS or
+browser. Box tools (screenshot, execute) are mounted into the NATION API turn
+over the existing Box APIs with a per-turn control lease; while a person holds
+the computer, calls are refused before they reach the Box. Screenshots reach the
+model as image content, bounded to 32 MiB of encoded images per turn.
+
+## Model routing
+
+Each hosted turn is classified deterministically (fast, standard, strong) and
+uses that tier's model from the operator's allowed catalog:
+
+    NATION_MODEL_FAST=openai/gpt-4o-mini
+    NATION_MODEL_STANDARD=openai/gpt-4.1
+    NATION_MODEL_STRONG=openai/o4-mini
+
+Unset tiers fall back to the next cheaper one and finally to
+`NATION_OPENROUTER_MODEL` / the NATION default, so an unconfigured server uses
+one model as before. If the provider rejects the routed model itself, the turn
+retries once on the next cheaper allowed model (never for billing, quota or
+context refusals). Decisions are recorded in `model-routes.jsonl` in the data
+directory and at the admin-only `GET /api/admin/model-routing`.
+
+## Verification
+
+- `server/nation-member-connectors.e2e.test.ts`: two signed-in members, OAuth
+  pending to connected, account-scoped inventory, approval before execution,
+  result reaches the model and the answer, queued-message sender identity,
+  bot opt-out, per-member billing, routing tiers, no credential leakage.
+- `server/nation-connectors.e2e.test.ts`: operator path through the broker.
+- `server/nation-computer.e2e.test.ts`: NATION API with Box computer and
+  browser tools, screenshots to the model, human control, billing authority.
+- `server/composio-principal.test.ts`, `server/nation-model-router.test.ts`,
+  `server/drivers/openai-chat-tools.test.ts`: unit coverage.
+
+## Admin agent controls (`/admin` → Agent controls)
+
+One place for the operator to control NATION-managed agent capability.
+`GET /api/admin/controls` shows configured state only. Members get 403 on it
+and on every write, forged owner/admin headers included.
+
+- **Models and routing:** the default model and the Easy, Normal and Hard
+  tier models (`config.modelRouting`). These override `NATION_OPENROUTER_MODEL`
+  / `NATION_MODEL_FAST|STANDARD|STRONG`. Only `provider/model` ids are
+  accepted, and never Claude/Anthropic. With routing off, every hosted turn
+  uses the default model. Each value shows where it came from (admin,
+  environment or default).
+- **Per-tool switches** (`config.features`), each applied on the next turn:
+  agent computers (`computers`), built-in browser (`browser`), web search
+  (`webSearch`), web reader (`webRead`), and the master `webTools`.
+- **Search provider and keys** stay under Apps & computers. Keys are
+  write-only.
+- **Provider health:** NATION API, search provider, cloud computers, VPS,
+  browser engine and connected-apps backend, shown as configured/ready only.
+
+Covered by `server/nation-admin-controls.e2e.test.ts`.

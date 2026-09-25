@@ -109,6 +109,8 @@ export interface SendTurnInput {
    * context, while a fresh replay retains the visible attachment marker. */
   images?: TurnImageInput[];
   model?: string;
+  /** A cheaper allowed model to use once if `model` is unavailable upstream. */
+  modelFallback?: string;
   effort?: EffortLevel;
   variant?: string;
   resumeCursor?: unknown;
@@ -150,6 +152,8 @@ export interface SendTurnInput {
      * bridge harness-controlled lets it turn connection requests into trusted
      * chat cards consistently across provider CLIs. */
     composio?: { command: string; args: string[]; env: Record<string, string> };
+    /** NATION-managed web search/reader (chat runtime), turn-scoped. */
+    web?: { command: string; args: string[]; env: Record<string, string> };
     /** Box's native agent runner input. Only the Box driver consumes this;
      * CLI engines cannot use it as an MCP server. Other computers use the
      * stdio descriptor below. */
@@ -246,6 +250,8 @@ export interface ProviderAdapter {
      * connected apps). Same rule again: a key in the config says the user
      * HAS those connections, not that this driver can reach them. */
     composioMcp?: boolean;
+    /** Mounts NATION-managed web search/reader tools. */
+    webMcp?: boolean;
     /** True when the driver can mount the first-party physical-phone MCP. */
     phoneMcp?: boolean;
     /** True when the driver can mount the built-in browser MCP. Same rule:

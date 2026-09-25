@@ -566,6 +566,8 @@ export interface ConfigStatus {
   billing?: { currency?: string; prices?: Record<string, { inputPerMillion: number; outputPerMillion: number; cachedInputPerMillion?: number }> };
   composio: { configured: boolean; mode?: "managed" | "self-hosted" | "unavailable" };
   box: { configured: boolean };
+  /** Owner-only: NATION-managed web search/reader status (never the key). */
+  webTools?: { enabled: boolean; search: { configured: boolean; provider: "brave" | "tavily" | "openrouter" | null; source: string | null }; reader: { configured: boolean }; prices: { searchUsd: number; readUsd: number } };
   vps: { configured: boolean; sshAlias: string };
   rooms: { turnTimeoutMinutes: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };

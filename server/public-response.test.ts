@@ -53,3 +53,15 @@ it("canonicalizes historical links and schedule destinations without rewriting s
   expect(original.runOn).toBe("maus");
   expect(original.text).toContain("openmausbot:");
 });
+
+it("keeps connector vendor diagnostics for the owner and hides them from members", async () => {
+  const { publicResponse } = await import("./public-response.ts");
+  const body = { error: "Composio toolkits: HTTP 500", connector: { slug: "gmail", status: "failed", error: "Composio authorization: HTTP 502" } };
+  expect(publicResponse(body, true)).toEqual(body);
+  const member = publicResponse(body, false) as any;
+  expect(JSON.stringify(member)).not.toMatch(/composio/i);
+  expect(member.connector).toMatchObject({ slug: "gmail", status: "failed" });
+  // ordinary member-facing connector wording is untouched
+  expect(publicResponse({ error: "Sign in with your NATION account to connect apps." }, false))
+    .toEqual({ error: "Sign in with your NATION account to connect apps." });
+});

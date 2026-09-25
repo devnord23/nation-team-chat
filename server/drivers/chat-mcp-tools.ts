@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url";
+import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 // Per-turn MCP transport for the shared Chat Completions runtime. Approval is
 // owned by the caller; only registered, schema-validated calls reach this file.
 import { Ajv, type ValidateFunction } from "ajv";
@@ -235,14 +235,17 @@ function boundedText(value: string): string {
 export async function mountChatTools(integrations: SendTurnInput["integrations"], signal: AbortSignal): Promise<ChatToolSession> {
   const servers: Array<[string, Server]> = [];
   if (integrations?.agents) servers.push(["agents", integrations.agents]);
-  if (integrations?.composio) servers.push(["composio", integrations.composio]);
+  // Connected apps appear to the model and in transcripts as NATION "apps"
+  // tools; the backend vendor's name is never part of the tool name.
+  if (integrations?.composio) servers.push(["apps", integrations.composio]);
+  if (integrations?.web) servers.push(["web", integrations.web]);
   if (integrations?.localComputer) servers.push(["computer", integrations.localComputer]);
   if (integrations?.browser) servers.push(["browser", integrations.browser]);
   if (integrations?.computer) {
     const box = integrations.computer;
     if (!box.control?.url || !box.control.token) throw new Error("Box requires a turn-scoped computer lease");
     servers.push(["computer", { command: process.execPath,
-      args: [fileURLToPath(new URL("../box-computer-mcp.ts", import.meta.url))],
+      args: [SPAWNED_PROXIES.boxComputer],
       env: { NATION_BOX_ID: box.boxId, BOX_TOKEN: box.token,
         OMB_CONTROL_URL: box.control.url, OMB_CONTROL_TOKEN: box.control.token,
         ...(process.env.OMB_BOX_API ? { OMB_BOX_API: process.env.OMB_BOX_API } : {}) },
@@ -291,7 +294,8 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
         if (!object(tool.inputSchema) || tool.inputSchema.type !== "object") throw new Error("MCP tools require an object input schema");
         if (Buffer.byteLength(JSON.stringify(tool.inputSchema)) > SCHEMA_BYTES) throw new Error("MCP tool schema exceeds the 64KB limit");
         const schema = compileSchema(tool.inputSchema);
-        const base = `${server}_${tool.name}`.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64) || "mcp_tool";
+        const shown = server === "apps" ? tool.name.replace(/^composio_/i, "") : tool.name;
+        const base = `${server}_${shown}`.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 64) || "mcp_tool";
         let name = base;
         for (let index = 2; registered.has(name); index += 1) { const suffix = `_${index}`; name = base.slice(0, 64 - suffix.length) + suffix; }
         registered.set(name, { client, name: tool.name, schema });

@@ -5,6 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore, type Bot, type InstanceInfo } from "@/state/store";
+import { ApiError } from "@/lib/api-client";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
@@ -124,9 +126,35 @@ export function connectorActionLabel(
   if (phase === "error") return t("connectors.action.unavailable");
   if (state.canContinue) return t("connectors.action.continue");
   if (state.pending) return t("connectors.action.checkStatus");
+  // An expired or revoked sign-in is fixed by signing in again, even when
+  // the dead account is still listed below.
+  if (state.failed) return t("connectors.action.reconnect");
   if (state.hasAccounts) return t("connectors.action.addAccount");
-  if (state.failed) return t("connectors.action.retry");
   return t("connectors.action.connect");
+}
+
+/** What the person can do about connected apps here, before any one app.
+ * Each answer is a different fact, so each gets its own words: a healthy
+ * backend with nothing connected yet is "ready", never "not configured". */
+export type ConnectorBackendState = "checking" | "ready" | "unavailable" | "unreachable" | "signin";
+
+export function connectorBackendState(catalog: { phase: "loading" | "ready" | "error"; configured: boolean; errorStatus?: number }): ConnectorBackendState {
+  if (catalog.phase === "loading") return "checking";
+  if (catalog.phase === "error") return catalog.errorStatus === 401 || catalog.errorStatus === 403 ? "signin" : "unreachable";
+  return catalog.configured ? "ready" : "unavailable";
+}
+
+/** One app's own state, as the person should read it. */
+export type ConnectorAppState = "not-connected" | "pending" | "connected" | "failed" | "included";
+
+export function connectorAppState(card: { noAuth?: boolean }, status: ConnectorStatus | undefined): ConnectorAppState {
+  const accounts = status?.accounts ?? [];
+  const failed = Boolean(status?.status && /^(expired|failed|revoked|error)/i.test(status.status));
+  if (card.noAuth === true || (status?.connected === true && !accounts.length && !status.pending && !failed)) return "included";
+  if (status?.connected) return "connected";
+  if (status?.pending) return "pending";
+  if (failed) return "failed";
+  return "not-connected";
 }
 
 export function connectedInventoryCopy(phase: ConnectorInventoryPhase) {
@@ -247,6 +275,12 @@ export function PluginsPanel() {
   const [source, setSource] = useState<"api" | "curated">("curated");
   const [pagination, setPagination] = useState<CatalogPagination | null>(null);
   const [configured, setConfigured] = useState(false);
+  const [catalogPhase, setCatalogPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [catalogErrorStatus, setCatalogErrorStatus] = useState<number | undefined>(undefined);
+  const [catalogAttempt, setCatalogAttempt] = useState(0);
+  // Workspace owners manage the backend, per-bot grants and MCP servers;
+  // everyone else manages only their own app connections.
+  const owner = isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired });
   const [mode, setMode] = useState<"managed" | "self-hosted" | "unavailable">("unavailable");
   // Paint what we last knew before any request goes out: the module cache if
   // this window already fetched, otherwise the inventory saved on disk. An
@@ -370,6 +404,7 @@ export function PluginsPanel() {
   useEffect(() => {
     let alive = true;
     void loadConnectionInventory();
+    setCatalogPhase("loading");
     api("/api/connectors/catalog")
       .then((r) => {
         if (!alive) return;
@@ -378,15 +413,20 @@ export function PluginsPanel() {
         setPagination(r.pagination ?? null);
         setConfigured(Boolean(r.configured));
         setMode(r.mode ?? "unavailable");
+        setCatalogPhase("ready");
       })
       .catch((e) => {
         if (!alive) return;
-        setError(e.message);
+        // A failed request says nothing about configuration: report it as
+        // what it is (unreachable, or not signed in), never "not configured".
+        setCatalogErrorStatus(e instanceof ApiError ? e.status : undefined);
+        setCatalogPhase("error");
+        setCards((current) => current ?? []);
       });
     return () => {
       alive = false;
     };
-  }, [loadConnectionInventory]);
+  }, [loadConnectionInventory, catalogAttempt]);
 
   useEffect(() => {
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -522,7 +562,9 @@ export function PluginsPanel() {
   const connectedEmptyCopy = connectedInventoryCopy(inventoryPhase);
   const close = () => dispatch({ type: "togglePlugins", open: false });
   // Only worth saying once an app is actually connected and reachable.
-  const botsWithoutApps = hasUsableConnectedApps(configured, inventoryPhase, stale, status)
+  const backend = connectorBackendState({ phase: catalogPhase, configured, errorStatus: catalogErrorStatus });
+  // Only an owner can change a bot's grant, so only an owner is offered it.
+  const botsWithoutApps = owner && hasUsableConnectedApps(configured, inventoryPhase, stale, status)
     ? botsMissingConnectedApps(state.bots, state.instances)
     : [];
 
@@ -568,7 +610,7 @@ export function PluginsPanel() {
 
         <div className="border-b border-hairline/40 px-6 sm:px-8">
           <div className="flex gap-6" role="tablist" aria-label={t("connectors.typeAria")}>
-            {(["apps", "mcp"] as const).map((item) => (
+            {(owner ? (["apps", "mcp"] as const) : (["apps"] as const)).map((item) => (
               <button
                 key={item}
                 type="button"
@@ -586,7 +628,7 @@ export function PluginsPanel() {
           </div>
         </div>
 
-        {surface === "apps" ? (
+        {surface === "apps" || !owner ? (
           <>
         {stale && (
           // Say which of the two things is true. Silence here is what makes a
@@ -639,10 +681,20 @@ export function PluginsPanel() {
         {/* Two notices about the same fact is one too many: the stale banner
             above already explains this launch, and "configure your own
             connection service" is advice for someone who never set one up. */}
-        {!configured && !stale && (
-          <div className="mx-6 mb-1 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning sm:mx-8">
-            {t("connectors.notConfigured")}{" "}
-            {!remoteClient && <a href="/admin#integrations" className="font-medium underline underline-offset-2">Open admin settings</a>}
+        {backend === "unavailable" && !stale && (
+          <div role="status" data-connector-backend="unavailable" className="mx-6 mb-1 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning sm:mx-8">
+            {owner ? t("connectors.backend.unavailableOwner") : t("connectors.backend.unavailableMember")}{" "}
+            {owner && !remoteClient && <a href="/admin#integrations" className="font-medium underline underline-offset-2">{t("connectors.openSettings")}</a>}
+          </div>
+        )}
+        {(backend === "unreachable" || backend === "signin") && (
+          <div role="status" data-connector-backend={backend} className="mx-6 mb-1 flex items-center justify-between gap-3 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning sm:mx-8">
+            <span>{backend === "signin" ? t("connectors.backend.signIn") : t("connectors.backend.unreachable")}</span>
+            {backend === "unreachable" && (
+              <button type="button" onClick={() => setCatalogAttempt((n) => n + 1)} className="shrink-0 font-medium underline underline-offset-2">
+                {t("connectors.action.retry")}
+              </button>
+            )}
           </div>
         )}
         {botsWithoutApps.length > 0 && (
@@ -663,18 +715,12 @@ export function PluginsPanel() {
             </div>
           </div>
         )}
-        {configured && !remoteClient && source === "curated" && mode === "self-hosted" && (
+        {owner && configured && !remoteClient && source === "curated" && mode === "self-hosted" && (
           <div className="mx-6 mb-1 text-[12px] text-ink-secondary sm:mx-8">
             {t("connectors.featuredBefore")}{" "}
-            <button
-              className="underline underline-offset-2 hover:text-ink"
-              onClick={() => {
-                close();
-                dispatch({ type: "toggleAppSettings", open: true });
-              }}
-            >
+            <a href="/admin#integrations" className="underline underline-offset-2 hover:text-ink">
               {t("connectors.updateKey")}
-            </button>{" "}
+            </a>{" "}
             {t("connectors.featuredAfter")}
           </div>
         )}
@@ -721,6 +767,7 @@ export function PluginsPanel() {
               const unavailableReason = managedConnectorUnavailableReason(mode, card.slug)
                 ? t("connectors.selfHostOnlyReason")
                 : null;
+              const appState = connectorAppState(card, serviceStatus);
               return (
                 <div
                   key={card.slug}
@@ -729,7 +776,24 @@ export function PluginsPanel() {
                   <div className="flex items-center gap-3">
                     <ServiceIcon card={card} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] font-medium text-ink">{card.label}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-[14px] font-medium text-ink">{card.label}</span>
+                        {backend === "ready" && appState !== "not-connected" && appState !== "included" && (
+                          <span
+                            data-connector-state={appState}
+                            className={cn(
+                              "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-medium",
+                              appState === "connected" && "bg-success/15 text-success",
+                              appState === "pending" && "bg-warning/15 text-warning",
+                              appState === "failed" && "bg-danger/10 text-danger",
+                            )}
+                          >
+                            {appState === "connected" ? t("connectors.state.connected")
+                              : appState === "pending" ? t("connectors.state.pending")
+                                : t("connectors.state.failed")}
+                          </span>
+                        )}
+                      </div>
                       <div
                         className="mt-0.5 truncate text-[12.5px] text-ink-secondary"
                         title={unavailableReason ?? undefined}
@@ -747,7 +811,7 @@ export function PluginsPanel() {
                     </div>
                     <button
                       type="button"
-                      disabled={!configured || inventoryPhase !== "ready" || busy || included || Boolean(unavailableReason)}
+                      disabled={backend !== "ready" || inventoryPhase !== "ready" || busy || included || Boolean(unavailableReason)}
                       title={unavailableReason ?? undefined}
                       onClick={() => {
                         if (pending) {

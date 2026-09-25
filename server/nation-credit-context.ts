@@ -28,6 +28,19 @@ export function requireCreditAccount(): CreditAccount {
   if (!account) throw creditError("Sign in to use your NATION credit.", 403);
   return account;
 }
+/** The full billing account a thread's turns run for, if recorded. */
+export function threadSponsorAccount(threadId: string): CreditAccount | undefined {
+  if (!creditsEnforced()) return undefined;
+  const saved = nationLedger().db.prepare("SELECT a.* FROM credit_sponsors s JOIN credit_accounts a ON a.id=s.user_id WHERE s.thread_id=?").get(threadId);
+  if (!saved) return undefined;
+  return { id: String(saved.id), verified: Boolean(saved.verified), exempt: Boolean(saved.exempt) && (process.env.NATION_PRODUCT_OWNER === "1" || process.env.NATION_PRODUCT_ADMIN === "1") };
+}
+/** The account a thread's turns run for (its credit sponsor), if recorded. */
+export function threadSponsorId(threadId: string): string | undefined {
+  if (!creditsEnforced()) return undefined;
+  const row = nationLedger().db.prepare("SELECT user_id FROM credit_sponsors WHERE thread_id=?").get(threadId);
+  return row ? String(row.user_id) : undefined;
+}
 /** Persist the sponsor of a thread so continuations cannot become free anonymous calls. */
 export function sponsorCreditThread(threadId: string): CreditAccount | undefined {
   if (!creditsEnforced()) return undefined;
