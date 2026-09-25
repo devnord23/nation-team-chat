@@ -63,11 +63,12 @@ export function invoiceTokenAmount(amountMicros: number, chain: CreditChain, env
 }
 
 export function creditChains(env: NodeJS.ProcessEnv = process.env): CreditChain[] {
+  // Top-up payment is Robinhood Chain only. Base (8453) is no longer offered
+  // in the user-facing top-up path; NATION_TREASURY_BASE is intentionally ignored.
   const specs: Array<{ id: number; name: string; symbol: string; token: string; treasury: string | undefined; rpc: string; decimals: number }> = [
-    { id: 8453, name: "Base", symbol: "USDC", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", treasury: env.NATION_TREASURY_BASE, rpc: env.NATION_RPC_BASE || "https://mainnet.base.org", decimals: 6 },
     // $NATION on Robinhood Chain — only included when NATION_TOKEN_USD_PRICE is configured.
     ...(env.NATION_TOKEN_USD_PRICE ? [{ id: 4663, name: "Robinhood Chain", symbol: "$NATION", token: "0xc839A88A05B231515a82c71EE97b4F18973C1340", treasury: env.NATION_TREASURY_ROBINHOOD, rpc: env.NATION_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com", decimals: 18 } as const] : []),
-    // USDG on Robinhood Chain — legacy path, always included when NATION_TREASURY_ROBINHOOD is set.
+    // USDG on Robinhood Chain — primary stablecoin for top-up.
     { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", treasury: env.NATION_TREASURY_ROBINHOOD, rpc: env.NATION_RPC_ROBINHOOD || "https://rpc.mainnet.chain.robinhood.com", decimals: 6 },
   ];
   return specs.flatMap(spec => spec.treasury && /^0x[0-9a-f]{40}$/i.test(spec.treasury) && !/^0x0{40}$/i.test(spec.treasury)

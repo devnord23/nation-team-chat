@@ -38,7 +38,9 @@ describe("credit ledger", () => {
     expect(settings.tiers[2]).toMatchObject({ id: "swarm",   name: "Swarm",   usd: 99, popular: false });
     for (const free of ["1", "6", "NaN", ""]) expect(() => creditSettings({ NATION_FREE_CREDIT_USD: free })).toThrow();
     expect(creditChains({})).toEqual([]);
+    // Base (8453) is removed from the top-up path; NATION_TREASURY_BASE is ignored.
     expect(creditChains({ NATION_TREASURY_BASE: "invalid" })).toEqual([]);
+    expect(creditChains({ NATION_TREASURY_BASE: treasury })).toEqual([]);
     expect(creditChains({ NATION_TREASURY_ROBINHOOD: treasury })[0]).toMatchObject({ id: 4663, symbol: "USDG" });
   });
 
