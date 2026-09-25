@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { CONNECTORS_ENABLED, removedConnectorPath } from "./connector-policy.ts";
+import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 import { launchVerificationServer } from "../scripts/control-omb.ts";
 
-describe("removed connector surfaces", () => {
-  it("does not disable built-in desks, chat or team tools", () => {
-    expect(CONNECTORS_ENABLED).toBe(false);
-    for (const path of ["/api/bots", "/api/groups", "/api/internal/agents/mcp", "/api/internal/browser/mcp", "/api/shared-computers/connect"]) {
-      expect(removedConnectorPath(path), path).toBe(false);
-    }
-  });
-  it("returns 404 before authorization for every removed route and HTTP method", async () => {
+describe("connected-app access", () => {
+  it("restores owner APIs while refusing unauthenticated and member management", async () => {
+    expect(CONNECTORS_ENABLED).toBe(true);
     const fixture = await launchVerificationServer(process.env);
+    const call = async (path: string, method = "GET", body?: unknown, token?: string) =>
+      fetch(fixture.info.url + path, { method, headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     try {
-      for (const path of ["/api/connectors", "/api/connectors/gmail/authorize", "/api/bots/example/connectors/request/resume", "/api/internal/connectors/mcp", "/api/internal/connectors/request", "/api/mcp/servers", "/api/integrations", "/api/marketplace", "/api/bots/example/slack-management", "/swarm/connectors"]) {
-        for (const method of ["GET", "POST", "PUT", "DELETE"]) {
-          const response = await fetch(fixture.info.url + path, { method, headers: { authorization: "Bearer invalid" } });
-          expect(response.status, `${method} ${path}`).toBe(404);
-        }
+      for (const path of ["/api/connectors/catalog", "/api/connectors/connected", "/api/mcp/servers"]) {
+        expect((await call(path)).status).toBe(200);
+        expect((await call(path, "GET", undefined, "omb_sess_invalid")).status).toBe(401);
       }
+      const pairing: any = await (await call("/api/auth/pairing", "POST", { scopes: ["client"], label: "Connector fixture" })).json();
+      const member: any = await (await call("/api/pair", "POST", { code: pairing.code, deviceName: "Connector fixture" })).json();
+      for (const [path, method, body] of [
+        ["/api/connectors/catalog", "GET", undefined],
+        ["/api/connectors/connected", "GET", undefined],
+        ["/api/connectors/gmail/authorize", "POST", {}],
+        ["/api/mcp/servers", "POST", { name: "untrusted" }],
+        ["/api/config", "PUT", { composio: { apiKey: "untrusted" }, box: { token: "untrusted" } }],
+      ] as const) expect((await call(path, method, body, member.token)).status, path).toBe(403);
     } finally { await fixture.close(); }
   }, 30_000);
 });

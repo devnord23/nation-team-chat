@@ -616,3 +616,24 @@ it("charges every managed tool round and non-streaming helper from actual return
     expect(ledger.admin().ledger.filter(row => row.type === "usage")).toHaveLength(3);
   } finally { setCreditLedgerForTests(); ledger.close(); }
 });
+
+it("NATION receives desktop screenshots in the next model round", async () => {
+  const ledger = new CreditLedger(":memory:", creditSettings({}));
+  const account = { id: "screen-account", verified: true };
+  ledger.grant(account, "screen-ip", "screen-device");
+  setCreditLedgerForTests(ledger);
+  try {
+  const f = await fixture((_body, response, round) => {
+    if (round === 1) sse(response, [chunk({ tool_calls: [toolCall("computer_write")] }, "tool_calls"), { choices: [], usage: { prompt_tokens: 2, completion_tokens: 2, cost: 0.01 } }]);
+    else sse(response, [chunk({ content: "Screenshot received." }, "stop"), { choices: [], usage: { prompt_tokens: 2, completion_tokens: 2, cost: 0.01 } }]);
+  }, "nation-openrouter");
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=";
+  const helper = join(f.directory, "screen.mjs");
+  writeFileSync(helper, MCP_SCRIPT.replace('content: [{ type: "text", text: "Stored " + args.name + "=" + args.value }]', 'content: [{ type: "image", mimeType: "image/png", data: "' + png + '" }]'));
+  await creditContext.run(account, () => f.start({ integrations: { localComputer: { command: process.execPath, args: [helper, ...(f.integrations.custom!.audit as { args: string[] }).args.slice(1)], env: {} } } }));
+  // Use the fixture's own callback URL for the tool receipt.
+  try { await f.decide(); } catch (error) { throw new Error(JSON.stringify(f.recorder.events), { cause: error }); }
+  expect(await f.completed()).toMatchObject({ ok: true });
+  expect(JSON.stringify(f.requests[1].messages)).toContain("data:image/png;base64," + png);
+  } finally { setCreditLedgerForTests(); ledger.close(); }
+});

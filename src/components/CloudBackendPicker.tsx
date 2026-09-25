@@ -32,12 +32,14 @@ export function CloudBackendPicker({
       </div>
       <div className="mt-2 flex overflow-hidden rounded-lg border border-hairline/40">
         {(["box", "vps"] as const).map((backend, i) => {
-          const disabled = backend === "vps" && !vpsSupported;
+          const configured = backend === "vps" ? state.config?.vps?.configured : state.config?.box?.configured;
+          const disabled = !configured || (backend === "vps" && !vpsSupported);
           return (
             <button
               key={backend}
               disabled={disabled}
-              title={disabled ? "This engine does not support a self-hosted VPS" : undefined}
+              aria-pressed={value === backend}
+              title={!configured ? "Configure this backend at /admin" : disabled ? "This engine does not support a self-hosted VPS" : undefined}
               onClick={() => onChange(backend)}
               className={cn(
                 "flex-1 py-1.5 text-[12px]",

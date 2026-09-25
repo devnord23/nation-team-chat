@@ -388,7 +388,12 @@ export async function launchVerificationServer(
   boxFixtureApi?: string,
   /** Owned loopback model fixture only; never inherit a real model credential. */
   nationFixtureApi?: string,
+  /** Owned loopback Composio fixture only; never inherit project credentials. */
+  composioFixtureApi?: string,
 ): Promise<VerificationServer> {
+  if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
+    throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
+  }
   if (nationFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(nationFixtureApi)) {
     throw new ControlOmbError("NATION verification requires an owned loopback HTTP provider");
   }
@@ -457,6 +462,7 @@ export async function launchVerificationServer(
     AGENT_BROWSER_EXECUTABLE_PATH: browser.executablePath,
   });
   if (boxFixtureApi) childEnv.OMB_BOX_API = boxFixtureApi;
+  if (composioFixtureApi) Object.assign(childEnv, { OMB_COMPOSIO_BROKER_URL: composioFixtureApi + "/broker", OMB_COMPOSIO_BROKER_TOKEN: "a".repeat(64) });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,

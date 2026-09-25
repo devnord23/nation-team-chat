@@ -25,6 +25,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Puzzle,
   Search,
   Trash2,
   Users,
@@ -35,6 +36,7 @@ import { peerLine } from "@/lib/peer-message";
 
 import { BotAvatar, InitialsAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
+import { isProductAdmin } from "@/lib/admin-gate";
 import { cn } from "@/lib/cn";
 import { lastNonReceipt } from "@/lib/receipts";
 import { t } from "@/lib/i18n";
@@ -2183,6 +2185,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <span className="size-2 rounded-full bg-danger" />
             )}
           </button>
+          {isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired }) && <button data-tour="nav-apps" onClick={() => dispatch({ type: "togglePlugins", open: true })} aria-label={t("sidebar.nav.connectedApps")} title={t("sidebar.nav.connectedApps")} className={cn("flex min-h-10 w-full items-center rounded-xl py-2 hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "gap-3 px-3")}><Puzzle size={20} className="text-ink-secondary" /><span className={cn("text-[14px] text-ink", density === "icons" && "hidden")}>{t("sidebar.nav.connectedApps")}</span></button>}
           </>
         )}
         {density === "icons" && (
@@ -2213,6 +2216,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 ),
                 onSelect: () => dispatch({ type: "showRoutines" }),
               },
+              ...(isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired }) ? [{ key: "plugins", tourId: "nav-apps", label: t("sidebar.nav.connectedApps"), icon: <Puzzle size={18} />, onSelect: () => dispatch({ type: "togglePlugins", open: true }) }] : []),
             ]}
           />
         )}

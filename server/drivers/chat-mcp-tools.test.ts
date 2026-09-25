@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -294,4 +295,54 @@ describe("Chat MCP schema validation", () => {
     await expect(f.mount()).rejects.toThrow("schema could not be validated");
     expect(alive(f.read().pid)).toBe(false);
   });
+});
+
+it("mounts desktop and browser descriptors and preserves screenshot images", async () => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=";
+  const f = fixture(`
+    if (message.method === "tools/call") {
+      reply(message, {content:[{type:"text",text:"desktop observed"},{type:"image",mimeType:"image/png",data:"${png}"}]});
+      continue;
+    }
+  `);
+  const session = await mountChatTools({ localComputer: f.server, browser: f.server }, f.controller.signal);
+  sessions.push(session);
+  expect(session.definitions.map(item => item.function.name)).toEqual(["computer_write", "browser_write"]);
+  expect(await session.execute("computer_write", { value: "observe" }, f.controller.signal)).toEqual({
+    text: "desktop observed", ok: true, images: [{ data: png, mimeType: "image/png" }],
+  });
+});
+
+it("Box tools execute only on the assigned machine and respect human control", async () => {
+  let held = false;
+  const commands: Array<{ path: string; command: string }> = [];
+  const server = createServer(async (req, res) => {
+    let raw = ""; for await (const chunk of req) raw += chunk;
+    res.setHeader("content-type", "application/json");
+    if (req.url === "/control") {
+      expect(req.headers.authorization).toBe("Bearer fixture-control");
+      res.end(JSON.stringify({ held, helpOpen: false })); return;
+    }
+    expect(req.headers.authorization).toBe("Bearer fixture-box");
+    commands.push({ path: req.url!, command: JSON.parse(raw).command });
+    res.end(JSON.stringify({ exitCode: 0, stdout: "box fixture receipt", stderr: "" }));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const origin = "http://127.0.0.1:" + (server.address() as { port: number }).port;
+  vi.stubEnv("OMB_BOX_API", origin);
+  const controller = new AbortController(); controllers.push(controller);
+  try {
+    const session = await mountChatTools({ computer: { kind: "box", boxId: "bx_23456789", token: "fixture-box", control: { url: origin + "/control", token: "fixture-control" } } }, controller.signal);
+    sessions.push(session);
+    expect(session.definitions.map(tool => tool.function.name)).toContain("computer_screenshot");
+    expect(await session.execute("computer_execute", { command: "printf receipt" }, controller.signal)).toMatchObject({ ok: true });
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toMatchObject({ path: "/boxes/bx_23456789/commands" });
+    expect(commands[0].command).toContain("exec env -i");
+    expect(commands[0].command).not.toContain("fixture-box");
+    held = true;
+    expect((await session.execute("computer_execute", { command: "must not run" }, controller.signal)).ok).toBe(false);
+    expect(commands).toHaveLength(1);
+    await session.close();
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

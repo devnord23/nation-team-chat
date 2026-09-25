@@ -642,15 +642,7 @@ export function PluginsPanel() {
         {!configured && !stale && (
           <div className="mx-6 mb-1 rounded-xl bg-warning/10 px-4 py-3 text-[13px] text-warning sm:mx-8">
             {t("connectors.notConfigured")}{" "}
-            <button
-              className={cn("font-medium underline underline-offset-2", remoteClient && "hidden")}
-              onClick={() => {
-                close();
-                dispatch({ type: "toggleAppSettings", open: true });
-              }}
-            >
-              {t("connectors.openSettings")}
-            </button>
+            {!remoteClient && <a href="/admin#integrations" className="font-medium underline underline-offset-2">Open admin settings</a>}
           </div>
         )}
         {botsWithoutApps.length > 0 && (

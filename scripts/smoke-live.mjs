@@ -135,14 +135,13 @@ await check("5. Zero credit blocks calls and the test adjustment is restored", a
     assert(restored.status === 200, `Restore test credit manually: ${memberId}, $${amount}`);
   }
 });
-await check("6. Connector screens and routes return 404", async () => {
-  for (const path of ["/api/connectors", "/api/integrations", "/api/marketplace", "/api/mcp/servers", "/api/internal/connectors/mcp", "/api/bots/smoke/connectors/message/resume"]) {
-    for (const method of ["GET", "POST"]) assert((await api(path, { method, ...(method === "POST" ? { body: {} } : {}) })).status === 404, `${method} ${path} is reachable`);
+await check("6. Connector management is owner-only", async () => {
+  for (const path of ["/api/connectors/catalog", "/api/connectors/connected", "/api/mcp/servers"]) {
+    assert((await api(path)).status === 403, `Member can read ${path}`);
+    assert((await api(path, { admin: true })).status === 200, `Owner cannot read ${path}`);
   }
-  for (const path of ["connectors", "integrations", "marketplace"]) {
-    const response = await fetch(new URL(path, site), { signal: AbortSignal.timeout(15_000) });
-    assert(response.status === 404, `Public ${path} screen returns ${response.status}`);
-  }
+  const response = await fetch(new URL("connectors", site), { signal: AbortSignal.timeout(15_000) });
+  assert(response.status === 200, `Connected-app screen returns ${response.status}`);
 });
 await check("7. Existing bots and messages survive the data-directory rename", async () => {
   const path = env.NATION_SMOKE_BASELINE || join(output, "data-before.json");
