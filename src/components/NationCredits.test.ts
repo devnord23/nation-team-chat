@@ -114,7 +114,6 @@ describe("TierCard", () => {
     );
     expect(html).toContain("$NATION");
     expect(html).toContain("Save ~20%");
-    expect(html).not.toContain("USDG");
   });
 
   it("uses nationDiscount percentage in badge", () => {
@@ -127,6 +126,35 @@ describe("TierCard", () => {
   it("shows Most popular badge on popular tier", () => {
     const html = renderToStaticMarkup(createElement(TierCard, baseProps));
     expect(html).toContain("Most popular");
+  });
+
+  it("shows dual prices: USDG primary + NATION secondary when nationPriceUsd is set and payWithNation=false", () => {
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { ...baseProps, payWithNation: false, nationPriceUsd: 0.5, nationDiscount: 0.2 }),
+    );
+    // Primary = $49
+    expect(html).toContain("$49");
+    // Secondary = NATION equivalent with discount hint
+    expect(html).toContain("$NATION");
+    expect(html).toContain("save ~20%");
+  });
+
+  it("shows dual prices: NATION primary + USD secondary when payWithNation=true", () => {
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { ...baseProps, payWithNation: true, nationPriceUsd: 0.5, nationDiscount: 0.2 }),
+    );
+    // Primary = NATION amount
+    expect(html).toContain("$NATION");
+    // Secondary = USD reference
+    expect(html).toContain("= $49 value");
+  });
+
+  it("no secondary price when nationPriceUsd is null (USDG-only)", () => {
+    const html = renderToStaticMarkup(
+      createElement(TierCard, { ...baseProps, nationPriceUsd: null }),
+    );
+    expect(html).not.toContain("save ~");
+    expect(html).not.toContain("= $");
   });
 });
 
@@ -162,7 +190,7 @@ describe("TokenToggle", () => {
 const usdgChain = { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: "0xabc" as Hex, treasury: "0xdef" as Hex, decimals: 6 };
 const usdgInvoice = {
   id: "inv-1", chain: 4663, treasury: "0xdef" as Hex, token: "0xabc" as Hex,
-  amount_micros: 49_012_345, token_amount: "", expires_at: Date.now() + 30 * 60_000, paid_tx: null,
+  pack_micros: 49_000_000, amount_micros: 49_012_345, token_amount: "", expires_at: Date.now() + 30 * 60_000, paid_tx: null,
 };
 const checkoutStatus: CreditStatus = {
   balanceUsd: 5, label: "$5.00", verified: true, exempt: false, lowBalance: false,
@@ -200,6 +228,23 @@ describe("CheckoutPanel", () => {
     const html = renderToStaticMarkup(createElement(CheckoutPanel, baseProps));
     // 49_012_345 micros = 49.012345 USDG
     expect(html).toContain("49.012345");
+  });
+
+  it("shows order summary with tier name, amount, and network", () => {
+    const statusWithTiers: CreditStatus = {
+      ...checkoutStatus,
+      tiers: [{ id: "builder", name: "Builder", usd: 49, creditUsd: 49, popular: true }],
+    };
+    const html = renderToStaticMarkup(createElement(CheckoutPanel, { ...baseProps, status: statusWithTiers }));
+    expect(html).toContain("Builder pack");
+    expect(html).toContain("49.012345 USDG");
+    expect(html).toContain("Robinhood Chain");
+  });
+
+  it("shows staged action buttons: Pay with wallet + I've paid — confirm", () => {
+    const html = renderToStaticMarkup(createElement(CheckoutPanel, baseProps));
+    expect(html).toContain("Pay with wallet");
+    expect(html).toContain("I&#x27;ve paid");
   });
 
   it("shows paid confirmation when invoice is paid", () => {

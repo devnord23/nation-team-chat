@@ -40,7 +40,7 @@ type StripStatus = {
   starterMessage: string;
   packs: number[];
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string }>;
-  invoices: Array<{ id: string; chain: number; treasury: string; token: string; amount_micros: number; expires_at: number; paid_tx: string | null }>;
+  invoices: Array<{ id: string; chain: number; treasury: string; token: string; amount_micros: number; pack_micros: number; expires_at: number; paid_tx: string | null }>;
 };
 
 type Invoice = CreditStatus["invoices"][number];
@@ -108,13 +108,30 @@ export function TierCard({
   disabled: boolean;
 }) {
   const usdLabel = `$${tier.usd}`;
-  const nationLabel =
-    nationPriceUsd && nationPriceUsd > 0
-      ? `≈ ${(tier.usd / nationPriceUsd).toFixed(2)} $NATION`
-      : `≈ ${Math.round(tier.usd * 0.8)} $NATION`;
   const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+
+  // Compute NATION amount only when a price is available.
+  const nationAmount =
+    nationPriceUsd && nationPriceUsd > 0
+      ? (tier.usd / nationPriceUsd).toFixed(2)
+      : null;
+  const nationLabel = nationAmount ? `${nationAmount} $NATION` : null;
+
+  // Primary displayed price — selected token.
+  const primaryPrice = payWithNation && nationLabel ? nationLabel : usdLabel;
+
+  // Secondary (alternative) price shown below primary when both tokens exist.
+  // When paying with USDG: shows the NATION equivalent + discount hint.
+  // When paying with NATION: shows the USD equivalent for reference.
+  const secondaryPrice =
+    nationLabel && payWithNation
+      ? `= ${usdLabel} value`
+      : nationLabel
+        ? `≈ ${nationLabel} · save ~${discountPct}%`
+        : null;
+
   const ctaLabel = payWithNation
-    ? `Pay ${nationLabel} worth of $NATION`
+    ? `Pay ${primaryPrice} in $NATION`
     : `Pay ${usdLabel} with ${nonNationSymbol}`;
 
   return (
@@ -136,9 +153,10 @@ export function TierCard({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
-          <p className="mt-0.5 text-[22px] font-bold text-ink">
-            {payWithNation ? nationLabel : usdLabel}
-          </p>
+          <p className="mt-0.5 text-[22px] font-bold text-ink">{primaryPrice}</p>
+          {secondaryPrice && (
+            <p className="mt-0.5 text-[12px] font-medium text-accent">{secondaryPrice}</p>
+          )}
         </div>
         {payWithNation && (
           <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
@@ -234,6 +252,11 @@ export function CheckoutPanel({
       : (invoice.amount_micros / 1e6).toFixed(6);
   const networkName = chain?.name ?? "Robinhood Chain";
 
+  // Derive the pack tier name from status for the order summary.
+  const packUsd = invoice.pack_micros / 1_000_000;
+  const tierInfo = status.tiers.find((t) => t.usd === packUsd);
+  const tierName = tierInfo?.name ?? `$${packUsd}`;
+
   return (
     <div className="space-y-4 rounded-2xl bg-inset p-5">
       {paid ? (
@@ -253,12 +276,20 @@ export function CheckoutPanel({
               ← Back
             </button>
           </div>
+
+          {/* Order summary */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl bg-panel px-3 py-2 text-[13px]">
+            <span className="font-semibold text-ink">{tierName} pack</span>
+            <span className="text-hairline/60">·</span>
+            <span className="font-semibold text-ink">{displayAmount} {displaySymbol}</span>
+            <span className="text-hairline/60">·</span>
+            <span className="text-ink-secondary">{networkName}</span>
+          </div>
+
+          {/* Amount + treasury */}
           <div className="rounded-xl bg-panel p-3 text-[13px] space-y-1">
             <p className="font-semibold text-ink">
               Send exactly {displayAmount} {displaySymbol}
-            </p>
-            <p className="text-ink-secondary">
-              Network: {networkName}
             </p>
             <p className="text-xs text-ink-secondary">
               The unique amount identifies your payment — the full amount is credited.
@@ -267,6 +298,8 @@ export function CheckoutPanel({
           <code className="block break-all rounded-xl bg-panel p-3 text-xs text-ink">
             {invoice.treasury}
           </code>
+
+          {/* QR code */}
           <div className="flex justify-center">
             <div className="w-fit rounded-xl bg-white p-3">
               <QRCodeSVG
@@ -286,16 +319,20 @@ export function CheckoutPanel({
               Usage is not charged to this account. Test payments still credit the ledger if they complete.
             </p>
           )}
+
+          {/* Pay with wallet */}
           <button
             className={cn(btn, "w-full")}
             disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
             onClick={onPay}
           >
-            Connect wallet and pay
+            Pay with wallet
           </button>
+
+          {/* I've paid — paste tx */}
           <div>
             <label className="mb-1 block text-[13px] text-ink-secondary">
-              Already paid? Paste the transaction hash
+              Already paid? Paste your transaction hash
             </label>
             <input
               className={field}
@@ -310,7 +347,7 @@ export function CheckoutPanel({
             disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())}
             onClick={onConfirm}
           >
-            Check payment
+            I've paid — confirm
           </button>
           {hash && (
             <p className="text-center text-[11px] text-ink-secondary">
@@ -598,7 +635,7 @@ export function NationCredits() {
               {/* header */}
               <div className="mb-4 flex items-center justify-between gap-4">
                 <h2 id="nation-credit-title" className="text-xl font-semibold">
-                  {invoice ? "Complete payment" : "Add credit"}
+                  {invoice ? "Complete payment" : "Top up credits"}
                 </h2>
                 <button
                   ref={closeRef}
@@ -664,10 +701,15 @@ export function NationCredits() {
               ) : (
                 /* ── Plan picker step ────────────────────────────────── */
                 <div className="space-y-5">
-                  <p className="text-[13px] text-ink-secondary">
-                    Your credit never expires. You pay only when you choose to top up.
-                    No automatic or recurring charges.
-                  </p>
+                  {/* hero one-liner */}
+                  <div>
+                    <p className="text-[14px] font-medium text-ink">
+                      Power your team with prepaid AI credits.
+                    </p>
+                    <p className="mt-1 text-[12px] text-ink-secondary">
+                      No subscriptions · no expiry · pay only when you choose to top up.
+                    </p>
+                  </div>
                   {status.exempt && (
                     <p className="text-[12px] text-ink-secondary">
                       Usage is not charged to this account. Test payments still credit the ledger if they complete.
