@@ -1,0 +1,1240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NATION Swarm</title>
+<meta name="viewport" content="width=1440">
+<style>
+/* Geist and Geist Mono (SIL Open Font License 1.1, see assets/fonts/OFL.txt). The build step inlines them. */
+@font-face { font-family: "Geist"; src: url("../assets/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Geist Mono"; src: url("../assets/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+:root { --canvas: #F2F0EB; }
+html, body { margin: 0; background: var(--canvas); overflow: hidden; }
+#stage { width: 1440px; height: 1440px; display: block; }
+text { font-family: "Geist", sans-serif; font-kerning: normal; }
+.mono { font-family: "Geist Mono", monospace; }
+body.preview { display: grid; place-items: center; height: 100vh; }
+body.preview #stage { width: min(100vw, 100vh); height: min(100vw, 100vh); }
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1440 1440" xmlns="http://www.w3.org/2000/svg">
+  <defs id="defs">
+    <filter id="shadow-ink" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#020C01" flood-opacity="0.16"/>
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#020C01" flood-opacity="0.14"/>
+    </filter>
+    <filter id="shadow-paper" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#020C01" flood-opacity="0.10"/>
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#020C01" flood-opacity="0.10"/>
+    </filter>
+    <filter id="shadow-cursor" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect id="bg" width="1440" height="1440" fill="#F2F0EB"/>
+  <g id="world"></g>
+  <g id="overlay"></g>
+</svg>
+<script>
+"use strict";
+/* ============================================================================
+   NATION Swarm, one 16-second loop at 120 BPM.
+
+   Everything on screen is a pure function of time: seek(t) draws frame t.
+   No timers, no transitions, no state carried between frames. Motion is
+   built from closed-form spring step responses; each animated value is a
+   sum of those steps, and each sum returns to its starting value within the
+   loop. Steps that start near the end keep ringing into the start (they are
+   evaluated modulo the loop), so the last frame flows into the first with
+   the same position and velocity, for the object, the cursor and the camera.
+   ========================================================================== */
+
+// ---------------------------------------------------------------- beat grid
+// Replaced by the build step with the grid measured from the track (tools/analyze_beats.py).
+const GRID = /*GRID*/{ period: 0.5, offset: 0.001, beats: 32 }/*END*/;
+const LOOP = GRID.period * GRID.beats;
+const B = k => GRID.offset + (k - 1) * GRID.period; // beat k, 1-based
+
+// ---------------------------------------------------------------- palette
+const INK = "#020C01", GREEN = "#CDFFA6", WHITE = "#FFFFFF", CANVAS = "#F2F0EB";
+
+// ---------------------------------------------------------------- math
+const TAU = Math.PI * 2;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const mod = (x, m) => ((x % m) + m) % m;
+const smooth = u => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * u * (u * (6 * u - 15) + 10)); // minimum-jerk
+const bump = u => (u <= 0 || u >= 1 ? 0 : Math.sin(Math.PI * u) ** 2);
+
+/** Spring step response, 0 -> 1. r is the response (undamped period, s), z the damping ratio. */
+function spring(x, r, z) {
+  if (x <= 0) return 0;
+  const w = TAU / r;
+  if (z >= 1) { const e = Math.exp(-w * x); return 1 - e * (1 + w * x); }
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * x) * (Math.cos(wd * x) + (z * w / wd) * Math.sin(wd * x));
+}
+/** A spring released at x0 with velocity v0, heading for target; x is time since release. */
+function springFrom(x, x0, v0, target, r, z) {
+  const w = TAU / r, wd = w * Math.sqrt(1 - z * z), a = x0 - target, b = (v0 + z * w * a) / wd;
+  return target + Math.exp(-z * w * x) * (a * Math.cos(wd * x) + b * Math.sin(wd * x));
+}
+
+// Spring presets. Tiny overshoot only.
+const SP = {
+  snap: [0.26, 0.86],   // presses, small UI
+  ui: [0.36, 0.84],     // most UI changes
+  lead: [0.34, 0.8],    // leading edges
+  trail: [0.46, 0.9],   // trailing edges
+  soft: [0.5, 0.9],     // larger bodies
+  cam: [0.95, 0.94],    // camera
+  fade: [0.3, 1.0],     // opacity, no overshoot
+};
+
+/**
+ * A value made of spring steps. v0 is its value at the loop's start (with
+ * every step of the previous cycle settled); the steps must bring it back to
+ * v0, which close() checks.
+ */
+class Track {
+  constructor(v0) { this.v0 = v0; this.v = v0; this.steps = []; }
+  to(t, v, p = SP.ui, delay = 0) {
+    if (v !== this.v) {
+      const [r, z] = p;
+      this.steps.push({ t: mod(t + delay, LOOP), d: v - this.v, f: x => spring(x, r, z) });
+      this.v = v;
+    }
+    return this;
+  }
+  ease(t, v, dur) {
+    if (v !== this.v) {
+      this.steps.push({ t: mod(t, LOOP), d: v - this.v, f: x => smooth(x / dur) });
+      this.v = v;
+    }
+    return this;
+  }
+  at(tau) {
+    let y = this.v0;
+    for (const s of this.steps) {
+      let e = tau - s.t;
+      if (e < 0) { e += LOOP; y -= s.d; } // this step fired last cycle: it has not re-fired yet
+      y += s.d * s.f(e);
+    }
+    return y;
+  }
+}
+const tracks = [];
+function T(v0, name) { const t = new Track(v0); t.name = name; tracks.push(t); return t; }
+function checkTracks() {
+  for (const t of tracks) if (Math.abs(t.v - t.v0) > 1e-6) throw new Error(`track ${t.name} ends at ${t.v}, starts at ${t.v0}`);
+}
+
+/** A rectangle whose four edges and radius move on independent springs. */
+class Box {
+  constructor(name, l, t, r, b, rad) {
+    this.name = name;
+    this.L = T(l, name + ".l"); this.Tp = T(t, name + ".t"); this.R = T(r, name + ".r"); this.Bt = T(b, name + ".b"); this.rad = T(rad, name + ".rad");
+  }
+  /** Move to a rect. lead names the edges that lead ("l","r","t","b"); the others trail. */
+  to(t, [l, tp, r, b, rad], lead = "", pl = SP.lead, pt = SP.trail, lag = 0.035) {
+    const e = (k, track, v) => track.to(t, v, lead.includes(k) ? pl : pt, lead.includes(k) || !lead ? 0 : lag);
+    e("l", this.L, l); e("t", this.Tp, tp); e("r", this.R, r); e("b", this.Bt, b);
+    if (rad !== undefined) this.rad.to(t, rad, SP.soft);
+    return this;
+  }
+  at(tau) {
+    const l = this.L.at(tau), t = this.Tp.at(tau), r = this.R.at(tau), b = this.Bt.at(tau);
+    return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2, rad: this.rad.at(tau) };
+  }
+}
+const rect = (l, t, w, h, rad) => [l, t, l + w, t + h, rad];
+const centered = (cx, cy, w, h, rad) => [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, rad];
+
+// ---------------------------------------------------------------- svg helpers
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, parent) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function set(n, attrs) { for (const k in attrs) n.setAttribute(k, typeof attrs[k] === "number" ? +attrs[k].toFixed(3) : attrs[k]); }
+function rr(n, x, y, w, h, rad) {
+  w = Math.max(0, w); h = Math.max(0, h);
+  set(n, { x, y, width: w, height: h, rx: Math.max(0, Math.min(rad, w / 2, h / 2)) });
+}
+const world = document.getElementById("world");
+const overlay = document.getElementById("overlay");
+const defs = document.getElementById("defs");
+
+let blurId = 0;
+/** Text with its own directional blur filter, for enter/exit. */
+function label(parent, str, attrs) {
+  const id = "b" + blurId++;
+  const f = el("filter", { id, x: "-20%", y: "-60%", width: "140%", height: "220%" }, defs);
+  const g = el("feGaussianBlur", { stdDeviation: "0 0" }, f);
+  const n = el("text", attrs, parent);
+  n.textContent = str;
+  n._blur = g; n._fid = id;
+  return n;
+}
+function showText(n, x, y, vis, blurX = 0, blurY = 0) {
+  set(n, { x, y, opacity: clamp(vis) });
+  if (blurX > 0.05 || blurY > 0.05) { n.setAttribute("filter", `url(#${n._fid})`); n._blur.setAttribute("stdDeviation", `${blurX.toFixed(2)} ${blurY.toFixed(2)}`); }
+  else n.removeAttribute("filter");
+}
+
+/**
+ * Visibility of a piece of content that enters at tIn and exits at tOut
+ * (either may be null). Returns {o, dy, blur}: opacity, travel and blur.
+ * Exits are short and directional; entries wait for the exit they replace.
+ */
+function presence(tau, tIn, tOut, { travel = 14, enter = SP.ui, exitDur = 0.13, dirIn = 1, dirOut = -1 } = {}) {
+  const w = x => (x < 0 ? x + LOOP : x);
+  let o = 1, dy = 0, blur = 0;
+  if (tIn !== null && tOut === null && tau < tIn) return { o: 0, dy: dirIn * travel, blur: 7 };
+  if (tIn !== null) {
+    const e = mod(tau - tIn, LOOP), eo = tOut === null ? Infinity : mod(tau - tOut, LOOP);
+    // Before tIn (and after tOut) the content is absent. Work out which event happened last.
+    const sinceIn = e, sinceOut = eo;
+    if (tOut !== null && sinceOut < sinceIn) {
+      const q = smooth(sinceOut / exitDur);
+      o = 1 - q; dy = dirOut * travel * q; blur = 7 * q;
+      if (sinceOut >= exitDur) { o = 0; }
+      return { o, dy, blur };
+    }
+    const p = spring(sinceIn, enter[0], enter[1]);
+    o = clamp(sinceIn / 0.16); dy = dirIn * travel * (1 - p); blur = 7 * clamp(1 - sinceIn / 0.14);
+    return { o, dy, blur };
+  }
+  if (tOut !== null) {
+    const eo = mod(tau - tOut, LOOP);
+    const q = smooth(eo / exitDur);
+    return { o: 1 - q, dy: dirOut * travel * q, blur: 7 * q };
+  }
+  return { o, dy, blur };
+}
+
+// ---------------------------------------------------------------- icons
+// One family: 24-unit grid, round caps and joins, drawn at a constant world stroke width.
+const ICONS = {
+  plus: "M12 5v14M5 12h14",
+  close: "M6.5 6.5l11 11M17.5 6.5l-11 11",
+  check: "M5 12.6l4.3 4.3L19 7.2",
+  lock: "M7.5 11V8.3a4.5 4.5 0 0 1 9 0V11M6.5 11h11a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5v-6A1.5 1.5 0 0 1 6.5 11z",
+  web: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM3.4 9.5h17.2M3.4 14.5h17.2M12 3c-2.4 2.4-3.6 5.4-3.6 9s1.2 6.6 3.6 9c2.4-2.4 3.6-5.4 3.6-9S14.4 5.4 12 3z",
+  files: "M4 7.2A2.2 2.2 0 0 1 6.2 5h3.4l2.2 2.2h6A2.2 2.2 0 0 1 20 9.4v7.4A2.2 2.2 0 0 1 17.8 19H6.2A2.2 2.2 0 0 1 4 16.8z",
+  code: "M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.3 5.3l-2.6 13.4",
+  browser: "M5.5 4.5h13a2.5 2.5 0 0 1 2.5 2.5v10a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17V7a2.5 2.5 0 0 1 2.5-2.5zM3 9h18M6.3 6.8h.01M8.8 6.8h.01",
+  wallet: "M18.5 8.5V6.8A1.8 1.8 0 0 0 16.7 5H6.3A2.3 2.3 0 0 0 4 7.3v9.4A2.3 2.3 0 0 0 6.3 19h11.9a1.8 1.8 0 0 0 1.8-1.8v-6.9a1.8 1.8 0 0 0-1.8-1.8H6.2A2.2 2.2 0 0 1 4 7.3M16.2 13.9h.01",
+  search: "M11 4.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM16 16l4 4",
+  doc: "M7.3 3.5h6.4L18.5 8.3v11a1.2 1.2 0 0 1-1.2 1.2H7.3a1.2 1.2 0 0 1-1.2-1.2V4.7a1.2 1.2 0 0 1 1.2-1.2zM13.5 3.6v4.9h4.9M9.2 12.6h6.1M9.2 16h4.2",
+  page: "M5.5 4.5h13A2.5 2.5 0 0 1 21 7v10a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17V7a2.5 2.5 0 0 1 2.5-2.5zM3 9.2h18M9.4 9.2v10.3",
+  pdf: "M7.3 3.5h6.4L18.5 8.3v11a1.2 1.2 0 0 1-1.2 1.2H7.3a1.2 1.2 0 0 1-1.2-1.2V4.7a1.2 1.2 0 0 1 1.2-1.2zM13.5 3.6v4.9h4.9M9.2 15.2l1.9-2.4 1.7 1.6 2.2-2.9",
+  saved: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM8.2 12.3l2.6 2.6 5.1-5.2",
+  layers: "M12 4l8 4-8 4-8-4 8-4zM4 12l8 4 8-4M4 16l8 4 8-4",
+  flag: "M6.5 20.5V4.2M6.5 4.8h10.2l-2.2 3.9 2.2 3.9H6.5",
+  more: "M6.5 12h.01M12 12h.01M17.5 12h.01",
+};
+/** An icon of size px (world), stroke fixed at sw world px. */
+function icon(parent, name, color, size = 28, sw = 2.2) {
+  const g = el("g", {}, parent);
+  const p = el("path", { d: ICONS[name], fill: "none", stroke: color, "stroke-linecap": "round", "stroke-linejoin": "round" }, g);
+  const dot = name === "more" || name === "browser" || name === "wallet";
+  g._size = size;
+  set(p, { "stroke-width": (sw * 24 / size) * (name === "more" ? 1.9 : 1) });
+  if (dot && name !== "more") { /* dots use the same stroke; round caps make them dots */ }
+  g._path = p;
+  return g;
+}
+function placeIcon(g, cx, cy, o = 1, s = 1) {
+  const k = (g._size / 24) * s;
+  set(g, { transform: `translate(${(cx - 12 * k).toFixed(3)} ${(cy - 12 * k).toFixed(3)}) scale(${k.toFixed(5)})`, opacity: clamp(o) });
+}
+
+// ---------------------------------------------------------------- faces
+// The NATION bot face: a soft-tower head (body + top tab), two eyes, one mouth.
+// Proportions from public/bot-faces/*.svg, as fractions of the face width fw.
+// Roles differ only by the eyes.
+const EYES = {
+  chief: { w: 0.2, h: 0.34, r: 0.1 },
+  research: { w: 0.24, h: 0.24, r: 0.12 },  // round: it looks things up
+  build: { w: 0.22, h: 0.22, r: 0.045 },    // square: it makes things
+  review: { w: 0.23, h: 0.12, r: 0.06 },    // narrowed: it checks things
+};
+function faceParts(fx, fy, fw, kind) {
+  const E = EYES[kind];
+  const ecx = [fx + 0.3 * fw, fx + 0.7 * fw], ecy = fy + 0.47 * fw; // eye centres (from the source art)
+  const eyes = ecx.map(cx => [cx - (E.w * fw) / 2, ecy - (E.h * fw) / 2, E.w * fw, E.h * fw, E.r * fw]);
+  const mouth = [fx + 0.24 * fw, fy + 0.7 * fw, 0.52 * fw, 0.16 * fw, 0.08 * fw];
+  return { eyes, mouth };
+}
+function tabRect(bodyTop, fx, fw) { return [fx + 0.28 * fw, bodyTop - 0.16 * fw, 0.44 * fw, 0.24 * fw, 0.12 * fw]; }
+
+/** Blend two role eye shapes (for the moment roles are assigned). */
+function eyeBlend(a, b, u) {
+  const A = EYES[a], Bq = EYES[b];
+  return { w: lerp(A.w, Bq.w, u), h: lerp(A.h, Bq.h, u), r: lerp(A.r, Bq.r, u) };
+}
+
+/** Draws a face: eyes + mouth rects in a group. */
+class Face {
+  constructor(parent, color) {
+    this.g = el("g", {}, parent);
+    this.eyes = [el("rect", { fill: color }, this.g), el("rect", { fill: color }, this.g)];
+    this.mouth = el("rect", { fill: color }, this.g);
+  }
+  /**
+   * fx, fy, fw: face zone. eye: {w,h,r} fractions. look: [dx, dy] as fraction of fw.
+   * blink: 0..1 squash. grow: 0..1 scale about the zone centre.
+   */
+  draw(fx, fy, fw, eye, { look = [0, 0], blink = 0, grow = 1, o = 1, color } = {}) {
+    const g = clamp(grow, 0, 1.2);
+    const zc = [fx + fw / 2, fy + 0.55 * fw];
+    const S = (x, y) => [zc[0] + (x - zc[0]) * g, zc[1] + (y - zc[1]) * g];
+    const ecy = fy + 0.47 * fw + look[1] * fw;
+    [0.3, 0.7].forEach((ex, i) => {
+      const cx = fx + ex * fw + look[0] * fw;
+      const w = eye.w * fw, h = Math.max(eye.h * fw * (1 - 0.86 * blink), 0.02 * fw);
+      const [x, y] = S(cx - w / 2, ecy - h / 2);
+      rr(this.eyes[i], x, y, w * g, h * g, Math.min(eye.r * fw, (h * g) / 2) * g);
+    });
+    const [mx, my] = S(fx + 0.24 * fw + look[0] * fw * 0.5, fy + 0.7 * fw + look[1] * fw * 0.5);
+    rr(this.mouth, mx, my, 0.52 * fw * g, 0.16 * fw * g, 0.08 * fw * g);
+    set(this.g, { opacity: clamp(o) });
+    if (color) for (const n of [...this.eyes, this.mouth]) n.setAttribute("fill", color);
+  }
+}
+
+// ---------------------------------------------------------------- scene geometry
+// World units are pixels at camera scale 1. The loop starts and ends on the
+// Chief's head, centred at the world origin.
+const CHIP_W = 176;
+const chipBody = centered(0, 0, CHIP_W, 0.98 * CHIP_W, 0.26 * CHIP_W);
+const CHIP_FACE = { fx: -CHIP_W / 2, fy: -0.49 * CHIP_W, fw: CHIP_W };
+
+// Chief card (beats 2-29): its left edge stays where the head was.
+const CARD = { l: -88, t: -98, b: 98 };
+const CARD_R_AGENT = 512, CARD_R_CHIEF = 692;
+const CARD_FACE = { fx: -76, fy: -88, fw: 148 };
+// Specialists sit under the Chief as three shafts: the NATION column in agent form.
+const POD_W = 240, POD_GAP = 30, POD_T = 158, POD_B = 478;
+const PODS = ["research", "build", "review"];
+const NAMES = { research: "Research", build: "Build", review: "Review" };
+const podL = i => CARD.l + i * (POD_W + POD_GAP);
+const podRect = i => [podL(i), POD_T, podL(i) + POD_W, POD_B, 38];
+const TEAM_C = [(CARD.l + CARD_R_CHIEF) / 2, 178];
+
+// The isolated PC and everything Build does inside it.
+const PC_C = [302, 196];
+const PC = centered(PC_C[0], PC_C[1], 860, 640, 44);
+const PC_BAR = 88;
+const STRIP = centered(PC_C[0], PC_C[1], 780, 148, 40);
+const WALLET = centered(PC_C[0], PC_C[1], 580, 316, 42);
+const MEMORY = centered(PC_C[0], PC_C[1] + 6, 500, 484, 42);
+const BUILD_CHIP = centered(PC_C[0], PC_C[1], CHIP_W, 0.98 * CHIP_W, 0.26 * CHIP_W);
+const DOCK = { browser: [548, PC[1] + PC_BAR / 2], code: [616, PC[1] + PC_BAR / 2], more: [684, PC[1] + PC_BAR / 2] };
+const TOOLS = ["web", "files", "code", "browser", "wallet"];
+const TOOL_NAMES = { web: "Web", files: "Files", code: "Code", browser: "Browser", wallet: "Wallet" };
+const toolX = i => 110 + i * 126;
+
+// Deliverable, finished page, logo tile.
+const DELIV_B = 392;
+const ROW = i => [CARD.l + 24, 124 + i * 86, CARD_R_CHIEF - 24, 124 + i * 86 + 68, 22];
+const FILES = [
+  { name: "launch-plan.md", icon: "doc", from: 2 },
+  { name: "landing-page", icon: "page", from: 1 },
+  { name: "research.pdf", icon: "pdf", from: 0 },
+];
+const PAGE = centered(302, 150, 920, 664, 34);
+const TILE = centered(0, 0, 404, 404, 92);
+const PAGE_C = [302, 150];
+
+// The column, in world units on the tile (source art is a 1280 tile).
+const LK = 404 / 1280;
+const L = (x, y) => [(x - 640) * LK, (y - 640) * LK];
+const lrect = (x, y, w, h) => { const [a, c] = L(x, y); return [a, c, w * LK, h * LK, 21.4 * LK]; };
+const COL = {
+  abacusTop: lrect(407.37, 330.48, 441.04, 55.91),
+  abacusBottom: lrect(379.29, 405.84, 497.22, 55.96),
+  shafts: [lrect(519.17, 642.65, 56.0, 335.58), lrect(687.08, 642.65, 55.98, 335.59), lrect(603.14, 642.66, 55.93, 335.58)], // left eye, right eye, mouth
+  arch: { c: L(629.57, 615.19), R: 54.9 * LK, r: 20.26 * LK },
+};
+const CAPITAL_D = "/*CAPITAL*/";
+
+// ---------------------------------------------------------------- timeline
+const b = B;
+
+// Camera: the world point at the centre of the frame, and scale.
+const cam = { x: T(0, "cam.x"), y: T(-12, "cam.y"), s: T(1.36, "cam.s") };
+function camTo(t, x, y, s, p = SP.cam) { cam.x.to(t, x, p); cam.y.to(t, y, p); cam.s.to(t, s, p); }
+camTo(b(2) + 0.02, 200, -4, 1.26);
+camTo(b(3) + 0.02, TEAM_C[0], 8, 1.22);
+camTo(b(4) + 0.08, TEAM_C[0], 150, 1.26);
+camTo(b(7) - 0.02, TEAM_C[0], 262, 1.24);
+camTo(b(9) + 0.06, TEAM_C[0], 178, 1.3);
+camTo(b(12) + 0.06, PC_C[0], PC_C[1] + 4, 1.38);
+camTo(b(17), PC_C[0] + 8, PC_C[1] + 8, 1.42);
+camTo(b(20) + 0.06, PC_C[0], PC_C[1], 1.56);
+camTo(b(21) + 0.02, PC_C[0], PC_C[1] + 2, 1.62);
+camTo(b(23) + 0.02, PC_C[0], PC_C[1] + 8, 1.68);
+camTo(b(25), PC_C[0], PC_C[1] + 4, 1.72);
+camTo(b(26), PC_C[0], PC_C[1] + 8, 1.68);
+camTo(b(27), TEAM_C[0], 176, 1.3);
+camTo(b(29) + 0.04, TEAM_C[0], 146, 1.3);
+camTo(b(30) + 0.02, PAGE_C[0], PAGE_C[1], 1.3, [0.55, 0.92]);
+camTo(b(31), 0, -4, 1.66);
+camTo(b(32), 0, -12, 1.36, [0.62, 0.95]);
+
+// ---- The Chief: the one object. Head, card, Chief, deliverable, tile, head.
+const chief = new Box("chief", ...chipBody);
+chief.to(b(2), [CARD.l, CARD.t, CARD_R_AGENT, CARD.b, 40], "r");
+chief.to(b(3), [CARD.l, CARD.t, CARD_R_CHIEF, CARD.b, 40], "r");
+chief.to(b(29) + 0.08, [CARD.l, CARD.t, CARD_R_CHIEF, DELIV_B, 42], "b");
+chief.to(b(30), ROW(1), "", [0.26, 0.9], [0.26, 0.9]); // folds around the row that is opening
+chief.to(b(30) + 0.4, TILE, "", [0.2, 1], [0.2, 1]); // hidden under the page
+chief.to(b(32), chipBody, "", [0.42, 0.88], [0.48, 0.9]);
+const chiefDip = T(0, "chief.dip").to(b(9) + 0.04, 7, SP.snap).to(b(9) + 0.15, 0, SP.ui);
+const cfx = T(CHIP_FACE.fx, "chief.fx").to(b(2), CARD_FACE.fx, SP.ui).to(b(30) + 0.05, CHIP_FACE.fx, SP.soft);
+const cfy = T(CHIP_FACE.fy, "chief.fy").to(b(2), CARD_FACE.fy, SP.ui).to(b(30) + 0.05, CHIP_FACE.fy, SP.soft);
+const cfw = T(CHIP_FACE.fw, "chief.fw").to(b(2), CARD_FACE.fw, SP.ui).to(b(30) + 0.05, CHIP_FACE.fw, SP.soft);
+// Under the finished page the Chief's face becomes the column (eyes and mouth are the shafts,
+// the tab is the two top bars), and at beat 32 the column becomes the face again.
+// The page hands over to the Chief's own column parts once they coincide.
+const COL_SWITCH = b(31) + 0.47;
+// Each face part mixes toward its shaft edge by edge, so on the way back the eyes rise first and
+// the mouth shortens before it widens: the three bars never run into each other.
+const FM = {
+  eyes: { l: T(0, "fm.el"), t: T(0, "fm.et"), r: T(0, "fm.er"), b: T(0, "fm.eb") },
+  mouth: { l: T(0, "fm.ml"), t: T(0, "fm.mt"), r: T(0, "fm.mr"), b: T(0, "fm.mb") },
+};
+for (const part of Object.values(FM)) for (const k in part) part[k].to(b(30) + 0.4, 1, [0.2, 1]); // hidden under the page
+FM.eyes.t.to(b(32), 0, [0.3, 0.84]); FM.eyes.b.to(b(32), 0, [0.3, 0.86]); FM.eyes.l.to(b(32) + 0.02, 0, [0.34, 0.86]); FM.eyes.r.to(b(32) + 0.02, 0, [0.34, 0.86]);
+FM.mouth.t.to(b(32), 0, [0.26, 0.9]); FM.mouth.b.to(b(32) + 0.02, 0, [0.32, 0.88]); FM.mouth.l.to(b(32) + 0.15, 0, [0.36, 0.86]); FM.mouth.r.to(b(32) + 0.15, 0, [0.36, 0.86]);
+// The head's tab tucks away under the page and comes back as the two top bars fold into it.
+const tabShow = T(1, "tab.show").to(b(30), 0, [0.18, 1]).to(b(32) + 0.05, 1, [0.32, 0.8]);
+const faceO = T(1, "face.o").to(b(30), 0, [0.14, 1]).to(COL_SWITCH - 0.12, 1, [0.03, 1]); // back on while hidden
+const abFold = T(1, "ab.fold").to(b(31) + 0.1, 0, [0.1, 1]).to(b(32), 1, [0.3, 0.9]);
+const curls = T(0, "curls").to(b(31) + 0.05, 1, [0.4, 0.86]).to(b(32), 0, [0.3, 0.95]);
+
+
+// ---- Specialists: grown from the Chief's surface at beat 4, divided at beat 6.
+const HIDE = [262, 20, 342, 90, 30];
+const pod = PODS.map(role => new Box("pod." + role, ...HIDE));
+for (const p of pod) p.to(b(4) + 0.04, [252, 40, 352, 176, 34], "b", [0.3, 0.78], SP.trail);
+for (const p of pod) p.to(b(5), podRect(1), "b", [0.36, 0.8], [0.44, 0.86], 0.06);
+pod[0].to(b(6), podRect(0), "l");
+pod[2].to(b(6), podRect(2), "r");
+for (const [i, p] of pod.entries()) if (i !== 1) p.to(b(29) + 0.04 + i * 0.03, [podL(i) + 20, 150, podL(i) + POD_W - 20, 330, 30], "t", [0.3, 0.82], [0.36, 0.9]);
+for (const [i, p] of pod.entries()) if (i !== 1) p.to(b(30) + 0.3, HIDE, "", [0.1, 1], [0.1, 1]);
+// Build is the middle pod: it becomes the isolated PC, the tool strip, the wallet, its memory, a head.
+const build = pod[1];
+build.to(b(12) + 0.01, [podL(1) - 8, POD_T - 10, podL(1) + POD_W + 8, POD_B + 8, 40], "", SP.snap, SP.snap);
+build.to(b(12) + 0.2, PC, "tlrb", [0.44, 0.84], [0.52, 0.88]);
+build.to(b(20) + 0.04, STRIP, "tb", [0.36, 0.84], [0.44, 0.9]);
+build.to(b(21), WALLET, "lr", [0.36, 0.82], [0.44, 0.9]);
+build.to(b(23), MEMORY, "b", [0.36, 0.82], [0.44, 0.9]);
+build.to(b(25), BUILD_CHIP, "", [0.32, 0.86], [0.4, 0.9]);
+build.to(b(26), MEMORY, "", [0.34, 0.82], [0.42, 0.88]);
+build.to(b(27), podRect(1), "", [0.42, 0.88], [0.5, 0.9]);
+build.to(b(29) + 0.07, [podL(1) + 20, 150, podL(1) + POD_W - 20, 330, 30], "t", [0.3, 0.82], [0.36, 0.9]);
+build.to(b(30) + 0.3, HIDE, "", [0.1, 1], [0.1, 1]);
+const podVisible = tau => tau > b(4) && tau < b(30) + 0.3;
+const buildOnTop = tau => tau > b(12) && tau < b(27) + 0.45;
+
+// Build's face zone moves between layouts; each layout is relative to Build's own body.
+const bw = {
+  pod: T(1, "bw.pod").to(b(12) + 0.2, 0, SP.ui).to(b(27), 1, SP.ui),
+  pc: T(0, "bw.pc").to(b(12) + 0.2, 1, SP.ui).to(b(20) + 0.04, 0, SP.ui),
+  strip: T(0, "bw.strip").to(b(20) + 0.04, 1, SP.ui).to(b(21), 0, SP.ui),
+  card: T(0, "bw.card").to(b(21), 1, SP.ui).to(b(25), 0, SP.ui).to(b(26), 1, SP.ui).to(b(27), 0, SP.ui),
+  chip: T(0, "bw.chip").to(b(25), 1, SP.ui).to(b(26), 0, SP.ui),
+};
+function buildFace(s, tau) {
+  const L = {
+    pod: [s.cx - 64, s.t + 20, 128],
+    pc: [s.l + 30, s.t + 18, 56],
+    strip: [s.l + 28, s.cy - 0.55 * 86, 86],
+    card: [s.l + 32, s.t + 26, 80],
+    chip: [s.l, s.t - 0.0 * s.w, s.w],
+  };
+  let fx = 0, fy = 0, fw = 0, sum = 0;
+  for (const k in L) { const w = Math.max(0, bw[k].at(tau)); fx += w * L[k][0]; fy += w * L[k][1]; fw += w * L[k][2]; sum += w; }
+  return { fx: fx / sum, fy: fy / sum, fw: fw / sum };
+}
+const podGrow = [
+  T(0, "grow.r").to(b(6) + 0.2, 1, SP.ui).to(b(29) + 0.06, 0, [0.2, 1]),
+  T(0, "grow.b").to(b(5) + 0.06, 1, SP.ui).to(b(29) + 0.08, 0, [0.2, 1]),
+  T(0, "grow.v").to(b(6) + 0.22, 1, SP.ui).to(b(29) + 0.1, 0, [0.2, 1]),
+];
+const roleMix = T(0, "roles").to(b(6) + 0.04, 1, SP.ui).to(b(30) + 0.3, 0, [0.1, 1]);
+const podDip = [
+  T(0, "dip.r").to(b(10) + 0.13, 9, SP.snap).to(b(10) + 0.24, 0, SP.ui),
+  T(0, "dip.b").to(b(11) + 0.11, 9, SP.snap).to(b(11) + 0.22, 0, SP.ui),
+  T(0, "dip.v"),
+];
+const others = T(1, "others").to(b(12) + 0.12, 0, [0.34, 1]).to(b(27) + 0.08, 1, [0.2, 1]);
+const othersScale = T(1, "others.s").to(b(12) + 0.12, 0.94, [0.34, 1]).to(b(27) + 0.08, 1, [0.36, 0.84]);
+
+// ---- Task: rises at beat 7, grabbed at 8, dropped on the Chief at 9.
+const TASK_REST = centered(TEAM_C[0], 600, 452, 104, 30);
+const TASK_SLOT = centered(510, 0, 318, 70, 35);
+const GRAB = b(8) - 0.01, DROP = b(9) - 0.01;
+const taskRise = T(0, "task.rise").to(b(7) - 0.06, 1, [0.46, 0.86]).to(b(31) + 0.3, 0, [0.1, 1]); // resets while hidden
+const taskGone = T(0, "task.gone").to(b(30), 1, [0.16, 1]).to(b(32) + 0.3, 0, [0.1, 1]);
+const slotHint = T(0, "slot").to(GRAB + 0.05, 1, SP.fade).to(DROP + 0.08, 0, [0.2, 1]);
+const taskDone = T(0, "task.done").to(b(29) + 0.28, 1, SP.ui).to(b(31), 0, [0.1, 1]);
+// ---- Handoff slip: Chief -> Research (beat 10) -> Build (beat 11). Leading and trailing ends.
+const SLIP0 = [TASK_SLOT[0] + 44, 0];
+const HOLD = [[podL(0) + POD_W / 2, 350], [podL(1) + POD_W / 2, 350]];
+const slipHead = [T(SLIP0[0], "slip.hx"), T(SLIP0[1], "slip.hy")];
+const slipTail = [T(SLIP0[0], "slip.tx"), T(SLIP0[1], "slip.ty")];
+[[b(10), HOLD[0]], [b(11), HOLD[1]], [b(13), SLIP0]].forEach(([t, [x, y]], k) => {
+  const home = k === 2;
+  slipHead[0].to(t, x, home ? [0.1, 1] : SP.lead); slipHead[1].to(t, y, home ? [0.1, 1] : [0.36, 0.8]);
+  slipTail[0].to(t, x, home ? [0.1, 1] : [0.38, 0.88], home ? 0 : 0.022); slipTail[1].to(t, y, home ? [0.1, 1] : [0.42, 0.9], home ? 0 : 0.022);
+});
+const slipOn = T(0, "slip.on").to(b(10) - 0.03, 1, [0.1, 1]).to(b(12) + 0.18, 0, [0.22, 1]);
+
+// ---- Isolated PC content, beats 13 to 20.
+const screenOn = T(0, "screen").to(b(13) - 0.04, 1, [0.32, 0.96]).to(b(20) + 0.02, 0, [0.28, 1]);
+const addrH = T(56, "addr.h").to(b(16) + 0.04, 40, SP.ui).to(b(20) + 0.3, 56, [0.1, 1]);
+const diffOpen = T(0, "diff").to(b(18), 1, SP.ui).to(b(20) + 0.3, 0, [0.1, 1]);
+const hiSweep = T(0, "hi").ease(b(15) + 0.18, 1, 0.3).ease(b(16) + 0.2, 0, 0.01);
+const QUERY = "product launch checklist";
+const OLD = "Coming soon", NEW = "Launch day.";
+
+// ---- Wallet ready light, beat 22.
+const ready = T(0, "ready").to(b(22), 1, [0.3, 0.7]).to(b(23) + 0.1, 0, [0.14, 1]);
+
+// ---- Activity in the company view, beat 28.
+const workOn = T(0, "work").to(b(27) + 0.3, 1, SP.ui).to(b(29), 0, [0.16, 1]);
+
+// ---- Deliverable rows (beat 29): each specialist's file rises into the Chief.
+const rowFly = FILES.map((f, i) => T(0, "row" + i).to(b(29) + 0.02 + (2 - i) * 0.035, 1, [0.4, 0.84]));
+for (const t of rowFly) t.to(b(30) + 0.35, 0, [0.1, 1]);
+const rowsGone = T(0, "rows.gone").to(b(30), 1, [0.08, 1]).to(b(31), 0, [0.1, 1]);
+// ---- The finished page opens from the landing-page row (beat 30), then becomes the column (31).
+const pageOpen = T(0, "page").to(b(30), 1, [0.34, 0.86]).to(b(32) + 0.3, 0, [0.1, 1]);
+const pageTop = T(0, "page.top").to(b(30), 1, [0.26, 0.86]).to(b(32) + 0.3, 0, [0.1, 1]);
+const pageBottom = T(0, "page.bottom").to(b(30) + 0.02, 1, [0.38, 0.88]).to(b(32) + 0.3, 0, [0.1, 1]);
+const chiefHidden = tau => tau > b(30) + 0.36 && tau < COL_SWITCH;
+const colMorph = T(0, "col.morph").to(b(31), 1, [0.34, 0.9]).to(b(32) + 0.3, 0, [0.1, 1]);
+
+// ---------------------------------------------------------------- cursor
+class CursorPath {
+  constructor(x, y) { this.p0 = [x, y]; this.p = [x, y]; this.moves = []; }
+  move(t, x, y, dur, bend = 0.12, over = 0.016) {
+    this.moves.push({ t: mod(t, LOOP), d: [x - this.p[0], y - this.p[1]], dur, bend, over });
+    this.p = [x, y];
+    return this;
+  }
+  at(tau) {
+    let x = this.p0[0], y = this.p0[1];
+    for (const m of this.moves) {
+      let e = tau - m.t;
+      if (e < 0) { e += LOOP; x -= m.d[0]; y -= m.d[1]; }
+      const u = smooth(e / m.dur);
+      const len = Math.hypot(m.d[0], m.d[1]) || 1;
+      const arc = m.bend * len * u * (1 - u);
+      const ov = m.over * bump(clamp((e - 0.7 * m.dur) / (0.62 * m.dur)));
+      x += m.d[0] * (u + ov) - (m.d[1] / len) * arc;
+      y += m.d[1] * (u + ov) + (m.d[0] / len) * arc;
+    }
+    return [x, y];
+  }
+  vel(tau) { const h = 1e-4, a = this.at(tau - h), c = this.at(tau + h); return [(c[0] - a[0]) / (2 * h), (c[1] - a[1]) / (2 * h)]; }
+}
+const P = {
+  chip: [30, 36],
+  role: [150, 10],
+  plus: [TEAM_C[0] + 4, CARD.b + 16],
+  rest1: [610, 290],
+  grab: [TASK_REST[0] + 296, 612],
+  drop: [TASK_SLOT[0] + 40 + 70, 10],
+  rest2: [612, 150],
+  build: [podL(1) + 128, 332],
+  browser: DOCK.browser.map((v, i) => v + [4, 6][i]),
+  code: DOCK.code.map((v, i) => v + [4, 6][i]),
+  more: DOCK.more.map((v, i) => v + [3, 6][i]),
+  wallet: [toolX(4) + 6, PC_C[1] + 8],
+  face: [WALLET[0] + 32 + 44, WALLET[1] + 26 + 48],
+  close: [MEMORY[2] - 48, MEMORY[1] + 58],
+  head: [PC_C[0] + 22, PC_C[1] + 32],
+  rest3: [760, 420],
+  row: [220, 124 + 86 + 36],
+  rest4: [830, 470],
+};
+const cur = new CursorPath(...P.chip)
+  .move(b(2) + 0.07, ...P.role, 0.36)
+  .move(b(3) + 0.07, ...P.plus, 0.38)
+  .move(b(4) + 0.12, ...P.rest1, 0.56, -0.1)
+  .move(b(7) - 0.12, ...P.grab, 0.5, 0.14)
+  .move(GRAB + 0.04, ...P.drop, 0.42, -0.08, 0.01)
+  .move(b(9) + 0.14, ...P.rest2, 0.5, 0.1)
+  .move(b(11) + 0.02, ...P.build, 0.42, -0.12)
+  .move(b(13) - 0.02, ...P.browser, 0.42, 0.12)
+  .move(b(15) + 0.6, ...P.code, 0.3, 0.1)
+  .move(b(19) + 0.1, ...P.more, 0.32, 0.1)
+  .move(b(20) + 0.12, ...P.wallet, 0.33, -0.1)
+  .move(b(22) + 0.05, ...P.face, 0.38, 0.12)
+  .move(b(23) + 0.6, ...P.close, 0.34, -0.1)
+  .move(b(25) + 0.1, ...P.head, 0.3, 0.1)
+  .move(b(26) + 0.14, ...P.rest3, 0.5, -0.1)
+  .move(b(29) + 0.04, ...P.row, 0.4, 0.12)
+  .move(b(30) + 0.14, ...P.rest4, 0.5, -0.1)
+  .move(b(31) + 0.62, ...P.chip, 0.78, 0.16, 0.012);
+const CLICKS = [b(2), b(3), b(4), b(12), b(14), b(16), b(20), b(21), b(23), b(25), b(26), b(30)];
+function pressAt(tau, t) { const e = mod(tau - t + 0.03, LOOP); return e < 0.2 ? bump(clamp(e / 0.16)) : 0; }
+function pressing(tau) {
+  let p = 0;
+  for (const t of CLICKS) p = Math.max(p, pressAt(tau, t));
+  if (tau > GRAB - 0.02 && tau < DROP + 0.04) p = Math.max(p, clamp((tau - GRAB + 0.02) / 0.05) * clamp((DROP + 0.04 - tau) / 0.05)) * 0.8;
+  return p;
+}
+
+// ---------------------------------------------------------------- build the DOM
+const G = n => el("g", {}, n);
+const layers = { back: G(world), chief: G(world), task: G(world), page: G(world), mark: G(world) };
+
+// Pods (below the Chief), Build last so it can be lifted above the Chief.
+const podG = PODS.map(() => el("g", {}));
+[0, 2, 1].forEach(i => layers.back.appendChild(podG[i]));
+const podN = PODS.map((role, i) => {
+  const g = podG[i];
+  const shell = el("g", { filter: "url(#shadow-ink)" }, g);
+  const body = el("rect", { fill: INK }, shell);
+  const tab = el("rect", { fill: INK }, shell);
+  const face = new Face(g, WHITE);
+  const name = label(g, NAMES[role], { "font-size": 32, "font-weight": 500, fill: WHITE, "text-anchor": "middle", "letter-spacing": "-0.2" });
+  const work = G(g);
+  return { g, shell, body, tab, face, name, work };
+});
+const [podR, podB, podV] = podN;
+
+// Chief.
+const cG = layers.chief;
+const cShell = el("g", { filter: "url(#shadow-ink)" }, cG);
+const cBody = el("rect", { fill: INK }, cShell);
+const cTab = el("rect", { fill: INK }, cShell);
+const cAbA = el("rect", { fill: GREEN }, cG);
+const cAbB = el("rect", { fill: GREEN }, cG);
+const cCapital = el("path", { d: CAPITAL_D, fill: GREEN }, layers.mark);
+const cArch = el("path", { fill: GREEN }, layers.mark);
+const cFace = new Face(cG, GREEN);
+const cName = label(cG, "Solon", { "font-size": 60, "font-weight": 600, fill: WHITE, "letter-spacing": "-1.2" });
+const cRoleA = label(cG, "AGENT", { "font-size": 24, "font-weight": 600, fill: WHITE, "fill-opacity": 0.62, "letter-spacing": "3" });
+const cRoleB = label(cG, "CHIEF AGENT", { "font-size": 24, "font-weight": 600, fill: WHITE, "fill-opacity": 0.62, "letter-spacing": "3" });
+const cStatus = label(cG, "Persistent · online", { "font-size": 28, "font-weight": 400, fill: WHITE, "fill-opacity": 0.56 });
+const plusG = G(cG);
+const plusBg = el("rect", { fill: WHITE }, plusG);
+const plusIc = icon(plusG, "plus", INK, 26, 2.4);
+const slotG = G(cG);
+const slotR = el("rect", { fill: "none", stroke: WHITE, "stroke-opacity": 0.4, "stroke-width": 2, "stroke-dasharray": "7 7" }, slotG);
+
+// Task card: the same object from the bottom edge to the Chief's slot.
+const taskG = G(layers.task);
+const taskCard = el("rect", { fill: WHITE, filter: "url(#shadow-paper)" }, taskG);
+const taskIn = G(taskG);
+const taskFlag = icon(taskIn, "flag", INK, 34, 2.6);
+const taskCheck = icon(taskIn, "check", INK, 36, 3.2);
+const taskText = el("text", { "font-size": 34, "font-weight": 500, fill: INK, "letter-spacing": "-0.5" }, taskIn);
+taskText.textContent = "Launch the product.";
+// Handoff slip.
+const slipG = G(layers.task);
+const slipR = el("rect", { fill: WHITE, filter: "url(#shadow-paper)" }, slipG);
+const slipIc = icon(slipG, "flag", INK, 18, 2.2);
+
+// Build's inner content (PC, strip, wallet, memory) lives in Build's group.
+const bIn = G(podB.g);
+const bClip = el("clipPath", { id: "build-clip" }, defs);
+const bClipR = el("rect", {}, bClip);
+set(bIn, { "clip-path": "url(#build-clip)" });
+const pcLabelG = G(bIn);
+const pcLock = icon(pcLabelG, "lock", WHITE, 24, 2.2);
+const pcLabel = label(pcLabelG, "Isolated PC", { "font-size": 27, "font-weight": 500, fill: WHITE, "letter-spacing": "-0.3" });
+const dockN = ["browser", "code", "more"].map(k => { const g = G(bIn); return { k, g, bg: el("rect", { fill: WHITE, "fill-opacity": 0.09 }, g), ic: icon(g, k, WHITE, 28, 2.1) }; });
+const screen = el("rect", { fill: WHITE }, bIn);
+const scr = G(bIn); // screen content, clipped
+const clip = el("clipPath", { id: "screen-clip" }, defs);
+const clipR = el("rect", {}, clip);
+set(scr, { "clip-path": "url(#screen-clip)" });
+// Browser.
+const addr = el("rect", { fill: CANVAS }, scr);
+const addrIc = icon(scr, "search", INK, 24, 2.2);
+const addrText = el("text", { "font-size": 25, "font-weight": 400, fill: INK }, scr);
+const addrCaret = el("rect", { fill: INK }, scr);
+const tabText = label(scr, "index.html", { class: "mono", "font-size": 20, "font-weight": 500, fill: INK });
+const RESULTS = [
+  ["The product launch checklist", "Plan, build, review, ship: every step in order."],
+  ["Launch day, hour by hour", "What to prepare before the page goes live."],
+  ["Write a landing page that converts", "One headline, one promise, one button."],
+];
+const results = RESULTS.map(([h, s]) => ({
+  hi: el("rect", { fill: INK, "fill-opacity": 0.1 }, scr),
+  h: label(scr, h, { "font-size": 28, "font-weight": 600, fill: INK, "letter-spacing": "-0.4" }),
+  s: label(scr, s, { "font-size": 22, "font-weight": 400, fill: INK, "fill-opacity": 0.56 }),
+}));
+// Code.
+const FILE_LIST = ["launch-plan.md", "index.html", "styles.css"];
+const fileSel = el("rect", { fill: INK, "fill-opacity": 0.07 }, scr);
+const fileN = FILE_LIST.map(f => label(scr, f, { class: "mono", "font-size": 20, "font-weight": 400, fill: INK, "fill-opacity": 0.72 }));
+const CODE = [
+  ['<main class="hero">', 0],
+  ["  <h1>", 1], // edited line
+  ["  <p>Built by your swarm.</p>", 0],
+  ['  <a href="/start">Get started</a>', 0],
+  ["</main>", 0],
+];
+const codeN = CODE.map(([s]) => ({ num: label(scr, "", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.3, "text-anchor": "end" }), txt: label(scr, s, { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.86 }) }));
+const oldLine = label(scr, "  <h1>Coming soon</h1>", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.4 });
+const oldStrike = el("rect", { fill: INK, "fill-opacity": 0.4 }, scr);
+const oldMark = label(scr, "−", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.5 });
+const newBg = el("rect", { fill: INK, "fill-opacity": 0.06 }, scr);
+const newMark = label(scr, "+", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.8 });
+const editSel = el("rect", { fill: INK, "fill-opacity": 0.14 }, scr);
+const editText = el("text", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.95, "font-weight": 500 }, scr);
+const editTail = el("text", { class: "mono", "font-size": 22, fill: INK, "fill-opacity": 0.86 }, scr);
+const editCaret = el("rect", { fill: INK }, scr);
+const reviewG = G(scr);
+const reviewBg = el("rect", { fill: INK }, reviewG);
+const reviewFace = new Face(reviewG, WHITE);
+const reviewTxt = el("text", { "font-size": 20, "font-weight": 500, fill: WHITE }, reviewG);
+reviewTxt.textContent = "Approved";
+const reviewCk = icon(reviewG, "check", GREEN, 22, 2.6);
+// Strip.
+const toolN = TOOLS.map(k => { const g = G(bIn); return { k, g, bg: el("rect", { fill: WHITE, "fill-opacity": 0.08 }, g), ic: icon(g, k, WHITE, 32, 2.1), lb: label(g, TOOL_NAMES[k], { "font-size": 21, "font-weight": 500, fill: WHITE, "fill-opacity": 0.8, "text-anchor": "middle" }) }; });
+// Wallet.
+const wIc = icon(bIn, "wallet", WHITE, 30, 2.1);
+const wTitle = label(bIn, "Agent Wallet", { "font-size": 38, "font-weight": 600, fill: WHITE, "letter-spacing": "-0.8" });
+const wAddr = label(bIn, "0x7a3f…c21e", { class: "mono", "font-size": 32, fill: WHITE, "fill-opacity": 0.72 });
+const wDot = el("circle", { fill: GREEN }, bIn);
+const wHalo = el("circle", { fill: GREEN }, bIn);
+const wReady = label(bIn, "Ready", { "font-size": 27, "font-weight": 500, fill: WHITE, "fill-opacity": 0.85 });
+// Memory.
+const mTitle = label(bIn, "Memory", { "font-size": 38, "font-weight": 600, fill: WHITE, "letter-spacing": "-0.8" });
+const mClose = G(bIn);
+const mCloseBg = el("rect", { fill: WHITE, "fill-opacity": 0.09 }, mClose);
+const mCloseIc = icon(mClose, "close", WHITE, 24, 2.2);
+const MEM = [["saved", "Context saved"], ["files", "3 files"], ["layers", "Task state preserved"]];
+const memN = MEM.map(([ic, s]) => { const g = G(bIn); return { g, bg: el("rect", { fill: WHITE, "fill-opacity": 0.07 }, g), ic: icon(g, ic, WHITE, 28, 2.1), t: label(g, s, { "font-size": 28, "font-weight": 500, fill: WHITE, "fill-opacity": 0.9 }) }; });
+// Company-view activity.
+const workR = { page: el("rect", { fill: WHITE, "fill-opacity": 0.1 }, podR.work), lines: [0, 1, 2].map(() => el("rect", { fill: WHITE, "fill-opacity": 0.32 }, podR.work)), hi: el("rect", { fill: WHITE, "fill-opacity": 0.9 }, podR.work) };
+const workB = { ic: icon(podB.work, "code", WHITE, 30, 2.1), lines: [0, 1, 2].map(() => el("rect", { fill: WHITE, "fill-opacity": 0.5 }, podB.work)), caret: el("rect", { fill: WHITE }, podB.work) };
+const workV = { ring: el("circle", { fill: "none", stroke: WHITE, "stroke-opacity": 0.3, "stroke-width": 3 }, podV.work), ck: icon(podV.work, "check", WHITE, 40, 2.6) };
+// Deliverable rows.
+const rowN = FILES.map(f => { const g = G(layers.task); return { g, bg: el("rect", { fill: WHITE }, g), ic: icon(g, f.icon, INK, 30, 2.1), t: el("text", { class: "mono", "font-size": 26, fill: INK }, g) }; });
+rowN.forEach((r, i) => (r.t.textContent = FILES[i].name));
+// Finished page. Page-local coordinates (920 x 664), placed on the page rect each frame.
+const pgG = layers.page;
+const pgShadow = el("filter", { id: "shadow-page", x: "-30%", y: "-30%", width: "160%", height: "170%", "color-interpolation-filters": "sRGB" }, defs);
+const pgSh1 = el("feDropShadow", { dx: 0, dy: 10, stdDeviation: 16, "flood-color": INK, "flood-opacity": 0.1 }, pgShadow);
+const pgSh2 = el("feDropShadow", { dx: 0, dy: 1, stdDeviation: 1, "flood-color": INK, "flood-opacity": 0.1 }, pgShadow);
+const pgBg = el("rect", { fill: WHITE, filter: "url(#shadow-page)" }, pgG);
+const NAV = [24, 22, 872, 64, 32];
+const FEAT_R = i => [56 + i * 280, 448, 256, 156, 24];
+const pgNav = [el("rect", { fill: CANVAS }, pgG), el("rect", { fill: CANVAS }, pgG)]; // one bar; parts into the two top bars
+const FEAT = [["web", "Researched"], ["code", "Built"], ["check", "Reviewed"]];
+const featBg = FEAT.map(() => el("rect", { fill: CANVAS }, pgG));
+const pgInClip = G(pgG); // clipped in world space; pgIn inside it carries the page-local transform
+const pgIn = G(pgInClip);
+const pgMark = el("g", {}, pgIn);
+el("path", { d: CAPITAL_D, fill: INK, transform: `translate(${-640 * LK} ${-640 * LK}) scale(${LK})` }, pgMark);
+[COL.abacusTop, COL.abacusBottom, ...COL.shafts].forEach(r => el("rect", { x: r[0], y: r[1], width: r[2], height: r[3], rx: r[4], fill: INK }, pgMark));
+el("path", { d: `M${COL.arch.c[0] - COL.arch.R} ${COL.arch.c[1]}A${COL.arch.R} ${COL.arch.R} 0 0 1 ${COL.arch.c[0] + COL.arch.R} ${COL.arch.c[1]}L${COL.arch.c[0] + COL.arch.r} ${COL.arch.c[1]}A${COL.arch.r} ${COL.arch.r} 0 0 0 ${COL.arch.c[0] - COL.arch.r} ${COL.arch.c[1]}Z`, fill: INK }, pgMark);
+set(pgMark, { transform: "translate(66 54) scale(0.16)" });
+const txt = (str, attrs) => { const n = el("text", attrs, pgIn); n.textContent = str; return n; };
+txt("NATION", { x: 100, y: 62, "font-size": 21, "font-weight": 600, fill: INK, "letter-spacing": "3.2" });
+["Agents", "Pricing", "Docs"].forEach((w, i) => txt(w, { x: 548 + i * 88, y: 61, "font-size": 19, "font-weight": 500, fill: INK, "fill-opacity": 0.56 }));
+el("rect", { x: 796, y: 35, width: 84, height: 38, rx: 19, fill: INK }, pgIn);
+txt("Sign in", { x: 838, y: 60, "font-size": 18, "font-weight": 500, fill: WHITE, "text-anchor": "middle" });
+txt("Launch day.", { x: 52, y: 246, "font-size": 116, "font-weight": 620, fill: INK, "letter-spacing": "-4.6" });
+txt("Planned, built and reviewed by your swarm.", { x: 58, y: 300, "font-size": 29, "font-weight": 400, fill: INK, "fill-opacity": 0.56 });
+el("rect", { x: 56, y: 334, width: 200, height: 62, rx: 31, fill: INK }, pgIn);
+txt("Get started", { x: 156, y: 373, "font-size": 24, "font-weight": 500, fill: WHITE, "text-anchor": "middle" });
+FEAT.forEach(([ic, w], i) => {
+  const [x, y] = FEAT_R(i);
+  placeIcon(icon(pgIn, ic, INK, 30, 2.1), x + 40, y + 42, 1);
+  txt(w, { x: x + 26, y: y + 124, "font-size": 25, "font-weight": 500, fill: INK });
+});
+// Cursor (screen space).
+const curG = el("g", { filter: "url(#shadow-cursor)" }, overlay);
+el("path", { d: "M5.2 2.8L5.2 21.4L9.9 17L13.1 24.1L16.3 22.7L13.2 15.8L19.6 15.8Z", fill: "#0A0A0A", stroke: WHITE, "stroke-width": 1.5, "stroke-linejoin": "round" }, curG);
+
+// ---------------------------------------------------------------- draw
+const R4 = a => a; // readability alias
+function shell(bodyN, tabN, s, face, tabOpacity = 1) {
+  rr(bodyN, s.l, s.t, s.w, s.h, s.rad);
+  const [x, y, w, h, r] = tabRect(s.t, face.fx, face.fw);
+  rr(tabN, x, y, w, h, r);
+  set(tabN, { opacity: tabOpacity });
+}
+function hover(p, cx, cy, hw, hh) { return clamp(1 - Math.max(Math.abs(p[0] - cx) - hw, Math.abs(p[1] - cy) - hh, 0) / 14); }
+function mixColor(a, c, u) {
+  const pa = [1, 3, 5].map(i => parseInt(a.slice(i, i + 2), 16)), pc = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  return "#" + pa.map((v, i) => Math.round(lerp(v, pc[i], clamp(u))).toString(16).padStart(2, "0")).join("");
+}
+const lerpRect = (a, c, u) => a.map((v, i) => lerp(v, c[i], u));
+let widths = {}; // text widths measured once fonts are ready
+function measure(key, n, str) {
+  if (!(key in widths)) { const old = n.textContent; n.textContent = str; widths[key] = n.getComputedTextLength(); n.textContent = old; }
+  return widths[key];
+}
+
+function drawChief(tau, p) {
+  const s = chief.at(tau);
+  const dip = chiefDip.at(tau);
+  s.t += dip * 0.4; s.b += dip;
+  const fw = cfw.at(tau), fx = cfx.at(tau), fy = cfy.at(tau) + dip * 0.7;
+  rr(cBody, s.l, s.t, s.w, s.h, s.rad);
+  // Tab: tucks into the body while the column is up, rises again as the top bars fold into it.
+  const ts = clamp(tabShow.at(tau), 0, 1.2);
+  const tab = tabRect(s.t, fx, fw);
+  rr(cTab, tab[0], s.t - (s.t - tab[1]) * ts, tab[2], Math.max(0, tab[3] * ts), tab[4]);
+  const fold = clamp(abFold.at(tau), 0, 1.05);
+  const tabFull = tabRect(s.t, fx, fw);
+  [[cAbA, COL.abacusTop], [cAbB, COL.abacusBottom]].forEach(([n, a]) => {
+    const r = lerpRect(a, tabFull, fold);
+    rr(n, ...r);
+    set(n, { opacity: tau > b(31) && tau < b(32) + 0.4 ? 1 - smooth(clamp(fold * 1.25)) : 0 });
+  });
+  // Face: eyes and mouth, or the three shafts.
+  const face = faceParts(fx, fy, fw, "chief");
+  const blink = bump(clamp((tau - 0.1) / 0.16)) + bump(clamp((tau - b(9) - 0.2) / 0.16));
+  const look = [0, 0];
+  if (tau > b(7) - 0.1 && tau < b(9) + 0.2) { const k = clamp((tau - b(7) + 0.1) / 0.3) * clamp((b(9) + 0.2 - tau) / 0.2); look[1] = 0.05 * k; }
+  // draw face normally, then blend each part toward its shaft
+  cFace.draw(fx, fy, fw, EYES.chief, { blink: Math.min(1, blink), look, o: clamp(faceO.at(tau)) });
+  const parts = [[cFace.eyes[0], FM.eyes], [cFace.eyes[1], FM.eyes], [cFace.mouth, FM.mouth]];
+  parts.forEach(([n, m], i) => {
+    const ml = m.l.at(tau), mt = m.t.at(tau), mr = m.r.at(tau), mb = m.b.at(tau);
+    if (Math.max(Math.abs(ml), Math.abs(mt), Math.abs(mr), Math.abs(mb)) < 1e-5) return;
+    const [x, y, w, h, r] = ["x", "y", "width", "height", "rx"].map(a => +n.getAttribute(a));
+    const [sx, sy, sw, sh, sr] = COL.shafts[i];
+    const l = lerp(x, sx, ml), t = lerp(y, sy, mt), rt = lerp(x + w, sx + sw, mr), bt = lerp(y + h, sy + sh, mb);
+    rr(n, l, t, rt - l, bt - t, lerp(r, sr, (ml + mt + mr + mb) / 4));
+  });
+  // Capital curls and arch appear with the column.
+  const cu = clamp(curls.at(tau), 0, 1.1);
+  const k = LK * cu, cc = [0, -24];
+  set(cCapital, { transform: `translate(${cc[0]} ${cc[1]}) scale(${cu.toFixed(4)}) translate(${-cc[0]} ${-cc[1]}) translate(${-640 * LK} ${-640 * LK}) scale(${LK})`, opacity: clamp(cu * 1.6) });
+  const A = COL.arch, ar = A.R * cu, ir = A.r * cu;
+  set(cArch, { d: `M${A.c[0] - ar} ${A.c[1]}A${ar} ${ar} 0 0 1 ${A.c[0] + ar} ${A.c[1]}L${A.c[0] + ir} ${A.c[1]}A${ir} ${ir} 0 0 0 ${A.c[0] - ir} ${A.c[1]}Z`, opacity: clamp(cu * 1.4) });
+  void k;
+
+  // Texts.
+  const tx = s.l + 196;
+  const nm = presence(tau, b(2) + 0.08, b(30), { travel: 12 });
+  showText(cName, tx, s.t + 78 + nm.dy, nm.o * clamp(others.at(tau) + 0.0), 0, nm.blur);
+  const ra = presence(tau, b(2) + 0.12, b(3), { travel: 10 });
+  const rb = presence(tau, b(3) + 0.14, b(30), { travel: 10 });
+  const pressRole = pressAt(tau, b(3));
+  showText(cRoleA, tx, s.t + 120 + ra.dy, ra.o, 0, ra.blur);
+  showText(cRoleB, tx, s.t + 120 + rb.dy, rb.o, 0, rb.blur);
+  set(cRoleA, { transform: `translate(${tx} ${s.t + 110}) scale(${1 - 0.04 * pressRole}) translate(${-tx} ${-(s.t + 110)})` });
+  const st = presence(tau, b(2) + 0.16, b(30), { travel: 10 });
+  showText(cStatus, tx, s.t + 162 + st.dy, st.o, 0, st.blur);
+  // "+" on the Chief's lower edge.
+  const pv = tau > b(3) + 0.16 && tau < b(4) + 0.5 ? presence(tau, b(3) + 0.16, null).o * (1 - spring(tau - b(4) - 0.04, 0.26, 1)) : 0;
+  const py = s.b + 10;
+  const hv = hover(p, TEAM_C[0], py, 30, 30);
+  const pk = 1 - 0.1 * pressAt(tau, b(4));
+  const ps = 54 * clamp(pv) * pk * (1 + 0.05 * hv);
+  rr(plusBg, TEAM_C[0] - ps / 2, py - ps / 2, ps, ps, 18 * clamp(pv));
+  set(plusG, { opacity: clamp(pv * 1.2) });
+  placeIcon(plusIc, TEAM_C[0], py, 1, clamp(pv) * pk);
+  // Drop slot outline while the task is being dragged.
+  const so = clamp(slotHint.at(tau));
+  rr(slotR, TASK_SLOT[0] - 6, TASK_SLOT[1] - 6, TASK_SLOT[2] - TASK_SLOT[0] + 12, TASK_SLOT[3] - TASK_SLOT[1] + 12, 40);
+  set(slotG, { opacity: so });
+  const csc = othersScale.at(tau);
+  set(cG, { opacity: chiefHidden(tau) ? 0 : clamp(others.at(tau)), transform: Math.abs(csc - 1) < 1e-4 ? "" : `translate(${s.cx} ${s.cy}) scale(${csc.toFixed(4)}) translate(${-s.cx} ${-s.cy})` });
+  return s;
+}
+
+function podShellRect(i, tau) {
+  const s = pod[i].at(tau);
+  const d = podDip[i].at(tau);
+  s.t += d * 0.35; s.b += d; s.h = s.b - s.t; s.cy = (s.t + s.b) / 2;
+  return s;
+}
+
+function drawPods(tau, p) {
+  const vis = podVisible(tau);
+  const oth = clamp(others.at(tau));
+  const rm = clamp(roleMix.at(tau));
+  PODS.forEach((role, i) => {
+    const n = podN[i];
+    if (!vis) { set(n.g, { opacity: 0 }); return; }
+    const s = podShellRect(i, tau);
+    const face = i === 1 ? buildFace(s, tau) : { fx: s.cx - 64, fy: s.t + 20, fw: 128 };
+    shell(n.body, n.tab, s, face, i === 1 ? 1 : clamp(podGrow[i].at(tau) * 1.5));
+    const grow = clamp(podGrow[i].at(tau), 0, 1.1);
+    const eye = eyeBlend("chief", role, rm);
+    let look = [0, 0];
+    if (i === 0 && tau > b(10) - 0.15 && tau < b(11) + 0.1) look = [0.04, -0.05 * clamp((b(10) + 0.1 - tau) / 0.2)];
+    if (i === 1 && tau > b(11) - 0.15 && tau < b(12)) look = [-0.05 * clamp((b(11) + 0.1 - tau) / 0.25), 0];
+    if (tau > b(7) - 0.1 && tau < b(9) + 0.1) look = [0, 0.06 * clamp((tau - b(7) + 0.1) / 0.3)];
+    if (tau > b(27) + 0.3 && tau < b(29)) look = [[-0.04, 0.05], [0, 0.07], [0.03, 0.05]][i];
+    const blink = bump(clamp((tau - b(6) - 0.36 - i * 0.07) / 0.16)) + (i === 1 ? bump(clamp((tau - b(26) - 0.2) / 0.16)) : 0);
+    n.face.draw(face.fx, face.fy, face.fw, eye, { grow, look, blink: Math.min(1, blink) });
+    // Role label.
+    const lIn = i === 1 ? b(6) + 0.2 : b(6) + 0.24;
+    const lb = presence(tau, lIn, b(29), { travel: 10 });
+    let lo = lb.o;
+    if (i === 1) lo *= clamp(bw.pod.at(tau) * 2 - 1);
+    showText(n.name, s.cx, s.b - 36 + lb.dy, lo, 0, lb.blur);
+    const op = i === 1 ? 1 : oth;
+    const sc = i === 1 ? 1 : othersScale.at(tau);
+    set(n.g, { opacity: op, transform: sc === 1 ? "" : `translate(${s.cx} ${s.cy}) scale(${sc.toFixed(4)}) translate(${-s.cx} ${-s.cy})` });
+  });
+  // Build above the Chief while it is a computer.
+  const top = buildOnTop(tau);
+  if (top && podB.g.parentNode !== layers.task.parentNode) world.insertBefore(podB.g, layers.task);
+  if (!top && podB.g.parentNode !== layers.back) layers.back.appendChild(podB.g);
+}
+
+function drawWork(tau) {
+  const w = clamp(workOn.at(tau));
+  set(podR.work, { opacity: w }); set(podB.work, { opacity: w }); set(podV.work, { opacity: w });
+  if (w <= 0) return;
+  const e = tau - b(27) - 0.3;
+  // Research reads: a page with a highlight moving along a line.
+  const r = podShellRect(0, tau);
+  rr(workR.page, r.cx - 78, 300, 156, 96, 14);
+  [118, 92, 104].forEach((wd, k) => rr(workR.lines[k], r.cx - 58, 318 + k * 22, wd, 8, 4));
+  rr(workR.hi, r.cx - 58, 340, 92 * smooth(clamp((e - 0.25) / 0.45)), 8, 4);
+  // Build types.
+  const s = podShellRect(1, tau);
+  placeIcon(workB.ic, s.cx - 76, 322, 0.7);
+  const typed = [100, 70, 88].map((wd, k) => wd * smooth(clamp((e - 0.1 - k * 0.22) / 0.24)));
+  typed.forEach((wd, k) => rr(workB.lines[k], s.cx - 46 + (k === 1 ? 16 : 0), 314 + k * 26, wd, 9, 4.5));
+  const line = typed.findIndex((wd, k) => wd < [100, 70, 88][k] - 0.5);
+  const li = line < 0 ? 2 : line;
+  rr(workB.caret, s.cx - 46 + (li === 1 ? 16 : 0) + typed[li] + 4, 309 + li * 26, 3, 20, 1);
+  set(workB.caret, { opacity: Math.sin(tau * TAU * 2.4) > 0 ? 1 : 0.2 });
+  // Review checks.
+  const v = podShellRect(2, tau);
+  set(workV.ring, { cx: v.cx, cy: 348, r: 36 });
+  const ck = clamp((e - 0.35) / 0.3);
+  placeIcon(workV.ck, v.cx, 348, clamp(ck * 3), 0.6 + 0.4 * spring(e - 0.35, 0.3, 0.7));
+}
+
+function drawTask(tau, p) {
+  const rise = taskRise.at(tau);
+  const gone = clamp(taskGone.at(tau));
+  const oth = clamp(others.at(tau));
+  let cx, cy, w, h;
+  const rest = [(TASK_REST[0] + TASK_REST[2]) / 2, (TASK_REST[1] + TASK_REST[3]) / 2];
+  const slot = [(TASK_SLOT[0] + TASK_SLOT[2]) / 2, (TASK_SLOT[1] + TASK_SLOT[3]) / 2];
+  const grabP = cur.at(GRAB), off = [rest[0] - grabP[0], rest[1] - grabP[1]];
+  const W0 = 452, H0 = 104, W1 = TASK_SLOT[2] - TASK_SLOT[0], H1 = TASK_SLOT[3] - TASK_SLOT[1];
+  let lift = 0;
+  if (tau < GRAB || tau > b(31)) {
+    cx = rest[0]; cy = rest[1] + (1 - rise) * 420; w = W0; h = H0;
+  } else if (tau < DROP) {
+    const c = cur.at(tau); cx = c[0] + off[0]; cy = c[1] + off[1]; w = W0; h = H0;
+    lift = clamp((tau - GRAB) / 0.08);
+  } else {
+    // Released: spring from where the hand let go, with the hand's velocity, into the slot.
+    const c = cur.at(DROP), v = cur.vel(DROP), x = tau - DROP;
+    cx = springFrom(x, c[0] + off[0], v[0], slot[0], 0.4, 0.8);
+    cy = springFrom(x, c[1] + off[1], v[1], slot[1], 0.4, 0.8) + chiefDip.at(tau) * 0.7;
+    const u = spring(x, 0.34, 0.86);
+    w = lerp(W0, W1, u); h = lerp(H0, H1, u);
+    lift = 1 - clamp(x / 0.12);
+  }
+  const sc = 1 + 0.03 * lift;
+  w *= sc; h *= sc;
+  rr(taskCard, cx - w / 2, cy - h / 2, w, h, h / 2 * 0.62 + 6);
+  const k = h / H0;
+  // Content scales with the card; the flag becomes a check when the work is delivered.
+  const done = clamp(taskDone.at(tau));
+  set(taskIn, { transform: `translate(${cx} ${cy}) scale(${k.toFixed(4)})` });
+  placeIcon(taskFlag, -W0 / 2 + 50, 0, 1 - done, 1 - 0.4 * done);
+  placeIcon(taskCheck, -W0 / 2 + 50, 0, done, 0.6 + 0.4 * done);
+  set(taskText, { x: -W0 / 2 + 86, y: 12 });
+  const vis = tau > b(7) - 0.12 && tau < b(31);
+  const csc = othersScale.at(tau), ch = chief.at(tau);
+  set(taskG, { opacity: vis ? clamp(oth) * (1 - gone) : 0, transform: Math.abs(csc - 1) < 1e-4 ? "" : `translate(${ch.cx} ${ch.cy}) scale(${csc.toFixed(4)}) translate(${-ch.cx} ${-ch.cy})` });
+  // Slip: a small copy of the task that is handed down the line.
+  const on = clamp(slipOn.at(tau));
+  const hx = slipHead[0].at(tau), hy = slipHead[1].at(tau), tx = slipTail[0].at(tau), ty = slipTail[1].at(tau);
+  const sw = 100, sh = 34;
+  const l = Math.min(hx, tx) - sw / 2, t = Math.min(hy, ty) - sh / 2, r = Math.max(hx, tx) + sw / 2, bm = Math.max(hy, ty) + sh / 2;
+  const sh2 = on;
+  rr(slipR, lerp((l + r) / 2, l, sh2), lerp((t + bm) / 2, t, sh2), (r - l) * sh2, (bm - t) * sh2, 18);
+  placeIcon(slipIc, (hx + tx) / 2, (hy + ty) / 2, clamp(on * 2 - 1));
+  set(slipG, { opacity: on > 0.01 ? 1 : 0 });
+}
+
+function drawBuildInside(tau, p) {
+  const s = podShellRect(1, tau);
+  rr(bClipR, s.l, s.t, s.w, s.h, s.rad);
+  const pcW = clamp(bw.pc.at(tau)), stW = clamp(bw.strip.at(tau)), cdW = clamp(bw.card.at(tau));
+  // --- PC top bar
+  const lab = presence(tau, b(12) + 0.36, b(20), { travel: 8 });
+  placeIcon(pcLock, s.l + 118, s.t + 45, lab.o);
+  showText(pcLabel, s.l + 140, s.t + 55 + lab.dy, lab.o, 0, lab.blur);
+  dockN.forEach((d, i) => {
+    const o = presence(tau, b(12) + 0.42 + i * 0.05, b(20) + (d.k === "more" ? 0.0 : 0.06), { travel: 8 }).o;
+    const [dx, dy] = DOCK[d.k];
+    const cx = s.r - (PC[2] - dx), cy = s.t + PC_BAR / 2;
+    const hv = hover(p, cx, cy, 28, 28);
+    const pk = 1 - 0.08 * pressAt(tau, { browser: b(14), code: b(16), more: b(20) }[d.k]);
+    const active = d.k === "browser" ? clamp((tau - b(14)) / 0.1) * clamp((b(16) - tau) / 0.1) : d.k === "code" ? clamp((tau - b(16)) / 0.1) * clamp((b(20) - tau) / 0.1) : 0;
+    rr(d.bg, cx - 28 * pk, cy - 28 * pk, 56 * pk, 56 * pk, 17);
+    set(d.bg, { "fill-opacity": 0.09 + 0.08 * hv + 0.12 * active });
+    placeIcon(d.ic, cx, cy, 1, pk);
+    set(d.g, { opacity: o });
+  });
+  // --- Screen: lights up at beat 13, folds away at beat 20.
+  const so = clamp(screenOn.at(tau), 0, 1.02);
+  const sx = s.l + 16, sy = s.t + PC_BAR, sw = s.w - 32, shFull = s.h - PC_BAR - 16;
+  const sh = Math.max(0, shFull * clamp(so));
+  rr(screen, sx, sy, sw, sh, 26);
+  set(screen, { opacity: clamp(so * 3) });
+  rr(clipR, sx, sy, sw, sh, 26);
+  set(scr, { opacity: clamp(so * 3) });
+  // Browser: address bar and query, typed by the agent.
+  const ax = sx + 22, ay = sy + 22, aw = sw - 44, ah = addrH.at(tau);
+  const addrIn = tau > b(14) && tau < b(20) + 0.3 ? presence(tau, b(14) + 0.02, null).o : 0;
+  rr(addr, ax, ay, aw, ah, ah / 2);
+  set(addr, { opacity: addrIn });
+  const toCode = clamp((addrH.v0 - ah) / 16);
+  const nq = Math.floor(clamp((tau - b(14) - 0.1) / 0.36) * QUERY.length);
+  addrText.textContent = QUERY.slice(0, tau > b(14) ? nq : 0);
+  set(addrText, { x: ax + 58, y: ay + ah / 2 + 9, opacity: addrIn * (1 - toCode) });
+  placeIcon(addrIc, ax + 30, ay + ah / 2, addrIn * (1 - toCode));
+  const qw = measure("q" + nq, addrText, QUERY.slice(0, nq));
+  rr(addrCaret, ax + 60 + qw, ay + ah / 2 - 14, 2.5, 28, 1);
+  set(addrCaret, { opacity: addrIn * (1 - toCode) * (tau > b(14) + 0.08 && tau < b(15) + 0.2 && Math.sin((tau - b(14)) * TAU * 3) > -0.3 ? 1 : 0) });
+  const tb = presence(tau, b(16) + 0.1, b(20) - 0.02, { travel: 6 });
+  showText(tabText, ax + 26, ay + ah / 2 + 7 + tb.dy, tb.o, 0, tb.blur);
+  // Results land at beat 15; one line is highlighted; they leave when the page becomes code.
+  results.forEach((r, i) => {
+    const pr = presence(tau, b(15) + i * 0.06, b(16) + 0.02, { travel: 16, dirOut: -1 });
+    const y = ay + 110 + i * 116 + pr.dy;
+    showText(r.h, ax + 8, y, pr.o, 0, pr.blur);
+    showText(r.s, ax + 8, y + 38, pr.o, 0, pr.blur);
+    const hw = i === 0 ? measure("res0", r.s, RESULTS[0][1]) * clamp(hiSweep.at(tau)) : 0;
+    rr(r.hi, ax + 2, y + 38 - 24, hw + 12, 33, 6);
+    set(r.hi, { opacity: pr.o });
+  });
+  // Code workspace.
+  const cIn = b(16) + 0.18;
+  const fl = presence(tau, cIn, b(20) - 0.02, { travel: 10 });
+  fileN.forEach((n, i) => showText(n, ax + 18, ay + ah + 50 + i * 44 + fl.dy, presence(tau, cIn + i * 0.03, b(20) - 0.02, { travel: 10 }).o, 0, fl.blur));
+  rr(fileSel, ax + 4, ay + ah + 50 + 44 - 29, 216, 40, 10);
+  set(fileSel, { opacity: fl.o });
+  const ex = ax + 290, numX = ax + 268, ly0 = ay + ah + 58, LH = 46;
+  const dOpen = clamp(diffOpen.at(tau), 0, 1.05);
+  const ne = Math.floor(clamp((tau - b(17) - 0.16) / 0.26) * NEW.length);
+  const selW = measure("sel", editText, "Coming soon");
+  const prefixW = measure("pre", editText, "  <h1>");
+  CODE.forEach(([str, edit], i) => {
+    const pr = presence(tau, cIn + 0.04 + i * 0.035, b(20) - 0.02, { travel: 10 });
+    const y = ly0 + i * LH + (i >= 1 ? dOpen * LH : 0) + pr.dy;
+    showText(codeN[i].num, numX, y, pr.o * 0.9 * (edit ? 1 - clamp(dOpen * 3) : 1), 0, pr.blur);
+    codeN[i].num.textContent = String(i + 1);
+    if (edit) {
+      codeN[i].txt.textContent = "  <h1>";
+      showText(codeN[i].txt, ex, y, pr.o, 0, pr.blur);
+      // Select "Coming soon", then type the new headline over it.
+      const selecting = tau > b(17) - 0.02 && tau < b(17) + 0.16;
+      const typedNew = tau >= b(17) + 0.16 && tau < b(20) + 0.3;
+      const body = typedNew ? NEW.slice(0, ne) : OLD;
+      editText.textContent = body;
+      const bw2 = typedNew ? measure("new" + ne, editText, NEW.slice(0, ne)) : selW;
+      set(editText, { x: ex + prefixW, y, opacity: pr.o });
+      editTail.textContent = "</h1>";
+      set(editTail, { x: ex + prefixW + bw2, y, opacity: pr.o });
+      rr(editSel, ex + prefixW - 2, y - 24, selW + 4, 32, 5);
+      set(editSel, { opacity: selecting ? pr.o * clamp((tau - b(17) + 0.02) / 0.05) : 0 });
+      rr(editCaret, ex + prefixW + bw2 + 1, y - 22, 2.5, 28, 1);
+      set(editCaret, { opacity: typedNew && tau < b(18) + 0.1 && Math.sin((tau - b(17)) * TAU * 3) > -0.4 ? pr.o : 0 });
+      // Diff: the old line stays above, struck; the new one gets a mark and a band.
+      showText(oldLine, ex, ly0 + LH + pr.dy, pr.o * clamp(dOpen), 0, 0);
+      const ow = measure("old", oldLine, "  <h1>Coming soon</h1>");
+      rr(oldStrike, ex + prefixW * 0.95, ly0 + LH - 8 + pr.dy, (ow - prefixW) * clamp(dOpen * 1.3), 2, 1);
+      set(oldStrike, { opacity: pr.o * clamp(dOpen) });
+      showText(oldMark, numX - 12, ly0 + LH + pr.dy, pr.o * clamp(dOpen), 0, 0);
+      showText(newMark, numX - 12, y, pr.o * clamp(dOpen), 0, 0);
+      rr(newBg, ex - 30, y - 30, ax + aw - 16 - (ex - 30), 42, 8);
+      set(newBg, { opacity: pr.o * clamp(dOpen) });
+      // Review approves, beat 19.
+      const rv = presence(tau, b(19), b(20) - 0.02, { travel: 0 });
+      const slide = (1 - spring(tau - b(19), 0.34, 0.82)) * 70;
+      const rwid = 172, rx = ax + aw - 16 - rwid - 6 + slide, ry = y - 8;
+      rr(reviewBg, rx, ry - 23, rwid, 46, 23);
+      reviewFace.draw(rx + 8, ry - 23 + 1, 40, EYES.review, { o: 1 });
+      set(reviewTxt, { x: rx + 52, y: ry + 7.5 });
+      placeIcon(reviewCk, rx + rwid - 25, ry, 1, 0.5 + 0.5 * spring(tau - b(19) - 0.08, 0.3, 0.7));
+      set(reviewG, { opacity: rv.o * (tau > b(19) - 0.01 ? 1 : 0) });
+    } else {
+      showText(codeN[i].txt, ex, y, pr.o, 0, pr.blur);
+    }
+  });
+  // --- Tool strip, beat 20.
+  toolN.forEach((tn, i) => {
+    const pr = presence(tau, b(20) + 0.12 + i * 0.035, b(21) - 0.01 + (tn.k === "wallet" ? 0.03 : 0), { travel: 12 });
+    const cx = s.r - (STRIP[2] - toolX(i)), cy = s.cy;
+    const hv = hover(p, cx, cy, 58, 56);
+    const pk = 1 - 0.07 * pressAt(tau, tn.k === "wallet" ? b(21) : -9);
+    rr(tn.bg, cx - 58 * pk, cy - 56 * pk + pr.dy, 116 * pk, 112 * pk, 24);
+    set(tn.bg, { "fill-opacity": 0.08 + 0.1 * hv });
+    placeIcon(tn.ic, cx, cy - 14 + pr.dy, 1, pk);
+    showText(tn.lb, cx, cy + 36 + pr.dy, 1, 0, 0);
+    set(tn.g, { opacity: pr.o });
+  });
+  // --- Wallet, beats 21-23.
+  const wv = presence(tau, b(21) + 0.14, b(23), { travel: 12 });
+  placeIcon(wIc, s.l + 160, s.t + 72 + wv.dy, wv.o);
+  showText(wTitle, s.l + 190, s.t + 84 + wv.dy, wv.o, 0, wv.blur);
+  showText(wAddr, s.l + 36, s.t + 196 + wv.dy, presence(tau, b(21) + 0.2, b(23), { travel: 12 }).o, 0, wv.blur);
+  const rd = clamp(ready.at(tau), 0, 1.3);
+  const rdv = presence(tau, b(21) + 0.24, b(23), { travel: 12 });
+  set(wDot, { cx: s.l + 48, cy: s.t + 262 + rdv.dy, r: 8 + 1.5 * clamp(rd - 1, 0, 0.3), fill: mixColor("#3A4239", GREEN, clamp(rd)), opacity: rdv.o });
+  set(wHalo, { cx: s.l + 48, cy: s.t + 262 + rdv.dy, r: 8 + 14 * clamp(rd), opacity: rdv.o * 0.16 * clamp(rd) * (1 - clamp((tau - b(22) - 0.25) / 0.4)) });
+  showText(wReady, s.l + 72, s.t + 272 + rdv.dy, rdv.o * (0.35 + 0.65 * clamp(rd)), 0, rdv.blur);
+  // --- Memory, beats 23-27 (closed at 25, reopened at 26: the same rows, in the same places).
+  const mv = presence(tau, b(23) + 0.16, b(25), { travel: 12 });
+  const mv2 = presence(tau, b(26) + 0.16, b(27), { travel: 0, enter: [0.3, 1] });
+  const mO = Math.max(mv.o * (tau < b(26) ? 1 : 0), mv2.o * (tau >= b(26) ? 1 : 0));
+  const mDy = tau < b(26) ? mv.dy : 0, mBl = tau < b(26) ? mv.blur : mv2.blur;
+  showText(mTitle, s.l + 136, s.t + 84 + mDy, mO, 0, mBl);
+  const hvC = hover(p, s.r - 48, s.t + 58, 26, 26), pkC = 1 - 0.1 * pressAt(tau, b(25));
+  rr(mCloseBg, s.r - 48 - 26 * pkC, s.t + 58 - 26 * pkC, 52 * pkC, 52 * pkC, 16);
+  set(mCloseBg, { "fill-opacity": 0.09 + 0.1 * hvC });
+  placeIcon(mCloseIc, s.r - 48, s.t + 58, 1, pkC);
+  set(mClose, { opacity: mO });
+  memN.forEach((m, i) => {
+    const slot = presence(tau, b(23) + 0.2 + i * 0.05, b(25), { travel: 0, enter: [0.3, 1] });
+    const first = presence(tau, b(24) + i * 0.09, b(25), { travel: 16 });
+    const slotO = tau < b(26) ? slot.o : mv2.o;
+    const o = tau < b(26) ? first.o : mv2.o, dy = tau < b(26) ? first.dy : 0, bl = tau < b(26) ? first.blur : mv2.blur;
+    const y = s.t + 140 + i * 100;
+    rr(m.bg, s.l + 26, y, s.w - 52, 84, 22);
+    set(m.bg, { opacity: slotO });
+    placeIcon(m.ic, s.l + 64, y + 42 + dy, o);
+    showText(m.t, s.l + 98, y + 52 + dy, o, 0, bl);
+    set(m.g, { opacity: 1 });
+  });
+}
+
+function drawDeliverable(tau) {
+  const oth = clamp(others.at(tau));
+  const ch = chief.at(tau);
+  const gone = clamp(rowsGone.at(tau));
+  rowN.forEach((r, i) => {
+    const u = rowFly[i].at(tau);
+    const f = FILES[i];
+    const from = podRect(f.from);
+    const src = [from[0] + 60, 300, from[2] - 60, 360, 18];
+    const dst = ROW(i);
+    // leading edge first: the top rises, the sides widen a moment later
+    const ut = clamp(u, 0, 1.08), us = clamp(spring(tau - b(29) - 0.04 - (2 - i) * 0.03, 0.36, 0.86), 0, 1.05);
+    const l = lerp(src[0], dst[0], us), rgt = lerp(src[2], dst[2], us);
+    const t = lerp(src[1], dst[1], ut), bm = lerp(src[3], dst[3], clamp(u * 0.92 + 0.08 * us, 0, 1.08));
+    let o = clamp(u * 4) * (tau > b(29) - 0.05 && tau < b(31) ? 1 : 0);
+    // The landing-page row becomes the page; the others step away.
+    if (i !== 1) o *= 1 - gone;
+    if (i === 1) o *= 1 - clamp((tau - b(30)) / 0.12);
+    rr(r.bg, l, t, rgt - l, bm - t, 20);
+    placeIcon(r.ic, l + 40, (t + bm) / 2, 1);
+    set(r.t, { x: l + 74, y: (t + bm) / 2 + 9 });
+    set(r.g, { opacity: o * oth });
+    void ch;
+  });
+}
+
+function drawPage(tau) {
+  const vis = tau > b(30) - 0.02 && tau < COL_SWITCH;
+  set(pgG, { opacity: vis ? 1 : 0 });
+  if (!vis) return;
+  const a = clamp(pageOpen.at(tau), 0, 1.06), c = clamp(colMorph.at(tau), 0, 1.04);
+  // Beat 30: the landing-page row opens into the page, top edge first. Beat 31: the page closes onto the tile.
+  const at = clamp(pageTop.at(tau), 0, 1.06), ab = clamp(pageBottom.at(tau), 0, 1.06);
+  const row = ROW(1);
+  const open = [lerp(row[0], PAGE[0], a), lerp(row[1], PAGE[1], at), lerp(row[2], PAGE[2], a), lerp(row[3], PAGE[3], ab), lerp(row[4], PAGE[4], a)];
+  const pr = lerpRect(open, TILE, c);
+  rr(pgBg, pr[0], pr[1], pr[2] - pr[0], pr[3] - pr[1], pr[4]);
+  rr(pgClipR, pr[0], pr[1], pr[2] - pr[0], pr[3] - pr[1], pr[4]);
+  pgBg.setAttribute("fill", mixColor(WHITE, INK, smooth(clamp(c * 1.15))));
+  set(pgSh1, { "flood-opacity": 0.1 * (1 - clamp(c)) }); set(pgSh2, { "flood-opacity": 0.1 * (1 - clamp(c)) });
+  // Page-local -> world, for the page as it is now.
+  const k = (open[2] - open[0]) / 920, ox = open[0], oy = open[1] + (open[3] - open[1] - 664 * k) / 2 * (1 - clamp(a));
+  const W = ([x, y, w, h, r]) => [ox + x * k, oy + y * k, w * k, h * k, r * k];
+  // Words and buttons leave just before the page closes.
+  const cin = presence(tau, b(30) + 0.14, b(31) - 0.04, { travel: 14, exitDur: 0.11 });
+  set(pgIn, { opacity: cin.o, transform: `translate(${ox} ${oy + cin.dy}) scale(${k.toFixed(4)})` });
+  if (cin.blur > 0.05) { pgIn.setAttribute("filter", "url(#pg-blur)"); pgBlur.setAttribute("stdDeviation", `0 ${cin.blur.toFixed(2)}`); } else pgIn.removeAttribute("filter");
+  // Light parts become the column: the nav bar parts into the two top bars, the three features become the shafts.
+  const green = mixColor(CANVAS, GREEN, smooth(clamp(c * 1.2)));
+  [COL.abacusTop, COL.abacusBottom].forEach((ab, i) => {
+    const r = lerpRect(W(NAV), ab, c);
+    rr(pgNav[i], ...r);
+    set(pgNav[i], { fill: green, opacity: clamp(a * 2 - 0.6) });
+  });
+  FEAT.forEach((f, i) => {
+    const r = lerpRect(W(FEAT_R(i)), COL.shafts[[0, 2, 1][i]], c);
+    rr(featBg[i], ...r);
+    set(featBg[i], { fill: green, opacity: clamp(a * 2 - 0.6) });
+  });
+}
+const pgBlurF = el("filter", { id: "pg-blur", x: "-10%", y: "-30%", width: "120%", height: "160%" }, defs);
+const pgClip = el("clipPath", { id: "page-clip" }, defs);
+const pgClipR = el("rect", {}, pgClip);
+set(pgInClip, { "clip-path": "url(#page-clip)" });
+pgNav.forEach(n => set(n, { "clip-path": "url(#page-clip)" }));
+featBg.forEach(n => set(n, { "clip-path": "url(#page-clip)" }));
+const pgBlur = el("feGaussianBlur", { stdDeviation: "0 0" }, pgBlurF);
+
+function drawCursor(tau, camx, camy, cams) {
+  const [wx, wy] = cur.at(tau);
+  const sx = 720 + (wx - camx) * cams, sy = 720 + (wy - camy) * cams;
+  const pr = pressing(tau);
+  const k = 2.05 * (1 - 0.12 * pr);
+  set(curG, { transform: `translate(${(sx - 5.2 * k).toFixed(2)} ${(sy - 2.8 * k).toFixed(2)}) scale(${k.toFixed(4)})` });
+  return [wx, wy];
+}
+
+// ---------------------------------------------------------------- seek
+function seek(t) {
+  const tau = mod(t, LOOP);
+  const cx = cam.x.at(tau), cy = cam.y.at(tau), cs = cam.s.at(tau);
+  world.setAttribute("transform", `translate(720 720) scale(${cs.toFixed(5)}) translate(${(-cx).toFixed(3)} ${(-cy).toFixed(3)})`);
+  const p = drawCursor(tau, cx, cy, cs);
+  drawPods(tau, p);
+  drawChief(tau, p);
+  drawTask(tau, p);
+  drawBuildInside(tau, p);
+  drawWork(tau);
+  drawDeliverable(tau);
+  drawPage(tau);
+}
+
+checkTracks();
+if (Math.hypot(cur.p[0] - cur.p0[0], cur.p[1] - cur.p0[1]) > 1e-6) throw new Error("cursor does not return to its start");
+
+window.LOOP = LOOP;
+window.GRID = GRID;
+window.seek = seek;
+window.ready = document.fonts.ready.then(() => { seek(0); return true; });
+
+// Live preview (not used for rendering): draw the frame for the current time, nothing else.
+if (!/[?&]render\b/.test(location.search)) {
+  document.body.classList.add("preview");
+  const t0 = performance.now();
+  const q = new URLSearchParams(location.search);
+  const fixed = q.has("t") ? parseFloat(q.get("t")) : null;
+  window.ready.then(() => {
+    if (fixed !== null) { seek(fixed); return; }
+    const frame = now => { seek(((now - t0) / 1000) % LOOP); requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+  });
+}
+</script>
+</body>
+</html>
