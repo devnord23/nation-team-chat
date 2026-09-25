@@ -290,10 +290,56 @@ describe("Chat MCP schema validation", () => {
     { type: "object", properties: {value:{type:"string",format:"unregistered-format"}} },
     { type: "object", properties: {value:{$ref:"https://example.invalid/private-schema"}} },
     { type: "object", properties: {value:{type:"string",unrecognizedAssertion: true}} },
-  ])("refuses schemas it cannot validate instead of silently weakening them %#", async (toolSchema) => {
+  ])("skips tools with uncompilable schemas without aborting the mount %#", async (toolSchema) => {
     const f = fixture("", toolSchema);
-    await expect(f.mount()).rejects.toThrow("schema could not be validated");
-    expect(alive(f.read().pid)).toBe(false);
+    const session = await f.mount();
+    expect(session.definitions).toHaveLength(0);
+    await session.close();
+  });
+
+  it.each([
+    { format: "uint32", valid: [0, 4294967295],          invalid: [-1, 4294967296] },
+    { format: "uint16", valid: [0, 65535],               invalid: [-1, 65536] },
+    { format: "int16",  valid: [-32768, 32767],          invalid: [-32769, 32768] },
+    { format: "uint64", valid: [0, Number.MAX_SAFE_INTEGER], invalid: [-1] },
+    { format: "int8",   valid: [-128, 127],              invalid: [-129, 128] },
+    { format: "uint8",  valid: [0, 255],                 invalid: [-1, 256] },
+  ])("registers the $format OpenAPI integer format with range validation", async ({ format, valid, invalid }) => {
+    const toolSchema = { type: "object", properties: { n: { type: "integer", format } }, required: ["n"] };
+    const f = fixture("", toolSchema);
+    const session = await f.mount();
+    expect(session.definitions).toHaveLength(1);
+    for (const n of valid) expect(() => session.validate("audit_write", { n })).not.toThrow();
+    for (const n of invalid) expect(() => session.validate("audit_write", { n })).toThrow("input schema");
+  });
+
+  it("compiles OpenAPI integer formats nested under anyOf/oneOf composition", async () => {
+    const toolSchema = {
+      type: "object",
+      properties: {
+        target: {
+          anyOf: [
+            { type: "object", properties: { pid: { type: "integer", format: "uint32" } } },
+            { type: "string" },
+          ],
+        },
+      },
+    };
+    const f = fixture("", toolSchema);
+    const session = await f.mount();
+    expect(session.definitions).toHaveLength(1);
+    expect(() => session.validate("audit_write", { target: { pid: 1234 } })).not.toThrow();
+    expect(() => session.validate("audit_write", { target: { pid: -1 } })).toThrow("input schema");
+  });
+
+  it("skips a tool with an uncompilable schema while mounting valid tools from the same session", async () => {
+    const badSchema = { type: "object", properties: { x: { type: "string", format: "unregistered-format" } } };
+    const bad = fixture("", badSchema);
+    const good = fixture();
+    const session = await mountChatTools({ custom: { bad: bad.server, good: good.server } }, bad.controller.signal);
+    sessions.push(session);
+    expect(session.definitions.map((d) => d.function.name)).toEqual(["good_write"]);
+    await session.close();
   });
 });
 
