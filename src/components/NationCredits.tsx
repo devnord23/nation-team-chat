@@ -1,14 +1,13 @@
 /**
  * Nation credit top-up UX.
  *
- * Provides NationCreditsCtx so child components (e.g. SidebarProfileMenu,
- * NationCreditsSettingsRow) can open the sheet and read balance without
- * prop-drilling.
- *
  * Entry points:
- *   – Bottom-left account chip (SidebarProfileMenu) → openSheet()
- *   – Top banner "Top up" link (low-balance / unverified warning)
- *   – Settings → Usage "NationCreditsSettingsRow" → openSheet()
+ *   – /subscription → full-page Plans screen (founder-preferred primary surface)
+ *   – /subscription?pack=15|49|99 → auto-opens checkout for that pack
+ *   – /subscription?asset=USDG|NATION → pre-selects pay token
+ *   – Bottom-left account chip (SidebarProfileMenu) → openSheet() → bottom sheet
+ *   – Top banner "Top up" link → openSheet() → bottom sheet
+ *   – Settings → Usage "NationCreditsSettingsRow" → openSubscription() → /subscription
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -18,14 +17,17 @@ import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier 
 import { SettingRow } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
 
+// Module-level constant so subscription path is stable across renders.
+// import.meta.env.BASE_URL is "/swarm/" in Vite dev, "/" on the live VPS.
+const SUBSCRIPTION_PATH = (import.meta.env.BASE_URL + "subscription").replace(/\/\//g, "/");
+
 // ─── style tokens ────────────────────────────────────────────────────────────
 const btn =
   "rounded-xl bg-accent px-4 py-2 font-medium text-accent-ink disabled:opacity-50 transition-opacity";
 const field =
   "w-full rounded-xl border border-hairline/50 bg-inset p-3 text-ink focus:outline-none focus:border-accent/60";
 
-// Narrow status type used by the pure strip + the Settings row — matches the
-// shape the server has always returned so existing tests keep working.
+// Narrow status type used by the pure strip + the Settings row.
 type StripStatus = {
   balanceUsd: number;
   label: string;
@@ -37,9 +39,10 @@ type StripStatus = {
   starterMessage: string;
   packs: number[];
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string }>;
-  invoices: Array<{ id: string; chain: number; treasury: string; token: string; amount_micros: number; expires_at: number; paid_tx: string | null }>;
+  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; expires_at: number; paid_tx: string | null }>;
 };
 
+type Chain = CreditStatus["chains"][number];
 type Invoice = CreditStatus["invoices"][number];
 
 // ─── wallet helpers ───────────────────────────────────────────────────────────
@@ -54,9 +57,8 @@ async function injectedWallet() {
 }
 
 // ─── Pure strip (exported for tests and reuse) ────────────────────────────────
-/** Top banner shown in the chat shell. Exported so unit tests can render it
- * directly without async state. `onOpen` is called when the user clicks any
- * credit action in the strip. */
+/** Top banner shown in the chat shell. `onOpen` is called when the user clicks
+ * any credit action. Hidden automatically on the /subscription full page. */
 export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; onOpen: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-3 border-b border-hairline/30 bg-panel px-4 py-2 text-xs text-ink">
@@ -83,16 +85,50 @@ export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; on
 }
 
 // ─── Tier card ───────────────────────────────────────────────────────────────
-/** Tapping any tier card navigates to the subscription page. Exported for tests. */
+/** Exported for unit tests. Tapping the card calls onSelect directly — no
+ * separate "Pay" button is required at the parent level. */
 export function TierCard({
   tier,
+  selected,
+  payWithNation,
+  nationPriceUsd,
+  nationDiscount,
+  nonNationSymbol,
   onSelect,
   disabled,
 }: {
   tier: CreditTier;
+  selected: boolean;
+  payWithNation: boolean;
+  nationPriceUsd: number | null;
+  nationDiscount: number | null;
+  nonNationSymbol: string;
   onSelect: () => void;
   disabled: boolean;
 }) {
+  const usdLabel = `$${tier.usd}`;
+  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+
+  const nationAmount =
+    nationPriceUsd && nationPriceUsd > 0
+      ? (tier.usd / nationPriceUsd).toFixed(2)
+      : null;
+  const nationLabel = nationAmount ? `${nationAmount} $NATION` : null;
+
+  const primaryPrice = payWithNation && nationLabel ? nationLabel : usdLabel;
+
+  // Secondary price shows the alternative token when both are available.
+  const secondaryPrice =
+    nationLabel && payWithNation
+      ? `= ${usdLabel} value`
+      : nationLabel
+        ? `≈ ${nationLabel} · save ~${discountPct}%`
+        : null;
+
+  const ctaLabel = payWithNation
+    ? `Pay ${primaryPrice} in $NATION`
+    : `Pay ${usdLabel} with ${nonNationSymbol}`;
+
   return (
     <button
       type="button"
@@ -100,7 +136,9 @@ export function TierCard({
       onClick={onSelect}
       className={cn(
         "relative flex flex-col gap-3 rounded-2xl border p-5 text-left transition-all",
-        "border-hairline/60 bg-panel hover:border-accent/40 hover:bg-raised/50",
+        selected
+          ? "border-accent bg-accent/8 shadow-sm ring-1 ring-accent/40"
+          : "border-hairline/60 bg-panel hover:border-accent/40 hover:bg-raised/50",
         disabled && "opacity-50 pointer-events-none",
       )}
     >
@@ -109,22 +147,86 @@ export function TierCard({
           Most popular
         </span>
       )}
-      <div>
-        <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
-        <p className="mt-0.5 text-[22px] font-bold text-ink">${tier.usd}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
+          <p className="mt-0.5 text-[22px] font-bold text-ink">{primaryPrice}</p>
+          {secondaryPrice && (
+            <p className="mt-0.5 text-[12px] font-medium text-accent">{secondaryPrice}</p>
+          )}
+        </div>
+        {payWithNation && (
+          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
+            Save ~{discountPct}%
+          </span>
+        )}
       </div>
       <p className="text-[12px] text-ink-secondary">
         ${tier.creditUsd} permanent credit · never expires
       </p>
-      <div className="mt-1 w-full rounded-xl bg-raised/70 py-2.5 text-center text-[13px] font-semibold text-ink hover:bg-raised">
-        Choose plan
+      <div
+        className={cn(
+          "mt-1 w-full rounded-xl py-2.5 text-center text-[13px] font-semibold",
+          selected
+            ? "bg-accent text-accent-ink"
+            : "bg-raised/70 text-ink hover:bg-raised",
+        )}
+      >
+        {ctaLabel}
       </div>
     </button>
   );
 }
 
-// ─── Checkout step ────────────────────────────────────────────────────────────
-function CheckoutPanel({
+// ─── Payment token toggle ─────────────────────────────────────────────────────
+/** Shown only when ≥2 payable symbols exist (hasNation = true). */
+export function TokenToggle({
+  payWithNation,
+  hasNation,
+  nonNationSymbol,
+  nationDiscount,
+  onChange,
+}: {
+  payWithNation: boolean;
+  hasNation: boolean;
+  nonNationSymbol: string;
+  nationDiscount: number | null;
+  onChange: (nation: boolean) => void;
+}) {
+  if (!hasNation) return null;
+  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+  return (
+    <div className="flex items-center justify-center gap-1 rounded-xl border border-hairline/50 bg-inset p-1 text-sm">
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
+          payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+        )}
+      >
+        <span className="font-semibold text-accent">$NATION</span>
+        <span className="rounded-full bg-accent/15 px-1.5 py-px text-[10px] font-semibold text-accent">
+          Save ~{discountPct}%
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
+          !payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+        )}
+      >
+        {nonNationSymbol}
+      </button>
+    </div>
+  );
+}
+
+// ─── Checkout panel (shared between sheet and modal) ─────────────────────────
+/** Exported for unit tests. */
+export function CheckoutPanel({
   invoice,
   status,
   busy,
@@ -143,14 +245,19 @@ function CheckoutPanel({
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const chain = status.chains.find((c) => c.id === invoice.chain);
+  const chain = status.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
   const paid = Boolean(invoice.paid_tx);
   const isNation = chain?.symbol === "$NATION";
-  const displaySymbol = chain?.symbol ?? (invoice.chain === 8453 ? "USDC" : "USDG");
+  const displaySymbol = chain?.symbol ?? "USDG";
   const displayAmount =
     isNation && invoice.token_amount
       ? (Number(BigInt(invoice.token_amount)) / 1e18).toFixed(6)
       : (invoice.amount_micros / 1e6).toFixed(6);
+  const networkName = chain?.name ?? "Robinhood Chain";
+
+  const packUsd = invoice.pack_micros / 1_000_000;
+  const tierInfo = status.tiers.find((t) => t.usd === packUsd);
+  const tierName = tierInfo?.name ?? `$${packUsd}`;
 
   return (
     <div className="space-y-4 rounded-2xl bg-inset p-5">
@@ -171,12 +278,19 @@ function CheckoutPanel({
               ← Back
             </button>
           </div>
+
+          {/* Order summary */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl bg-panel px-3 py-2 text-[13px]">
+            <span className="font-semibold text-ink">{tierName} pack</span>
+            <span className="text-hairline/60">·</span>
+            <span className="font-semibold text-ink">{displayAmount} {displaySymbol}</span>
+            <span className="text-hairline/60">·</span>
+            <span className="text-ink-secondary">{networkName}</span>
+          </div>
+
           <div className="rounded-xl bg-panel p-3 text-[13px] space-y-1">
             <p className="font-semibold text-ink">
               Send exactly {displayAmount} {displaySymbol}
-            </p>
-            <p className="text-ink-secondary">
-              Network: {chain?.name ?? (invoice.chain === 8453 ? "Base" : "Robinhood Chain")}
             </p>
             <p className="text-xs text-ink-secondary">
               The unique amount identifies your payment — the full amount is credited.
@@ -209,11 +323,11 @@ function CheckoutPanel({
             disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
             onClick={onPay}
           >
-            Connect wallet and pay
+            Pay with wallet
           </button>
           <div>
             <label className="mb-1 block text-[13px] text-ink-secondary">
-              Already paid? Paste the transaction hash
+              Already paid? Paste your transaction hash
             </label>
             <input
               className={field}
@@ -228,7 +342,7 @@ function CheckoutPanel({
             disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())}
             onClick={onConfirm}
           >
-            Check payment
+            I've paid — confirm
           </button>
           {hash && (
             <p className="text-center text-[11px] text-ink-secondary">
@@ -242,8 +356,8 @@ function CheckoutPanel({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-/** Top-strip + bottom sheet. Provides NationCreditsCtx for the rest of the
- * tree (sidebar chip, Settings row) to call openSheet() or read status. */
+/** Top-strip + bottom sheet (inline triggers) or full-page (/subscription).
+ * Provides NationCreditsCtx for the rest of the tree. */
 export function NationCredits() {
   const { state } = useStore();
   const [status, setStatus] = useState<CreditStatus | null>(null);
@@ -252,8 +366,26 @@ export function NationCredits() {
   const [error, setError] = useState("");
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [hash, setHash] = useState("");
+  const [selectedTier, setSelectedTier] = useState<number>(15);
+
+  // Lazily initialize payWithNation from ?asset= URL param.
+  const [payWithNation, setPayWithNation] = useState(() => {
+    try {
+      const asset = new URLSearchParams(window.location.search).get("asset");
+      return /^(\$?nation)$/i.test(asset ?? "");
+    } catch { return false; }
+  });
+
+  // Detect subscription page mode. Navigation to/from /subscription is always
+  // a full page reload (window.location.assign), so this is stable per session.
+  const isSubscriptionPage =
+    window.location.pathname === SUBSCRIPTION_PATH ||
+    window.location.pathname === SUBSCRIPTION_PATH + "/";
+
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  // Pending deep-link pack: consumed on first status load.
+  const deepLinkPackRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     const value: CreditStatus = await api("/api/credits/status");
@@ -266,17 +398,47 @@ export function NationCredits() {
   useEffect(() => {
     if (!state.connected) return;
     void refresh().catch(() => {});
-    const timer = setInterval(() => void refresh().catch(() => {}), open ? 5000 : 15000);
+    const timer = setInterval(() => void refresh().catch(() => {}), open || isSubscriptionPage ? 5000 : 15000);
     return () => clearInterval(timer);
-  }, [state.connected, open, refresh]);
+  }, [state.connected, open, isSubscriptionPage, refresh]);
+
+  // Parse ?pack= deep-link param (bottom sheet only; subscription page handles it separately).
+  useEffect(() => {
+    if (isSubscriptionPage) return;
+    try {
+      const path = window.location.pathname;
+      // /subscription path detection for bottom-sheet fallback (e.g. old bookmarks without the full-page support)
+      if (path === SUBSCRIPTION_PATH || path === SUBSCRIPTION_PATH + "/") return;
+      const pack = new URLSearchParams(window.location.search).get("pack");
+      if (pack) {
+        const n = Number(pack);
+        if (Number.isInteger(n) && n > 0) {
+          deepLinkPackRef.current = n;
+          setOpen(true);
+        }
+      }
+    } catch { /* ignore */ }
+  }, [isSubscriptionPage]);
+
+  // On the subscription page, parse ?pack= and open it.
+  useEffect(() => {
+    if (!isSubscriptionPage) return;
+    try {
+      const pack = new URLSearchParams(window.location.search).get("pack");
+      if (pack) {
+        const n = Number(pack);
+        if (Number.isInteger(n) && n > 0) deepLinkPackRef.current = n;
+      }
+    } catch { /* ignore */ }
+  }, [isSubscriptionPage]);
 
   useEffect(() => {
     if (open) closeRef.current?.focus();
   }, [open]);
 
-  // Keyboard close + focus trap
+  // Keyboard close + focus trap for bottom sheet
   useEffect(() => {
-    if (!open) return;
+    if (!open || isSubscriptionPage) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) setOpen(false);
       if (e.key === "Tab" && sheetRef.current) {
@@ -297,10 +459,26 @@ export function NationCredits() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, busy]);
+  }, [open, busy, isSubscriptionPage]);
+
+  // Keyboard close for subscription page modal
+  useEffect(() => {
+    if (!isSubscriptionPage || !invoice) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) {
+        setInvoice(null);
+        setHash("");
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isSubscriptionPage, invoice, busy]);
 
   const openSheet = useCallback(() => setOpen(true), []);
   const closeSheet = useCallback(() => setOpen(false), []);
+  const openSubscription = useCallback(() => {
+    window.location.assign(SUBSCRIPTION_PATH);
+  }, []);
 
   // Auto-open the credits sheet when the SPA is served at /subscription
   // (vercel.json rewrites /subscription → /swarm/index.html).
@@ -344,6 +522,25 @@ export function NationCredits() {
       });
     });
 
+  // Find the best chain for the current token selection.
+  const resolveChain = (useNation: boolean): Chain | undefined => {
+    if (!status) return undefined;
+    if (useNation) return status.chains.find((c) => c.symbol === "$NATION");
+    return status.chains.find((c) => c.symbol !== "$NATION");
+  };
+
+  const createInvoice = (tierUsd: number, useNation = payWithNation) =>
+    run(async () => {
+      const chain = resolveChain(useNation);
+      if (!chain) throw new Error("No payment network available for the selected currency.");
+      const inv: Invoice = await api("/api/credits/invoices", {
+        method: "POST",
+        body: JSON.stringify({ chain: chain.id, packUsd: tierUsd }),
+      });
+      setInvoice(inv);
+      setHash("");
+    });
+
   const pay = () =>
     run(async () => {
       if (!invoice || invoice.expires_at <= Date.now())
@@ -355,19 +552,16 @@ export function NationCredits() {
       const transferAbi = parseAbi([
         "function transfer(address to, uint256 amount) returns (bool)",
       ]);
+      const chainMeta = status?.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
+      const rpcUrl =
+        invoice.chain === 8453
+          ? "https://mainnet.base.org"
+          : "https://rpc.mainnet.chain.robinhood.com";
       const chain = defineChain({
         id: invoice.chain,
-        name: invoice.chain === 8453 ? "Base" : "Robinhood Chain",
+        name: chainMeta?.name ?? (invoice.chain === 8453 ? "Base" : "Robinhood Chain"),
         nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: {
-          default: {
-            http: [
-              invoice.chain === 8453
-                ? "https://mainnet.base.org"
-                : "https://rpc.mainnet.chain.robinhood.com",
-            ],
-          },
-        },
+        rpcUrls: { default: { http: [rpcUrl] } },
       });
       try {
         await wallet.switchChain({ id: chain.id });
@@ -381,7 +575,6 @@ export function NationCredits() {
       }
       const [account] = await wallet.requestAddresses();
       if (!account) throw new Error("Choose a wallet account.");
-      // For 18-decimal tokens ($NATION) use token_amount; fall back to amount_micros (USDC/USDG).
       const transferAmount = invoice.token_amount
         ? BigInt(invoice.token_amount)
         : BigInt(invoice.amount_micros);
@@ -407,15 +600,283 @@ export function NationCredits() {
       });
     });
 
+  // Apply deep-link pack once status arrives.
+  useEffect(() => {
+    if (!status || deepLinkPackRef.current === null) return;
+    const pack = deepLinkPackRef.current;
+    if (!status.verified || !status.topUpEnabled || !status.packs.includes(pack)) {
+      deepLinkPackRef.current = null;
+      return;
+    }
+    const hasNationChain =
+      status.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null;
+    const useNation = payWithNation && hasNationChain;
+    if (payWithNation && !hasNationChain) setPayWithNation(false);
+    deepLinkPackRef.current = null;
+    setSelectedTier(pack);
+    void createInvoice(pack, useNation);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // $NATION option requires both a chain entry AND a configured price.
+  const hasNation = Boolean(
+    status?.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null,
+  );
+  const nonNationSymbol =
+    status?.chains.find((c) => c.symbol !== "$NATION")?.symbol ?? "USDG";
   const tiers: CreditTier[] = status?.tiers ?? [];
 
-  return (
-    <NationCreditsCtx.Provider value={{ status, open, openSheet, closeSheet }}>
-      {/* ── Top low-balance / unverified strip ───────────────────────── */}
-      {status && <NationCreditsStrip status={status} onOpen={openSheet} />}
+  // ── Shared plan picker JSX ────────────────────────────────────────────────
+  const planPicker = (
+    <div className="space-y-5">
+      <TokenToggle
+        payWithNation={payWithNation}
+        hasNation={hasNation}
+        nonNationSymbol={nonNationSymbol}
+        nationDiscount={status?.nationDiscount ?? null}
+        onChange={setPayWithNation}
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {tiers.map((tier) => (
+          <TierCard
+            key={tier.id}
+            tier={tier}
+            selected={selectedTier === tier.usd}
+            payWithNation={payWithNation && hasNation}
+            nationPriceUsd={status?.nationPriceUsd ?? null}
+            nationDiscount={status?.nationDiscount ?? null}
+            nonNationSymbol={nonNationSymbol}
+            onSelect={() => {
+              setSelectedTier(tier.usd);
+              void createInvoice(tier.usd);
+            }}
+            disabled={busy}
+          />
+        ))}
+      </div>
 
-      {/* ── Bottom sheet backdrop + panel ────────────────────────────── */}
-      {open && (
+      {status?.invoices.some((i) => !i.paid_tx) && (
+        <div className="space-y-1.5 pt-1">
+          <p className="text-[12px] font-medium text-ink-secondary">
+            Resume a pending payment
+          </p>
+          {status.invoices
+            .filter((i) => !i.paid_tx)
+            .map((i) => {
+              const c = status.chains.find((ch) => ch.id === i.chain);
+              const isN = c?.symbol === "$NATION";
+              const amt =
+                isN && i.token_amount
+                  ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
+                  : (i.amount_micros / 1e6).toFixed(4);
+              return (
+                <button
+                  key={i.id}
+                  className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
+                  onClick={() => { setInvoice(i); setHash(""); }}
+                >
+                  {amt} {c?.symbol ?? "?"} · expires{" "}
+                  {new Date(i.expires_at).toLocaleTimeString()}
+                </button>
+              );
+            })}
+        </div>
+      )}
+
+      <p className="text-center text-[11px] text-ink-secondary">
+        Credits never expire by time — only when spent.
+      </p>
+    </div>
+  );
+
+  return (
+    <NationCreditsCtx.Provider value={{ status, open, openSheet, closeSheet, openSubscription }}>
+
+      {/* ── Full-page /subscription layout ──────────────────────────────── */}
+      {isSubscriptionPage && (
+        <div className="fixed inset-0 z-[90] overflow-auto bg-app">
+          {/* Sticky nav */}
+          <nav className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline/30 bg-panel/95 px-5 py-3 backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => {
+                if (window.history.length > 1) window.history.back();
+                else window.location.assign(import.meta.env.BASE_URL ?? "/");
+              }}
+              className="rounded-lg px-2 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+            >
+              ← Back
+            </button>
+            <span className="flex-1 text-center text-[13px] font-semibold text-ink">
+              Plans
+            </span>
+            {status && (
+              <span className="text-[12px] text-ink-secondary">
+                {status.exempt
+                  ? "Owner / admin"
+                  : `$${status.balanceUsd.toFixed(2)} balance`}
+              </span>
+            )}
+          </nav>
+
+          {/* Main content */}
+          <main className="mx-auto w-full max-w-3xl px-5 pb-20 pt-10">
+            {!status ? (
+              <div className="flex h-32 items-center justify-center">
+                <span className="text-[13px] text-ink-secondary">Loading plans…</span>
+              </div>
+            ) : !status.verified ? (
+              <div className="mx-auto max-w-md space-y-5 text-center">
+                <div>
+                  <h1 className="text-[26px] font-bold text-ink">Verify your account</h1>
+                  <p className="mt-2 text-[14px] text-ink-secondary">{status.starterMessage}</p>
+                </div>
+                <p className="text-[13px] text-ink-secondary">
+                  Sign in with your verified email, or verify a wallet with a free signature. No payment is needed to start.
+                </p>
+                <button className={cn(btn, "mx-auto block")} disabled={busy} onClick={() => void verify()}>
+                  Verify wallet for starter credit
+                </button>
+              </div>
+            ) : !status.topUpEnabled ? (
+              <p className="text-center text-[15px] text-ink-secondary">Top up coming soon</p>
+            ) : (
+              <>
+                {/* Hero */}
+                <div className="mb-10 text-center">
+                  <h1 className="text-[30px] font-bold tracking-tight text-ink sm:text-[36px]">
+                    Plans
+                  </h1>
+                  <p className="mt-2 text-[15px] text-ink-secondary">
+                    Prepaid AI credits for your whole team.
+                  </p>
+                  <p className="mt-0.5 text-[13px] text-ink-secondary">
+                    No subscriptions · no expiry · pay only when you choose.
+                  </p>
+                  {status.exempt && (
+                    <p className="mt-2 text-[12px] text-ink-secondary">
+                      Usage is not charged to this account. Test payments still credit the ledger.
+                    </p>
+                  )}
+                </div>
+
+                {/* Token toggle centered */}
+                {hasNation && (
+                  <div className="mb-8 flex justify-center">
+                    <TokenToggle
+                      payWithNation={payWithNation}
+                      hasNation={hasNation}
+                      nonNationSymbol={nonNationSymbol}
+                      nationDiscount={status.nationDiscount}
+                      onChange={setPayWithNation}
+                    />
+                  </div>
+                )}
+
+                {/* Tier cards */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  {tiers.map((tier) => (
+                    <TierCard
+                      key={tier.id}
+                      tier={tier}
+                      selected={selectedTier === tier.usd && !invoice}
+                      payWithNation={payWithNation && hasNation}
+                      nationPriceUsd={status.nationPriceUsd}
+                      nationDiscount={status.nationDiscount}
+                      nonNationSymbol={nonNationSymbol}
+                      onSelect={() => {
+                        setSelectedTier(tier.usd);
+                        void createInvoice(tier.usd);
+                      }}
+                      disabled={busy}
+                    />
+                  ))}
+                </div>
+
+                {/* Resume pending invoices */}
+                {status.invoices.some((i) => !i.paid_tx) && (
+                  <div className="mt-8 space-y-1.5">
+                    <p className="text-[12px] font-medium text-ink-secondary">Resume a pending payment</p>
+                    {status.invoices
+                      .filter((i) => !i.paid_tx)
+                      .map((i) => {
+                        const c = status.chains.find((ch) => ch.id === i.chain);
+                        const isN = c?.symbol === "$NATION";
+                        const amt = isN && i.token_amount
+                          ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
+                          : (i.amount_micros / 1e6).toFixed(4);
+                        return (
+                          <button
+                            key={i.id}
+                            className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
+                            onClick={() => { setInvoice(i); setHash(""); }}
+                          >
+                            {amt} {c?.symbol ?? "?"} · expires {new Date(i.expires_at).toLocaleTimeString()}
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+
+                <p className="mt-8 text-center text-[11px] text-ink-secondary">
+                  Credits never expire by time — only when spent.
+                </p>
+              </>
+            )}
+
+            {/* Errors shown in page */}
+            {error && (
+              <p role="alert" className="mt-6 rounded-xl bg-danger/10 px-4 py-2 text-[13px] text-danger text-center">
+                {error}
+              </p>
+            )}
+            {busy && !invoice && (
+              <p role="status" className="mt-4 text-center text-[13px] text-ink-secondary">
+                Please wait…
+              </p>
+            )}
+          </main>
+
+          {/* Centered checkout modal */}
+          {invoice && (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+              onClick={(e) => {
+                if (e.target === e.currentTarget && !busy) {
+                  setInvoice(null);
+                  setHash("");
+                }
+              }}
+            >
+              <div
+                className="w-full max-w-md overflow-auto rounded-3xl bg-panel shadow-2xl"
+                style={{ maxHeight: "90dvh" }}
+              >
+                <div className="p-1">
+                  <CheckoutPanel
+                    invoice={invoice}
+                    status={status!}
+                    busy={busy}
+                    hash={hash}
+                    onHash={setHash}
+                    onPay={() => void pay()}
+                    onConfirm={() => void confirm()}
+                    onBack={() => { setInvoice(null); setHash(""); }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Top low-balance / unverified strip (not on /subscription) ───── */}
+      {status && !isSubscriptionPage && (
+        <NationCreditsStrip status={status} onOpen={openSheet} />
+      )}
+
+      {/* ── Bottom sheet (inline triggers, not on /subscription) ─────────── */}
+      {open && !isSubscriptionPage && (
         <div
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50"
           onClick={(e) => {
@@ -436,10 +897,9 @@ export function NationCredits() {
             </div>
 
             <div className="px-5 pb-8 pt-2">
-              {/* header */}
               <div className="mb-4 flex items-center justify-between gap-4">
                 <h2 id="nation-credit-title" className="text-xl font-semibold">
-                  {invoice ? "Complete payment" : "Add credit"}
+                  {invoice ? "Complete payment" : "Top up credits"}
                 </h2>
                 <button
                   ref={closeRef}
@@ -452,7 +912,6 @@ export function NationCredits() {
                 </button>
               </div>
 
-              {/* balance pill */}
               {status && (
                 <div className="mb-5 flex items-center gap-3 rounded-2xl bg-inset px-4 py-3">
                   <div className="flex-1">
@@ -470,7 +929,6 @@ export function NationCredits() {
               )}
 
               {!status ? null : !status.verified ? (
-                /* ── Verify step ─────────────────────────────────────── */
                 <div className="space-y-4">
                   <p className="text-[14px] text-ink-secondary">{status.starterMessage}</p>
                   <p className="text-[13px] text-ink-secondary">
@@ -488,7 +946,6 @@ export function NationCredits() {
               ) : !status.topUpEnabled ? (
                 <p className="text-center text-ink-secondary">Top up coming soon</p>
               ) : invoice ? (
-                /* ── Checkout step ───────────────────────────────────── */
                 <CheckoutPanel
                   invoice={invoice}
                   status={status}
@@ -497,71 +954,24 @@ export function NationCredits() {
                   onHash={setHash}
                   onPay={() => void pay()}
                   onConfirm={() => void confirm()}
-                  onBack={() => {
-                    setInvoice(null);
-                    setHash("");
-                  }}
+                  onBack={() => { setInvoice(null); setHash(""); }}
                 />
               ) : (
-                /* ── Plan picker step ────────────────────────────────── */
                 <div className="space-y-5">
-                  <p className="text-[13px] text-ink-secondary">
-                    Your credit never expires. You pay only when you choose to top up.
-                    No automatic or recurring charges.
-                  </p>
+                  <div>
+                    <p className="text-[14px] font-medium text-ink">
+                      Power your team with prepaid AI credits.
+                    </p>
+                    <p className="mt-1 text-[12px] text-ink-secondary">
+                      No subscriptions · no expiry · pay only when you choose to top up.
+                    </p>
+                  </div>
                   {status.exempt && (
                     <p className="text-[12px] text-ink-secondary">
                       Usage is not charged to this account. Test payments still credit the ledger if they complete.
                     </p>
                   )}
-
-                  {/* tier cards — clicking navigates to the subscription page */}
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {tiers.map((tier) => (
-                      <TierCard
-                        key={tier.id}
-                        tier={tier}
-                        onSelect={() => { window.location.href = "https://thenation.city/subscription"; }}
-                        disabled={busy}
-                      />
-                    ))}
-                  </div>
-
-                  {/* resume pending invoices (created before the subscription redirect) */}
-                  {status.invoices.some((i) => !i.paid_tx) && (
-                    <div className="space-y-1.5 pt-1">
-                      <p className="text-[12px] font-medium text-ink-secondary">
-                        Resume a pending payment
-                      </p>
-                      {status.invoices
-                        .filter((i) => !i.paid_tx)
-                        .map((i) => {
-                          const c = status.chains.find((ch) => ch.id === i.chain);
-                          const isN = c?.symbol === "$NATION";
-                          const amt =
-                            isN && i.token_amount
-                              ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
-                              : (i.amount_micros / 1e6).toFixed(4);
-                          return (
-                            <button
-                              key={i.id}
-                              className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
-                              onClick={() => {
-                                setInvoice(i);
-                                setHash("");
-                              }}
-                            >
-                              {amt} {c?.symbol ?? "?"} · expires{" "}
-                              {new Date(i.expires_at).toLocaleTimeString()}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  )}
-
-                  <p className="text-center text-[11px] text-ink-secondary">
-                    Credits never expire by time — only when spent.
-                  </p>
+                  {planPicker}
                 </div>
               )}
 
@@ -571,10 +981,7 @@ export function NationCredits() {
                 </p>
               )}
               {error && (
-                <p
-                  role="alert"
-                  className="mt-4 rounded-xl bg-danger/10 px-4 py-2 text-[13px] text-danger"
-                >
+                <p role="alert" className="mt-4 rounded-xl bg-danger/10 px-4 py-2 text-[13px] text-danger">
                   {error}
                 </p>
               )}
@@ -587,10 +994,9 @@ export function NationCredits() {
 }
 
 // ─── Settings row (exported for UsageSection) ─────────────────────────────────
-/** Settings → Usage row that lets the owner open the same bottom sheet as
- * members. Uses NationCreditsCtx provided by the parent NationCredits. */
+/** Settings → Usage row. "Top up" navigates to the /subscription Plans page. */
 export function NationCreditsSettingsRow() {
-  const { status, openSheet } = useNationCredits();
+  const { status, openSubscription } = useNationCredits();
   if (!status) return null;
   return (
     <SettingRow
@@ -602,7 +1008,7 @@ export function NationCreditsSettingsRow() {
       }
     >
       {status.topUpEnabled ? (
-        <button className="ui-button" onClick={openSheet}>
+        <button className="ui-button" onClick={openSubscription}>
           Top up
         </button>
       ) : (

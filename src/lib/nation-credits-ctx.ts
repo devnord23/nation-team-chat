@@ -21,7 +21,7 @@ export type CreditStatus = {
   nationPriceUsd: number | null;
   nationDiscount: number | null;
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string; decimals: number }>;
-  invoices: Array<{ id: string; chain: number; treasury: string; token: string; amount_micros: number; token_amount: string; expires_at: number; paid_tx: string | null }>;
+  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; expires_at: number; paid_tx: string | null }>;
 };
 
 export interface NationCreditsCtxValue {
@@ -29,6 +29,7 @@ export interface NationCreditsCtxValue {
   open: boolean;
   openSheet: () => void;
   closeSheet: () => void;
+  openSubscription: () => void;
 }
 
 export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
@@ -36,6 +37,7 @@ export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
   open: false,
   openSheet: () => {},
   closeSheet: () => {},
+  openSubscription: () => {},
 });
 
 export function useNationCredits() {

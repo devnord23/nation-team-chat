@@ -55,7 +55,7 @@ export function createNationCreditRoutes(): RouteHandler {
         verified: account.verified, exempt: account.exempt === true, lowBalance: !account.exempt && balanceUsd < ledger.settings.lowUsd,
         topUpEnabled: chains.length > 0, topUpMessage: chains.length ? "Top up" : "Top up coming soon", packs: ledger.settings.packs,
         tiers: ledger.settings.tiers, nationPriceUsd: nationPriceUsd || null, nationDiscount, chains,
-        starterMessage: grant.reason, invoices: ledger.db.prepare("SELECT id,chain,treasury,token,amount_micros,token_amount,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 5").all(account.id) });
+        starterMessage: grant.reason, invoices: ledger.db.prepare("SELECT id,chain,treasury,token,pack_micros,amount_micros,token_amount,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 5").all(account.id) });
     }
     if (path === "/api/credits/invoices" && method === "POST") {
       const input = invoiceSchema.parse(await readBody(req));
