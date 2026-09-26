@@ -77,7 +77,7 @@ export function RemoteDesktopPanel({ bot }: { bot: Bot }) {
     (run) => run.botId === bot.id && ["queued", "running", "waiting"].includes(run.status),
   );
   const cloudRoutineReady = Boolean(
-    state.config?.box.configured &&
+    state.config?.box?.configured &&
       state.instances.some(
         (instance) => instance.driverKind === "boxAgent" && instance.snapshot.state === "available",
       ),

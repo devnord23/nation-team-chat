@@ -200,6 +200,10 @@ run on a disposable VPS: what passed, what was corrected, and what it does not p
 The [Full Plans money-path record](full-plans-2026-09-26.md) is a dated fixture run of
 top-up: both tokens paid to the treasury, the $NATION discount, hash-paste and automatic crediting.
 
+The [launch blockers record](launch-blockers-2026-09-26.md) covers the desk inventories that
+showed a 502, what a member sees of desks, pending payment requests and the Free plan, and
+lists the $15 USDG smoke to run after the deploy.
+
 Keep the JSON from `wait` and `messages`, the exact command sequence, and the
 fixture's printed log path. Evidence must show both the action and the resulting
 state. A green unit test alone does not prove a user workflow.

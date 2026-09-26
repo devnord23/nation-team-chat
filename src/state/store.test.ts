@@ -1987,6 +1987,18 @@ describe("live config frames", () => {
     localVm: { mode: "shared", maxInstances: 1 },
   };
 
+  it("keeps the owner verdict when a config arrives without one", () => {
+    const base = configStatusFromFrame({} as never);
+    const owner = reducer({ ...initialState, config: { ...base, isProductOwner: true } }, { type: "configStatus", config: { ...base } });
+    expect(owner.config?.isProductOwner).toBe(true);
+    // an explicit verdict always wins, in either direction
+    expect(reducer(owner, { type: "configStatus", config: { ...base, isProductOwner: false } }).config?.isProductOwner).toBe(false);
+    const member = reducer({ ...initialState, config: { ...base, isProductOwner: false } }, { type: "configStatus", config: { ...base } });
+    expect(member.config?.isProductOwner).toBe(false);
+    // nothing to keep before the first verdict arrives
+    expect(reducer(initialState, { type: "configStatus", config: { ...base } }).config?.isProductOwner).toBeUndefined();
+  });
+
   it("preserves edition, budgets and billing through configStatusFromFrame", () => {
     const frame: ConfigStatusFrame = {
       ...baseFrame,

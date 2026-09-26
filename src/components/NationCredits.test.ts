@@ -20,8 +20,9 @@ vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 import {
   NationCredits, NationCreditsProvider, NationCreditsStrip, NationCreditsSettingsRow, FullPlansHeader, PackCard, PayWith,
   NATION_MARK_SRC, nationInvoiceDiscount, packPriceUsd, formatUsd,
-  CheckoutPanel, PendingInvoices, filterLivePendingInvoices, pendingInvoiceRows, invoiceRequest,
+  CheckoutPanel, PendingInvoices, filterLivePendingInvoices, pendingInvoiceRows, invoiceRequest, EXPIRED_ROW_MS,
   nationPayable, formatTokenUnits, fullPlansHref, isFullPlansPath, goToFullPlans, FULL_PLANS_HREF,
+  FreeCard, freePlanCurrent,
 } from "./NationCredits";
 import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier } from "@/lib/nation-credits-ctx";
 
@@ -242,6 +243,76 @@ describe("Full Plans page", () => {
     const html = renderToStaticMarkup(createElement(FullPlansHeader, { status: { ...liveStatus, nationPriceUsd: null } }));
     expect(html).toContain("Top up once with USDG on Robinhood Chain");
     expect(html).not.toContain("$NATION");
+  });
+});
+
+// ─── Free plan ─────────────────────────────────────────────────────────────────
+
+describe("Free plan card", () => {
+  const free: CreditStatus = { ...liveStatus, plan: "free", onFreePlan: true, starterCreditUsd: 3, starterGranted: true };
+  const render = (status: CreditStatus) => renderToStaticMarkup(createElement(FreeCard, { status }));
+
+  it("is the current plan for an account that has not paid: badge, $0, pitch, disabled CTA, honest checklist", () => {
+    const html = render(free);
+    expect(html).toMatch(element("h3", "Free"));
+    expect(html).toMatch(/<span class="[^"]*\bbg-nation\b[^"]*">Current plan<\/span>/);
+    expect(html).toContain(">$0<");
+    expect(html).toContain("Try Nation Team Chat with starter credit.");
+    expect(html).toMatch(/<button type="button" disabled=""[^>]*>.*Current plan<\/button>/);
+    for (const item of ["$3 starter credit", "Your own bots + team chat", "Paid credits never expire when you top up", "No subscription · pay only when you top up"]) {
+      expect(html).toContain(item);
+    }
+    // never sold, and independent of the Pay with toggle
+    expect(html).not.toMatch(/Pay |Save|\$NATION|USDG|one-time/);
+  });
+
+  it("quotes the starter grant the server reports, not a hard-coded amount", () => {
+    expect(render({ ...free, starterCreditUsd: 5 })).toContain("$5 starter credit");
+    expect(render({ ...free, starterCreditUsd: 2.5 })).toContain("$2.50 starter credit");
+    // an older server sends no amount: no number is invented
+    const unknown = render({ ...free, starterCreditUsd: undefined });
+    expect(unknown).toContain("Starter credit");
+    expect(unknown).not.toMatch(/\$\d+ starter credit/);
+  });
+
+  it("tells an account that has not received the credit why", () => {
+    expect(render({ ...free, verified: false, starterGranted: false })).toContain("Verify your email or wallet to receive it.");
+    expect(render({ ...free, starterGranted: false, starterMessage: "Starter credit is unavailable for this device or network." }))
+      .toContain("Starter credit is unavailable for this device or network.");
+    expect(render(free)).not.toContain("Verify your email");
+  });
+
+  it("is not current once a pack is paid, and still offers nothing to buy", () => {
+    const html = render({ ...free, plan: "paid", onFreePlan: false });
+    expect(html).not.toContain("Current plan");
+    expect(html).toMatch(/<button type="button" disabled=""[^>]*>Included<\/button>/);
+  });
+
+  it("owner/admin accounts are exempt: no badge", () => {
+    const html = render({ ...free, exempt: true, onFreePlan: false, starterGranted: false, starterMessage: "Owner/admin access" });
+    expect(html).not.toContain("Current plan");
+    expect(html).toMatch(/<button type="button" disabled=""[^>]*>Owner access<\/button>/);
+    expect(html).not.toContain("Owner/admin access");
+  });
+
+  it("works out the plan from an older server's status", () => {
+    expect(freePlanCurrent(liveStatus)).toBe(true);
+    expect(freePlanCurrent({ ...liveStatus, invoices: [{ ...makeInvoice(4663, usdgToken, true) }] })).toBe(false);
+    expect(freePlanCurrent({ ...liveStatus, exempt: true })).toBe(false);
+    expect(freePlanCurrent({ ...liveStatus, plan: "paid" })).toBe(false);
+    expect(freePlanCurrent({ ...liveStatus, onFreePlan: true, exempt: true })).toBe(false);
+  });
+
+  it("sits first in a four-column grid ahead of the three paid packs", () => {
+    vi.stubGlobal("window", { location: { pathname: "/subscription", search: "", assign: vi.fn() }, history: { length: 1 } });
+    const html = renderToStaticMarkup(createElement(
+      NationCreditsCtx.Provider,
+      { value: { status: free, refresh: vi.fn(), starterOpen: false, openStarter: vi.fn(), closeStarter: vi.fn(), openSubscription: vi.fn() } },
+      createElement(NationCredits),
+    ));
+    expect([...html.matchAll(/<h3\b[^>]*>([^<]+)<\/h3>/g)].map((m) => m[1])).toEqual(["Free", "Starter", "Builder", "Swarm"]);
+    expect(html).toMatch(/class="grid gap-5 sm:grid-cols-2 xl:grid-cols-4"/);
+    expect(html.match(/>Current plan</g)).toHaveLength(2);
   });
 });
 
@@ -647,5 +718,41 @@ describe("pendingInvoiceRows", () => {
 
   it("renders nothing when there is nothing to resume", () => {
     expect(renderToStaticMarkup(createElement(PendingInvoices, { rows: [], onResume: vi.fn(), disabled: false }))).toBe("");
+  });
+
+  it("never lists a Base (8453) row, even from a server that lists a Base chain entry", () => {
+    const baseListed = [...liveChains, { ...liveChains[0]!, id: 8453, name: "Base", symbol: "USDC", token: baseToken }];
+    const baseRow = { ...makeInvoice(8453, baseToken), amount_micros: 25_146_200, token_amount: "25146200" };
+    expect(pendingInvoiceRows([baseRow, usdgPending], baseListed).map((r) => r.invoice.id)).toEqual([usdgPending.id]);
+    // a live entry without a symbol would be the old "?" row
+    expect(pendingInvoiceRows([usdgPending], liveChains.map((c) => ({ ...c, symbol: "" })))).toEqual([]);
+  });
+
+  it("puts live requests first and renders an expired one as an inert, labelled row", () => {
+    const now = Date.now();
+    const expired = { ...usdgPending, id: "expired-row", expires_at: now - 60_000 };
+    const rows = pendingInvoiceRows([expired, nationPending], liveChains, now);
+    expect(rows.map((r) => [r.invoice.id, r.expired])).toEqual([[nationPending.id, false], ["expired-row", true]]);
+    const html = renderToStaticMarkup(createElement(PendingInvoices, { rows, onResume: vi.fn(), disabled: false }));
+    expect(html).toContain("Resume a pending payment");
+    // exactly one button: the live $NATION row; the expired USDG row is not clickable
+    expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html).toMatch(/<div data-expired=""[^>]*>.*15\.1235 USDG.*Expired<\/span><\/div>/);
+    expect(html).toContain("still credited once it is found on Robinhood Chain");
+  });
+
+  it("titles a list of only expired requests as recent, not resumable", () => {
+    const now = Date.now();
+    const rows = pendingInvoiceRows([{ ...usdgPending, expires_at: now - 1 }], liveChains, now);
+    const html = renderToStaticMarkup(createElement(PendingInvoices, { rows, onResume: vi.fn(), disabled: false }));
+    expect(html).toContain("Recent payment requests");
+    expect(html).not.toContain("Resume a pending payment");
+    expect(html).not.toContain("<button");
+  });
+
+  it("drops an expired request a day after it expired", () => {
+    const now = Date.now();
+    expect(pendingInvoiceRows([{ ...usdgPending, expires_at: now - EXPIRED_ROW_MS }], liveChains, now)).toEqual([]);
+    expect(pendingInvoiceRows([{ ...usdgPending, expires_at: now - EXPIRED_ROW_MS + 60_000 }], liveChains, now)).toHaveLength(1);
   });
 });

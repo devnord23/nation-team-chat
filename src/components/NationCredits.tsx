@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { ChevronLeft, CircleDollarSign } from "lucide-react";
+import { Check, ChevronLeft, CircleDollarSign } from "lucide-react";
 import type { EIP1193Provider, Hex } from "viem";
 import { api, useStore } from "@/state/store";
 import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier } from "@/lib/nation-credits-ctx";
@@ -103,6 +103,12 @@ export function invoiceAmount(invoice: Invoice, chain: Chain): string {
 }
 
 // ─── Orphan invoice guard (exported for unit tests) ───────────────────────────
+/** Top-ups are paid on Robinhood Chain only. A row on any other chain (Base 8453 from before
+ * the migration, or anything a misconfigured server might list) is never offered. */
+export const PAYMENT_CHAIN_ID = 4663;
+/** An expired request stays visible, labelled and inert, for a day, then drops off. */
+export const EXPIRED_ROW_MS = 24 * 60 * 60_000;
+
 /**
  * Return only pending invoices whose chain+token pair is still present in the
  * live `chains` list. Invoices on dropped chains (e.g. old Base invoices after
@@ -113,16 +119,18 @@ export function filterLivePendingInvoices(
   invoices: Invoice[],
   chains: Chain[],
 ): Invoice[] {
-  return invoices.filter((i) => !i.paid_tx && chainFor(i, chains) !== undefined);
+  return invoices.filter((i) => !i.paid_tx && i.chain === PAYMENT_CHAIN_ID && Boolean(chainFor(i, chains)?.symbol));
 }
 
 export type PendingRow = { invoice: Invoice; symbol: string; amount: string; expired: boolean };
 
-/** Pending payment requests worth offering to resume: unpaid, on a chain+token pair the
- * server still offers, and for an amount that is not zero at the precision shown. Anything
- * else is what used to render as "25.1462 ?" or "0.0000 $NATION". */
+/** Pending payment requests worth listing: unpaid, on a Robinhood Chain token the server still
+ * offers, and for an amount that is not zero at the precision shown. Anything else is what
+ * used to render as "25.1462 ?" or "0.0000 $NATION". Live requests come first; expired ones
+ * follow for a day so a late payer sees what happened, then drop off. */
 export function pendingInvoiceRows(invoices: Invoice[], chains: Chain[], now = Date.now()): PendingRow[] {
-  return filterLivePendingInvoices(invoices, chains).flatMap((invoice) => {
+  const rows = filterLivePendingInvoices(invoices, chains).flatMap((invoice) => {
+    if (invoice.expires_at <= now - EXPIRED_ROW_MS) return [];
     const chain = chainFor(invoice, chains)!;
     let amount: number;
     try {
@@ -138,6 +146,7 @@ export function pendingInvoiceRows(invoices: Invoice[], chains: Chain[], now = D
       expired: invoice.expires_at <= now,
     }];
   });
+  return [...rows.filter((row) => !row.expired), ...rows.filter((row) => row.expired)];
 }
 
 // ─── wallet helpers ───────────────────────────────────────────────────────────
@@ -299,6 +308,76 @@ export function PayWith({
   );
 }
 
+/** Whether the Free column is this account's plan. Owner/admin accounts are exempt and on no
+ * plan. A server from before plans existed sends no plan fields: free unless one of its
+ * recent payment requests was paid. */
+export function freePlanCurrent(
+  status: Pick<CreditStatus, "exempt" | "invoices" | "plan" | "onFreePlan">,
+): boolean {
+  if (status.exempt) return false;
+  if (typeof status.onFreePlan === "boolean") return status.onFreePlan;
+  if (status.plan) return status.plan === "free";
+  return !status.invoices.some((invoice) => invoice.paid_tx);
+}
+
+/** The Free column of Full Plans: what every account starts with. It is never sold, so its
+ * button only ever states the plan, and it ignores "Pay with". */
+export function FreeCard({
+  status,
+}: {
+  status: Pick<CreditStatus, "exempt" | "verified" | "invoices" | "plan" | "onFreePlan" | "starterCreditUsd" | "starterGranted" | "starterMessage">;
+}) {
+  const current = freePlanCurrent(status);
+  const starter = status.starterCreditUsd;
+  // Only what is true for this account: an unverified account has not received the credit yet.
+  const starterNote = status.exempt || status.starterGranted !== false
+    ? null
+    : status.verified ? status.starterMessage : "Verify your email or wallet to receive it.";
+  const features = [
+    starter != null && starter > 0 ? `${formatUsd(starter)} starter credit` : "Starter credit",
+    "Your own bots + team chat",
+    "Paid credits never expire when you top up",
+    "No subscription · pay only when you top up",
+  ];
+  return (
+    <article aria-label="Free plan" className="flex flex-col rounded-2xl border border-hairline bg-panel p-6">
+      <div className="flex min-h-[30px] items-start justify-between gap-3">
+        <h3 className="text-[22px] font-semibold text-ink">Free</h3>
+        {current && (
+          <span className="mt-0.5 whitespace-nowrap rounded-full bg-nation px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em]">
+            Current plan
+          </span>
+        )}
+      </div>
+      <p className="mt-4 flex items-baseline gap-2">
+        <span className="text-[44px] font-bold leading-none tracking-tight text-ink">$0</span>
+      </p>
+      <p className="mt-4 text-[15px] leading-relaxed text-ink-secondary">Try Nation Team Chat with starter credit.</p>
+      <button
+        type="button"
+        disabled
+        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-hairline px-4 py-3 text-[15px] font-semibold text-ink-secondary"
+      >
+        {current && <Check size={16} aria-hidden="true" className="text-nation-text" />}
+        {current ? "Current plan" : status.exempt ? "Owner access" : "Included"}
+      </button>
+      <ul className="mt-5 space-y-3 text-[14px] leading-snug text-ink">
+        {features.map((feature, index) => (
+          <li key={feature} className="flex gap-2.5">
+            <Check size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-nation-text" />
+            <span>
+              {feature}
+              {index === 0 && starterNote && (
+                <span className="mt-0.5 block text-[12.5px] text-ink-secondary">{starterNote}</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
+
 const PACK_BLURB: Record<string, string> = {
   starter: "Try your AI team on real work.",
   builder: "For everyday work across your team.",
@@ -399,11 +478,27 @@ export function PendingInvoices({
   disabled: boolean;
 }) {
   if (!rows.length) return null;
+  const anyLive = rows.some((row) => !row.expired);
+  const anyExpired = rows.some((row) => row.expired);
   return (
     <section className="mt-10">
-      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary">Resume a pending payment</h2>
+      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary">
+        {anyLive ? "Resume a pending payment" : "Recent payment requests"}
+      </h2>
       <div className="mt-3 divide-y divide-hairline/60 overflow-hidden rounded-2xl border border-hairline bg-panel">
-        {rows.map(({ invoice, symbol, amount, expired }) => (
+        {rows.map(({ invoice, symbol, amount, expired }) => expired ? (
+          // Inert on purpose: an expired request cannot be resumed.
+          <div
+            key={invoice.id}
+            data-expired=""
+            className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3 text-[14px] text-ink-secondary"
+          >
+            <span className="font-semibold line-through decoration-hairline">
+              {amount} {symbol}
+            </span>
+            <span className="rounded-full bg-raised px-2 py-0.5 text-[12px] font-medium text-ink-secondary">Expired</span>
+          </div>
+        ) : (
           <button
             key={invoice.id}
             type="button"
@@ -415,11 +510,17 @@ export function PendingInvoices({
               {amount} {symbol}
             </span>
             <span className="text-[13px] text-ink-secondary">
-              {expired ? "Expired" : `Expires ${new Date(invoice.expires_at).toLocaleTimeString()}`}
+              {`Expires ${new Date(invoice.expires_at).toLocaleTimeString()}`}
             </span>
           </button>
         ))}
       </div>
+      {anyExpired && (
+        <p className="mt-2 text-[12.5px] leading-5 text-ink-secondary">
+          Expired requests can't be resumed; choose a pack above for a new one. A payment already sent
+          for an expired request is still credited once it is found on Robinhood Chain.
+        </p>
+      )}
     </section>
   );
 }
@@ -873,7 +974,7 @@ export function NationCredits() {
       {/* ── Full Plans (/subscription) ───────────────────────────────────── */}
       {isPlansPage && (
         <div className="fixed inset-0 z-[90] overflow-auto bg-app">
-          <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-6 sm:px-8 sm:pt-8">
+          <main className="mx-auto w-full max-w-7xl px-5 pb-24 pt-6 sm:px-8 sm:pt-8">
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
@@ -943,7 +1044,8 @@ export function NationCredits() {
                     </p>
                   )}
                   <hr className="my-8 border-hairline/70" />
-                  <div className="grid gap-5 md:grid-cols-3">
+                  <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                    <FreeCard status={status} />
                     {tiers.map((tier) => (
                       <PackCard
                         key={tier.id}
@@ -960,7 +1062,7 @@ export function NationCredits() {
 
                   <PendingInvoices
                     rows={pendingInvoiceRows(status.invoices, status.chains)}
-                    onResume={(i) => { setInvoice(i); setHash(""); }}
+                    onResume={(i) => { if (i.expires_at > Date.now()) { setInvoice(i); setHash(""); } }}
                     disabled={busy}
                   />
 

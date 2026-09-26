@@ -3,7 +3,7 @@ import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
 import { PASS, type RouteHandler } from "./table.ts";
 import { creditAccount, nationLedger } from "../nation-credit-context.ts";
-import { creditChains, creditError, invoiceChain, USD_SCALE } from "../nation-credits.ts";
+import { creditChains, creditError, invoiceChain, USD_SCALE, type CreditLedger } from "../nation-credits.ts";
 import { chainClient, confirmCreditPayment } from "../nation-payments.ts";
 import { parseCookies } from "../request-auth.ts";
 
@@ -13,6 +13,19 @@ const challengeSchema = z.object({ address: z.string().regex(/^0x[0-9a-f]{40}$/i
 const signatureSchema = z.object({ challengeId: z.string().uuid(), signature: z.string().regex(/^0x[0-9a-f]+$/i).max(4096) }).strict();
 const reconcileSchema = z.object({ callId: z.string().uuid(), actualCostUsd: z.number().finite().nonnegative(), reason: z.string().trim().min(1).max(500) }).strict();
 const adjustSchema = z.object({ userId: z.string().max(256), amountUsd: z.number().finite(), reason: z.string().trim().min(1).max(500) }).strict();
+
+/** Free until the account has paid for a pack; the starter credit is what the ledger actually
+ * granted it, or the configured amount it would receive once verified. */
+export function creditPlan(db: CreditLedger["db"], userId: string, freeUsd: number): { plan: "free" | "paid"; starterCreditUsd: number; starterGranted: boolean } {
+  const paid = Boolean(db.prepare("SELECT 1 FROM credit_ledger WHERE user_id=? AND type='purchase' LIMIT 1").get(userId));
+  const granted = Number(db.prepare("SELECT COALESCE(SUM(amount_micros),0) AS n FROM credit_ledger WHERE user_id=? AND type='free'").get(userId)?.n ?? 0);
+  return { plan: paid ? "paid" : "free", starterCreditUsd: granted > 0 ? granted / USD_SCALE : freeUsd, starterGranted: granted > 0 };
+}
+
+/** Invoice rows whose chain id and token address are both still billed here. */
+export function liveInvoices<T extends Record<string, unknown>>(chains: ReadonlyArray<{ id: number; token: string }>, rows: T[]): T[] {
+  return rows.filter((row) => chains.some((chain) => chain.id === Number(row.chain) && chain.token.toLowerCase() === String(row.token).toLowerCase()));
+}
 
 export function createNationCreditRoutes(): RouteHandler {
   return async ({ req, res, path, method, auth, json, readBody }) => {
@@ -55,12 +68,20 @@ export function createNationCreditRoutes(): RouteHandler {
       const nationPriceUsd = Number(process.env.NATION_TOKEN_USD_PRICE ?? "");
       const nationPriced = Number.isFinite(nationPriceUsd) && nationPriceUsd > 0;
       const nationDiscount = nationPriced && ledger.settings.nationDiscount > 0 ? ledger.settings.nationDiscount : null;
+      // The plan is read from the ledger, not a subscription: an account is on the free plan
+      // until it has paid for a pack. Owner/admin accounts are exempt and on neither.
+      const plan = creditPlan(ledger.db, account.id, ledger.settings.freeUsd);
+      // Only requests on a chain+token this server still bills: an old Base row or a dropped
+      // token can be neither paid nor listed without guessing its symbol, and must not crowd
+      // the recent window out of the rows that can.
+      const invoices = liveInvoices(chains, ledger.db.prepare("SELECT id,chain,treasury,token,pack_micros,amount_micros,token_amount,discount_bps,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 20").all(account.id))
+        .slice(0, 5).map(row => ({ ...row, treasury: getAddress(String(row.treasury)) }));
       return json(res, 200, { balanceUsd, label: account.exempt ? "NATION API · owner/admin" : `$${balanceUsd.toFixed(2)} credit left`,
         verified: account.verified, exempt: account.exempt === true, lowBalance: !account.exempt && balanceUsd < ledger.settings.lowUsd,
         topUpEnabled: chains.length > 0, topUpMessage: chains.length ? "Top up" : "Top up coming soon", packs: ledger.settings.packs,
         tiers: ledger.settings.tiers, nationPriceUsd: nationPriced ? nationPriceUsd : null, nationDiscount, nationInvoiceDiscount: nationDiscount, chains,
-        starterMessage: grant.reason, invoices: ledger.db.prepare("SELECT id,chain,treasury,token,pack_micros,amount_micros,token_amount,discount_bps,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 5").all(account.id)
-          .map(row => ({ ...row, treasury: getAddress(String(row.treasury)) })) });
+        starterMessage: grant.reason, invoices, plan: plan.plan, onFreePlan: plan.plan === "free" && account.exempt !== true,
+        starterCreditUsd: plan.starterCreditUsd, starterGranted: plan.starterGranted });
     }
     if (path === "/api/credits/invoices" && method === "POST") {
       const input = invoiceSchema.parse(await readBody(req));

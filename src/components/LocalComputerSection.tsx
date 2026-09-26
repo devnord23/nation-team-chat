@@ -295,6 +295,33 @@ export function computerInventoryRequest(
   return [computerInventoryPaths[inventory], { signal }];
 }
 
+/** Read one desk inventory for Settings. The server answers these reads 200
+ * even when a provider is down, so a bare 5xx comes from a proxy in front of
+ * it that gave up, and a rejected fetch from a dropped connection. Neither is
+ * an error the owner can act on: both resolve to null ("desks unreachable")
+ * instead of surfacing the gateway's status code. */
+export async function fetchDeskInventory(
+  inventory: "cloud" | "vps",
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<Record<string, unknown> | null> {
+  let response: Response;
+  try {
+    response = await fetcher(...computerInventoryRequest(inventory, signal));
+  } catch (error) {
+    if (signal?.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+    return null;
+  }
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (response.status >= 500) return null;
+  if (!response.ok) {
+    throw new Error(typeof body.error === "string"
+      ? body.error
+      : t(inventory === "vps" ? "vm.err.vpsInventory" : "vm.err.cloudInventory", { code: response.status }));
+  }
+  return body;
+}
+
 function jsonPostRequest(rawUrl: string, body: unknown): ComputerApiRequest {
   const url = apiUrl(rawUrl);
   return [url, {
@@ -874,10 +901,14 @@ export function LocalComputerSection() {
   }, []);
 
   const refreshCloudInventory = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch(...computerInventoryRequest("cloud", signal));
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error ?? t("vm.err.cloudInventory", { code: response.status }));
-    const payload = body as CloudComputerInventoryPayload;
+    const body = await fetchDeskInventory("cloud", signal);
+    if (signal?.aborted) return;
+    if (body === null) {
+      setCloudUnavailableReason(t("vm.err.desksUnreachable"));
+      setCloudError(null);
+      return;
+    }
+    const payload = body as unknown as CloudComputerInventoryPayload;
     const reconciled = reconcileCloudInventoryPayload(
       payload,
       cloudInventoryRef.current,
@@ -896,10 +927,14 @@ export function LocalComputerSection() {
   }, []);
 
   const refreshVpsInventory = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch(...computerInventoryRequest("vps", signal));
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error ?? t("vm.err.vpsInventory", { code: response.status }));
-    const payload = body as VpsComputerInventoryPayload;
+    const body = await fetchDeskInventory("vps", signal);
+    if (signal?.aborted) return;
+    if (body === null) {
+      setVpsUnavailableReason(t("vm.err.desksUnreachable"));
+      setVpsError(null);
+      return;
+    }
+    const payload = body as unknown as VpsComputerInventoryPayload;
     setVpsInventory(Array.isArray(payload.instances) ? payload.instances : []);
     setVpsConfigured(payload.configured === true);
     setVpsSshAlias(typeof payload.sshAlias === "string" ? payload.sshAlias : null);

@@ -27,6 +27,13 @@ export type CreditStatus = {
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string; decimals: number }>;
   /** discount_bps: how much less this invoice asks in $NATION (2000 = 20%); the credit is unchanged. */
   invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; discount_bps?: number; expires_at: number; paid_tx: string | null }>;
+  /** Read from the ledger: "paid" once the account has paid for a pack. No subscription exists. */
+  plan?: "free" | "paid";
+  /** Free and not owner/admin: the Free card carries "Current plan". */
+  onFreePlan?: boolean;
+  /** The starter credit the ledger granted, or the configured amount a verified account receives. */
+  starterCreditUsd?: number;
+  starterGranted?: boolean;
 };
 
 export interface NationCreditsCtxValue {

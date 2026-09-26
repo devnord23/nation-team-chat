@@ -2487,6 +2487,22 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("keeps the owner verdict on every config it hands an admin: a save and its event", async () => {
+    // Without it the owner's client treats the session as unconfirmed and hides
+    // every admin-only Settings section (Local VM, Connections) until it refetches.
+    const stream = await openSse(`${BASE}/api/events`);
+    try {
+      const saved = await api("PUT", "/api/config", { profile: { name: "Verdict fixture" } });
+      expect(saved.status).toBe(200);
+      expect(saved.body.isProductOwner).toBe(true);
+      const frame = await stream.until((f) => f.kind === "config" && f.profile?.name === "Verdict fixture");
+      expect(frame.isProductOwner).toBe(true);
+    } finally {
+      await api("PUT", "/api/config", { profile: { name: "" } });
+      stream.close();
+    }
+  });
+
   it.each([
     ["bot", "key-write"], ["bot", "engine-exit"],
     ["profile", "key-write"], ["profile", "engine-exit"],
