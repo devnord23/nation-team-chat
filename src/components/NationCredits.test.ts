@@ -18,7 +18,8 @@ vi.mock("@/state/store", () => ({
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 
 import {
-  NationCredits, NationCreditsProvider, NationCreditsStrip, NationCreditsSettingsRow, FullPlansHero, TierCard, TokenToggle,
+  NationCredits, NationCreditsProvider, NationCreditsStrip, NationCreditsSettingsRow, FullPlansHeader, PackCard, PayWith,
+  NATION_MARK_SRC, nationInvoiceDiscount, packPriceUsd, formatUsd,
   CheckoutPanel, PendingInvoices, filterLivePendingInvoices, pendingInvoiceRows, invoiceRequest,
   nationPayable, formatTokenUnits, fullPlansHref, isFullPlansPath, goToFullPlans, FULL_PLANS_HREF,
 } from "./NationCredits";
@@ -140,7 +141,8 @@ describe("NationCreditsStrip", () => {
 
 const usdgToken = "0x5fc5360d0400a0fd4f2af552add042d716f1d168" as Hex;
 const nationToken = "0xc839a88a05b231515a82c71ee97b4f18973c1340" as Hex;
-const robinhoodTreasury = "0x1111111111111111111111111111111111111111" as Hex;
+// The founder's Robinhood treasury, checksummed as the server returns it.
+const robinhoodTreasury = "0x85E3C2D8f776d9D05b14E108F368070CbD8C1639" as Hex;
 const baseToken = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as Hex;
 
 // The live server lists $NATION first whenever NATION_TOKEN_USD_PRICE is set.
@@ -160,7 +162,7 @@ const tiers: CreditTier[] = [
 const liveStatus: CreditStatus = {
   balanceUsd: 5, label: "$5.00 credit left", verified: true, exempt: false, lowBalance: false,
   topUpEnabled: true, topUpMessage: "Top up", starterMessage: "Starter credit already received",
-  packs: [15, 49, 99], tiers, nationPriceUsd: 0.000286, nationDiscount: 0.2, chains: liveChains, invoices: [],
+  packs: [15, 49, 99], tiers, nationPriceUsd: 0.000286, nationDiscount: 0.2, nationInvoiceDiscount: 0.2, chains: liveChains, invoices: [],
 };
 
 // ─── Settings → Billing & Credits ─────────────────────────────────────────────
@@ -207,153 +209,166 @@ describe("Full Plans page", () => {
     vi.stubGlobal("window", { location: { pathname, search: "", assign: vi.fn() }, history: { length: 1 } });
     return renderToStaticMarkup(createElement(NationCredits));
   };
+  const headline = "Permanent credit for your whole AI team.";
 
-  it("renders the Full Plans banner on thenation.city/subscription, with no sheet", () => {
+  it("renders Full Plans on thenation.city/subscription, with no sheet", () => {
     const html = renderAt("/subscription");
     expect(html).toContain('id="full-plans-title"');
-    expect(html).toMatch(element("h1", "Full Plans"));
+    expect(html).toMatch(element("h1", headline));
+    expect(html).toContain(">Full Plans<");
     expect(html).not.toContain('role="dialog"');
     expect(html).not.toContain("Top up credits");
   });
 
-  it("renders the banner on the base-relative path too", () => {
-    expect(renderAt("/swarm/subscription/")).toMatch(element("h1", "Full Plans"));
+  it("renders it on the base-relative path too", () => {
+    expect(renderAt("/swarm/subscription/")).toMatch(element("h1", headline));
   });
 
   it("stays out of the chat shell elsewhere", () => {
     expect(renderAt("/swarm/")).not.toContain("Full Plans");
   });
 
-  it("hero carries the N mark and the permanent-credit pitch", () => {
-    const html = renderToStaticMarkup(createElement(FullPlansHero, { status: liveStatus }));
-    expect(html).toMatch(/<img[^>]*src="[^"]*nation-logo\.svg"/);
-    expect(html).toContain("Permanent credit");
-    expect(html).toContain("Never expires");
-    expect(html).toContain("Pay with USDG or $NATION");
+  it("header carries the NATION column mark, a short headline and the permanent-credit pitch", () => {
+    const html = renderToStaticMarkup(createElement(FullPlansHeader, { status: liveStatus }));
+    expect(NATION_MARK_SRC).toMatch(/nation-mark\.png$/);
+    expect(html).toMatch(/<img[^>]*src="[^"]*nation-mark\.png"/);
+    expect(html).toMatch(element("h1", headline));
+    expect(html).toContain("USDG or $NATION on Robinhood Chain");
+    expect(html).toContain("never expires");
+    expect(html).toContain("no subscription");
   });
 
-  it("hero offers only USDG when $NATION is not payable", () => {
-    const html = renderToStaticMarkup(createElement(FullPlansHero, { status: { ...liveStatus, nationPriceUsd: null } }));
-    expect(html).toContain("Pay with USDG");
+  it("header offers only USDG when $NATION is not payable", () => {
+    const html = renderToStaticMarkup(createElement(FullPlansHeader, { status: { ...liveStatus, nationPriceUsd: null } }));
+    expect(html).toContain("Top up once with USDG on Robinhood Chain");
     expect(html).not.toContain("$NATION");
   });
 });
 
-// ─── TierCard ──────────────────────────────────────────────────────────────────
+// ─── Pricing helpers ───────────────────────────────────────────────────────────
 
-const tier: CreditTier = { id: "builder", name: "Builder", usd: 49, creditUsd: 49, popular: true };
+describe("$NATION discount the page may advertise", () => {
+  it("comes only from nationInvoiceDiscount, which only a discounting server sends", () => {
+    expect(nationInvoiceDiscount(liveStatus)).toBe(0.2);
+    // An older server sends nationDiscount but bills $NATION in full: no saving to show.
+    expect(nationInvoiceDiscount({ ...liveStatus, nationInvoiceDiscount: undefined })).toBe(0);
+    expect(nationInvoiceDiscount({ ...liveStatus, nationInvoiceDiscount: null })).toBe(0);
+    for (const bad of [0, 1, 1.5, -0.2]) expect(nationInvoiceDiscount({ ...liveStatus, nationInvoiceDiscount: bad })).toBe(0);
+    expect(nationInvoiceDiscount(null)).toBe(0);
+  });
 
-describe("TierCard", () => {
-  const baseProps = {
-    tier,
-    selected: false,
-    payWithNation: false,
-    nationPriceUsd: null,
-    nonNationSymbol: "USDG",
-    onSelect: vi.fn(),
-    disabled: false,
+  it("prices packs the way the server bills them, to the cent", () => {
+    expect([15, 49, 99].map((usd) => packPriceUsd(usd, 0.2))).toEqual([12, 39.2, 79.2]);
+    expect(packPriceUsd(49, 0)).toBe(49);
+    expect([12, 39.2, 79.2, 49].map(formatUsd)).toEqual(["$12", "$39.20", "$79.20", "$49"]);
+  });
+});
+
+// ─── PackCard ──────────────────────────────────────────────────────────────────
+
+const builder: CreditTier = { id: "builder", name: "Builder", usd: 49, creditUsd: 49, popular: true };
+const starter: CreditTier = { id: "starter", name: "Starter", usd: 15, creditUsd: 15, popular: false };
+
+describe("PackCard", () => {
+  const usdgProps = {
+    tier: builder, payWithNation: false, nationPriceUsd: 0.000286, nationDiscount: 0.2,
+    stableSymbol: "USDG", busy: false, onSelect: vi.fn(),
   };
+  const nationProps = { ...usdgProps, payWithNation: true };
+  /** The $NATION amount a card quotes, as a number. */
+  const quoted = (html: string) => Number(/≈ ([\d,.]+) \$NATION/.exec(html)?.[1]?.replace(/,/g, ""));
 
-  it("renders USDG CTA label — not USDC", () => {
-    const html = renderToStaticMarkup(createElement(TierCard, baseProps));
-    expect(html).toContain("Pay with USDG");
+  it("with USDG: the pack price, no strikethrough, no discount", () => {
+    const html = renderToStaticMarkup(createElement(PackCard, usdgProps));
+    expect(html).toContain(">$49<");
+    expect(html).toContain("Pay $49 with USDG");
+    expect(html).not.toContain("$NATION");
+    expect(html).not.toContain("Save");
+    expect(html).not.toContain("<s>");
     expect(html).not.toContain("USDC");
   });
 
-  it("does not contain window.location.href redirect", () => {
-    const html = renderToStaticMarkup(createElement(TierCard, baseProps));
-    expect(html).not.toContain("window.location.href");
-    expect(html).not.toContain("thenation.city/subscription");
+  it("with $NATION: the discounted price, 'instead of $49 USDG' struck through, Save 20% and the matching CTA", () => {
+    const html = renderToStaticMarkup(createElement(PackCard, nationProps));
+    expect(html).toContain(">$39.20<");
+    expect(html).toContain("instead of <s>$49 USDG</s>");
+    expect(html).toContain("Save 20%");
+    expect(html).toContain("Pay $39.20 worth of $NATION · Save 20%");
+    expect(quoted(html)).toBeCloseTo(39.2 / 0.000286, 1);
   });
 
-  it("renders pack price and name prominently", () => {
-    const html = renderToStaticMarkup(createElement(TierCard, baseProps));
-    expect(html).toContain("$49");
-    expect(html).toContain("Builder");
-    expect(html).toContain("49 permanent credit");
+  it("$NATION amount is 20% cheaper exactly when the badge shows", () => {
+    const discounted = renderToStaticMarkup(createElement(PackCard, nationProps));
+    const full = renderToStaticMarkup(createElement(PackCard, { ...nationProps, nationDiscount: 0 }));
+    expect(discounted).toContain("Save 20%");
+    expect(full).not.toContain("Save");
+    expect(full).toContain("Pay $49 worth of $NATION<");
+    expect(quoted(discounted) / quoted(full)).toBeCloseTo(0.8, 4);
+    expect(quoted(full)).toBeCloseTo(49 / 0.000286, 1);
   });
 
-  it("shows Most popular badge on popular tier", () => {
-    const html = renderToStaticMarkup(createElement(TierCard, baseProps));
+  it("marks Builder as most popular with the brand CTA, and names the pack in the button", () => {
+    const html = renderToStaticMarkup(createElement(PackCard, nationProps));
     expect(html).toContain("Most popular");
-  });
-
-  it("prices the pack in $NATION when paying with $NATION", () => {
-    const html = renderToStaticMarkup(
-      createElement(TierCard, { ...baseProps, payWithNation: true, nationPriceUsd: 0.5 }),
-    );
-    expect(html).toContain("$49");
-    expect(html).toContain("≈ 98 $NATION");
-    expect(html).toContain("Pay with $NATION");
-    expect(html).not.toContain("USDG");
-  });
-
-  it("formats large $NATION amounts at the live price", () => {
-    const html = renderToStaticMarkup(
-      createElement(TierCard, { ...baseProps, payWithNation: true, nationPriceUsd: 0.000286 }),
-    );
-    expect(html).toContain("≈ 171,328.67 $NATION");
-  });
-
-  it("shows only the chosen currency: USDG when not paying with $NATION, even if it is priced", () => {
-    const html = renderToStaticMarkup(
-      createElement(TierCard, { ...baseProps, payWithNation: false, nationPriceUsd: 0.5 }),
-    );
-    expect(html).toContain("49 USDG");
-    expect(html).not.toContain("$NATION");
+    expect(html).toMatch(/<button[^>]*aria-label="Builder: Pay \$39\.20 worth of \$NATION · Save 20%"[^>]*class="[^"]*\bbg-nation\b/);
+    const plain = renderToStaticMarkup(createElement(PackCard, { ...usdgProps, tier: starter }));
+    expect(plain).not.toContain("Most popular");
+    expect(plain).toMatch(/<button[^>]*aria-label="Starter: Pay \$15 with USDG"[^>]*class="[^"]*\bbg-ink\b/);
+    expect(plain).toContain(">Permanent credit<");
+    expect(plain).toContain(">$15<");
+    expect(plain).toContain(">Never<");
   });
 
   it("falls back to the stablecoin when $NATION is not priced", () => {
-    const html = renderToStaticMarkup(
-      createElement(TierCard, { ...baseProps, payWithNation: true, nationPriceUsd: null }),
-    );
-    expect(html).toContain("Pay with USDG");
+    const html = renderToStaticMarkup(createElement(PackCard, { ...nationProps, nationPriceUsd: null }));
+    expect(html).toContain("Pay $49 with USDG");
     expect(html).not.toContain("$NATION");
+  });
+
+  it("does not redirect anywhere on its own", () => {
+    const html = renderToStaticMarkup(createElement(PackCard, usdgProps));
+    expect(html).not.toContain("window.location.href");
+    expect(html).not.toContain("thenation.city/subscription");
   });
 });
 
-// ─── Pay with (TokenToggle) ────────────────────────────────────────────────────
+// ─── Pay with ──────────────────────────────────────────────────────────────────
 
-describe("TokenToggle", () => {
-  const props = { payWithNation: false, hasNation: true, nonNationSymbol: "USDG", nationDiscount: 0.2, onChange: vi.fn() };
+describe("PayWith", () => {
+  const props = { payWithNation: false, hasNation: true, stableSymbol: "USDG", nationDiscount: 0.2, onChange: vi.fn() };
   const checkedValue = (html: string) =>
     [...html.matchAll(/<input\b[^>]*>/g)].map(([tag]) => tag).filter((tag) => /\bchecked=""/.test(tag))
       .map((tag) => /value="([^"]*)"/.exec(tag)?.[1]);
 
-  it("is hidden when hasNation=false (only one payable symbol — live Robinhood USDG config)", () => {
-    const html = renderToStaticMarkup(
-      createElement(TokenToggle, { ...props, hasNation: false, nationDiscount: null }),
-    );
-    expect(html).toBe("");
+  it("offers only USDG when $NATION is not payable (toggle gating)", () => {
+    const html = renderToStaticMarkup(createElement(PayWith, { ...props, hasNation: false, nationDiscount: 0 }));
+    expect(html).toContain("Pay with");
+    expect(html).toContain("USDG");
+    expect(html).not.toContain("$NATION");
+    expect(html).not.toContain('type="radio"');
   });
 
-  it("is a large, labelled radio choice with USDG selected by default", () => {
-    const html = renderToStaticMarkup(createElement(TokenToggle, props));
-    expect(html).toMatch(element("legend", "Pay with"));
+  it("is a labelled pill choice with USDG selected by default", () => {
+    const html = renderToStaticMarkup(createElement(PayWith, props));
+    expect(html).toMatch(/role="radiogroup" aria-labelledby="[^"]+"/);
     expect(html.match(/type="radio"/g)).toHaveLength(2);
     expect(checkedValue(html)).toEqual(["USDG"]);
-    expect(html).toContain("Paying with <strong>USDG</strong>");
-    expect(html).not.toContain(">USDC<");
+    expect(html).toContain("$NATION saves about 20%.");
+    expect(html).toContain("Same packs, lower price.");
   });
 
-  it("marks $NATION as the one selected option when chosen", () => {
-    const html = renderToStaticMarkup(createElement(TokenToggle, { ...props, payWithNation: true }));
+  it("marks $NATION as the one selected pill when chosen", () => {
+    const html = renderToStaticMarkup(createElement(PayWith, { ...props, payWithNation: true }));
     expect(checkedValue(html)).toEqual(["NATION"]);
-    expect(html).toContain("Paying with <strong>$NATION</strong>");
-    // The selected option is a filled accent surface; the other stays a plain panel.
-    const labels = [...html.matchAll(/<label\b[^>]*class="([^"]*)"/g)].map(([, cls]) => cls);
-    expect(labels.filter((cls) => /\bbg-accent\b/.test(cls))).toHaveLength(1);
-    expect(labels[1]).toMatch(/\bbg-accent\b/);
+    const pills = [...html.matchAll(/<label\b[^>]*class="([^"]*)"/g)].map(([, cls]) => cls);
+    expect(pills.filter((cls) => /\bshadow-sm\b/.test(cls))).toHaveLength(1);
+    expect(pills[0]).toMatch(/\bshadow-sm\b/); // $NATION is the first pill
   });
 
-  it("shows discount percentage from nationDiscount prop", () => {
-    const html = renderToStaticMarkup(createElement(TokenToggle, { ...props, nationDiscount: 0.25 }));
-    expect(html).toContain("Save ~25%");
-  });
-
-  it("does not invent a discount the server did not send", () => {
-    const html = renderToStaticMarkup(createElement(TokenToggle, { ...props, nationDiscount: null }));
-    expect(html).not.toContain("Save ~");
+  it("never claims a saving the server does not apply", () => {
+    const html = renderToStaticMarkup(createElement(PayWith, { ...props, nationDiscount: 0 }));
+    expect(html).toContain("$NATION");
+    expect(html).not.toContain("saves");
   });
 });
 
@@ -437,12 +452,33 @@ describe("CheckoutPanel", () => {
     expect(html).toContain("49.012345");
   });
 
-  it("shows order summary (tier, credit, network) and the exact amount to send", () => {
+  it("shows the pack, the exact amount to send and the credit it buys", () => {
     const html = renderToStaticMarkup(createElement(CheckoutPanel, baseProps));
     expect(html).toContain("Builder pack");
-    expect(html).toContain("$49 permanent credit");
     expect(html).toContain("49.012345 USDG");
+    expect(html).toContain("You receive $49.01 of permanent credit.");
     expect(html).toContain("Robinhood Chain");
+    expect(html).not.toContain("Save");
+  });
+
+  it("sends both tokens to the same NATION treasury, with the exact amount for each", () => {
+    const usdg = { ...usdgInvoice, token: usdgToken, treasury: robinhoodTreasury, token_amount: "49012345", discount_bps: 0 };
+    const nation = { ...usdgInvoice, token: nationToken, treasury: robinhoodTreasury, token_amount: "137096744755244755244755", discount_bps: 2000 };
+    for (const [invoice, exact] of [[usdg, "49.012345 USDG"], [nation, "137096.744755244755244755 $NATION"]] as const) {
+      const html = renderToStaticMarkup(createElement(CheckoutPanel, { ...baseProps, invoice, status: liveStatus }));
+      expect(html).toContain("To the NATION treasury on Robinhood Chain");
+      expect(html).toContain(`>${robinhoodTreasury}</code>`);
+      expect(html).toContain(exact);
+    }
+  });
+
+  it("says a $NATION request is 20% off only when the invoice itself was discounted", () => {
+    const discounted = { ...usdgInvoice, token: nationToken, treasury: robinhoodTreasury, token_amount: "137096744755244755244755", discount_bps: 2000 };
+    expect(renderToStaticMarkup(createElement(CheckoutPanel, { ...baseProps, invoice: discounted, status: liveStatus })))
+      .toContain("Save 20% with $NATION.");
+    const fullPrice = { ...discounted, discount_bps: 0 };
+    expect(renderToStaticMarkup(createElement(CheckoutPanel, { ...baseProps, invoice: fullPrice, status: liveStatus })))
+      .not.toContain("Save");
   });
 
   it("asks for the exact $NATION amount the payment check expects", () => {

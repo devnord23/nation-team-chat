@@ -121,6 +121,12 @@
   --color-success: #38d591;
   --color-danger: #ff5667;
   --color-warning: #ff9800;
+  /* NATION brand: the column mark's lime and its near-black ground. The
+     brand as text or an edge sits on the app ground, so light skins darken
+     --color-nation-text; the lime fill itself carries --color-nation-ink. */
+  --color-nation: #cdffa6;
+  --color-nation-ink: #020c01;
+  --color-nation-text: #cdffa6;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", system-ui, sans-serif;
@@ -199,6 +205,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="atelier"] {
   --code-color-scheme: light;
+  --color-nation-text: #2f6b12;
   --color-app: #f5f1eb;           /* outermost ground */
   --color-panel: #fbf8f2;         /* sidebar */
   --color-raised: #ffffff;        /* content — raised means lighter here */
@@ -313,6 +320,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="lagoon"] {
   --code-color-scheme: light;
+  --color-nation-text: #2f6b12;
   /* The tint is the point, so it is carried by the surfaces, not by a button:
      the ground sits 13 points of green-blue above its red channel, roughly
      three times Atelier's cream cast, which is what makes the skin read as
@@ -412,6 +420,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="linen"] {
   --code-color-scheme: light;
+  --color-nation-text: #2f6b12;
   --color-app: #eceff3;
   --color-panel: #f5f6f8;
   --color-raised: #ffffff;
@@ -505,6 +514,7 @@
    ───────────────────────────────────────────────────────────────────────── */
 [data-skin="daylight"] {
   --code-color-scheme: light;
+  --color-nation-text: #2f6b12;
   --color-app: #fcfcfc;           /* the thread */
   --color-panel: #f7f7f7;         /* sidebar, one step down from the thread */
   --color-raised: #e1e1e1;
@@ -1321,6 +1331,9 @@ body {
 }
 .bg-success {
   color: var(--color-success-ink);
+}
+.bg-nation {
+  color: var(--color-nation-ink);
 }
 /* Same mechanism, one skin deeper: Daylight paints the user's own bubble in
    near-black on a near-white page, and the `text-ink` the composer and the

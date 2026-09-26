@@ -104,6 +104,12 @@ const PAIRS = [
   ["--color-danger", "--color-card", 4.5],
   ["--color-success", "--color-card", 4.5],
   ["--color-warning", "--color-card", 4.5],
+  // NATION brand on Full Plans: ink on the lime fill (popular pack CTA), and
+  // the brand as text ("Most popular", "Save 20%") on the page surfaces.
+  ["--color-nation-ink", "--color-nation", 4.5],
+  ["--color-nation-text", "--color-app", 4.5],
+  ["--color-nation-text", "--color-panel", 4.5],
+  ["--color-nation-text", "--color-inset", 4.5],
   // borders and dots are UI components, not text — AA asks 3:1 of them
   ["--color-hairline", "--color-app", 1.5],
   ["--color-accent", "--color-app", 3],
