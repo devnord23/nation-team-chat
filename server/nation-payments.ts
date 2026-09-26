@@ -162,6 +162,12 @@ async function scanToken(ledger: CreditLedger, chain: CreditChain, now: number, 
 }
 
 /** Persisted scan cursors + retained invoices also recover matching late transfers after a restart. */
+/** Seconds between payment scans: NATION_CREDIT_SCAN_SECONDS, 5 to 300, default 30. */
+export function creditScanIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+  const seconds = Number(env.NATION_CREDIT_SCAN_SECONDS);
+  return (Number.isInteger(seconds) && seconds >= 5 && seconds <= 300 ? seconds : 30) * 1000;
+}
+
 export function startCreditWatcher(ledger: CreditLedger): () => void {
   let running = false, stopped = false;
   const tick = async () => {
@@ -172,7 +178,7 @@ export function startCreditWatcher(ledger: CreditLedger): () => void {
     catch (error) { console.error(`NATION payment scan stopped: ${scanErrorText(error)}. Retained invoices will be retried.`); }
     finally { running = false; }
   };
-  const timer = setInterval(() => { void tick(); }, 30_000); timer.unref();
+  const timer = setInterval(() => { void tick(); }, creditScanIntervalMs()); timer.unref();
   void tick();
   return () => { stopped = true; clearInterval(timer); };
 }

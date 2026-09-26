@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { encodeEventTopics, encodeAbiParameters, pad, parseAbiItem, toHex, type Hex } from "viem";
 import { CreditLedger, creditSettings, creditChains, invoiceChain, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
-import { LATE_PAYMENT_WINDOW_MS, SCAN_CHUNK_BLOCKS, confirmCreditPayment, scanCreditPayments, scanErrorText, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
+import { LATE_PAYMENT_WINDOW_MS, SCAN_CHUNK_BLOCKS, confirmCreditPayment, creditScanIntervalMs, scanCreditPayments, scanErrorText, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
 import { creditPlan, liveInvoices } from "./routes/nation-credits.ts";
 
 const ledgers: CreditLedger[] = [], roots: string[] = [];
@@ -555,5 +555,13 @@ describe("payment scan error text", () => {
     expect(scanErrorText(viemLike)).toBe("HTTP request failed.");
     expect(scanErrorText(new Error("fetch https://user:pass@rpc.example/key123 failed"))).toBe("fetch <rpc> failed");
     expect(scanErrorText("plain")).toBe("plain");
+  });
+});
+
+describe("payment scan interval", () => {
+  it("is 30 s unless NATION_CREDIT_SCAN_SECONDS sets a whole number from 5 to 300", () => {
+    expect(creditScanIntervalMs({})).toBe(30_000);
+    expect(creditScanIntervalMs({ NATION_CREDIT_SCAN_SECONDS: "5" })).toBe(5_000);
+    for (const value of ["1", "0", "301", "2.5", "soon"]) expect(creditScanIntervalMs({ NATION_CREDIT_SCAN_SECONDS: value })).toBe(30_000);
   });
 });

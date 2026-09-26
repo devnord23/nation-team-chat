@@ -9,6 +9,7 @@ import { teamMapFor } from "./team-map-view.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
 import { createNationWalletRoutes } from "./routes/nation-wallet.ts";
+import { createWorkspacePreferencesRoutes } from "./routes/workspace-preferences.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 import { publicResponse } from "./public-response.ts";
@@ -11534,6 +11535,9 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
   // source objects.
   return {
     isProductOwner: false,
+    // A workspace of one's own: its account may save its preferences
+    // (server/routes/workspace-preferences.ts). False on a shared desk.
+    personalWorkspace: WORKSPACE_CHILD,
     adminGate: status.adminGate,
     profile: { name: status.profile.name, email: "" },
     language: status.language,
@@ -11858,6 +11862,17 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 
 // Before the credit routes, which answer every other /api/credits path.
 ROUTES.push(createNationWalletRoutes());
+// A workspace's own first-run progress, language and display name.
+ROUTES.push(createWorkspacePreferencesRoutes({
+  personalWorkspace: WORKSPACE_CHILD,
+  save: (patch, admin) => {
+    saveConfig(patch);
+    Object.assign(cfg, loadConfig());
+    const status = configStatus();
+    broadcast({ kind: "config", ...status });
+    return configForAccess(status, admin);
+  },
+}));
 ROUTES.push(createNationCreditRoutes());
 // No payments are enabled without a configured treasury. Scans only read chain data.
 // Workspace servers share this ledger file; only the public server scans (NATION_CREDIT_WATCHER=0 there).

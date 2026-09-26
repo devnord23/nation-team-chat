@@ -12,6 +12,7 @@ import { anchorFor, nextSpotlight, placementFor, tourComplete, type ChatObservat
 import { t } from "@/lib/i18n";
 import type { NationState } from "@/lib/mascot";
 import { api, useStore, useStreaming } from "@/state/store";
+import { preferencesRoute } from "@/lib/preferences";
 import { Spotlight } from "./Spotlight";
 
 const COPY: Record<SpotlightId, { key: "onboarding.spot.composer" | "onboarding.spot.model" | "onboarding.spot.approval" | "onboarding.spot.connector"; mascot: NationState }> = {
@@ -75,11 +76,12 @@ export function FirstConversationTour() {
     setDismissed((previous) => [...previous, id]);
     setActive(null);
     const patch = hintSeenPatch(record, id);
-    if (!patch) return;
-    void api("/api/config", { method: "PUT", body: JSON.stringify(patch) })
+    const route = preferencesRoute(state.config);
+    if (!patch || !route) return;
+    void api(route.path, { method: route.method, body: JSON.stringify(patch) })
       .then((config) => dispatch({ type: "configStatus", config }))
       .catch(() => {});
-  }, [active, record, dispatch]);
+  }, [active, record, dispatch, state.config]);
 
   if (!eligible || !active || !bot) return null;
   const copy = COPY[active];

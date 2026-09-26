@@ -5,7 +5,10 @@
 //     neither sees the founder's desk; the founder still signs in to the desk;
 //   - a new account is on the free plan with its starter credit, and its
 //     Starter invoice pays the founder treasury on Robinhood Chain from the
-//     one shared ledger;
+//     one shared ledger, here from its own passkey-held NATION wallet, and
+//     the public server's payment scan credits it;
+//   - the account saves its own welcome-tour progress, and nothing else of
+//     the workspace's configuration;
 //   - an account cookie never falls through to the desk: a stale one, a
 //     cross-site one and forged owner headers are all refused.
 // Every external service is an owned loopback stand-in.
@@ -16,6 +19,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import { launchVerificationServer } from "../scripts/control-omb.ts";
+import { startFakeRobinhoodChain } from "./testing/fake-robinhood-chain.ts";
+import { startFakeTurnkey } from "./testing/fake-turnkey.ts";
 
 const FOUNDER = "founder@example.test";
 const ALICE = "alice@example.test";
@@ -23,6 +28,13 @@ const BOB = "bob@example.test";
 const TREASURY = "0x85E3C2D8f776d9D05b14E108F368070CbD8C1639";
 const USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
 const accountId = (email: string) => "email:" + createHash("sha256").update(email).digest("hex");
+const CREDENTIAL = "fixture-passkey-" + "A".repeat(32);
+const ATTESTATION = { challenge: "Y2hhbGxlbmdlLWNoYWxsZW5nZQ", attestation: { credentialId: CREDENTIAL, clientDataJson: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0", attestationObject: "o2NmbXRkbm9uZWdhdHRTdG10oA", transports: ["AUTHENTICATOR_TRANSPORT_INTERNAL"] } };
+/** What the browser's passkey returns for a wallet request body. */
+const passkeyStamp = (body: string) => JSON.stringify({
+  authenticatorData: "AAAA", credentialId: CREDENTIAL, signature: "BBBB",
+  clientDataJson: Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: Buffer.from(createHash("sha256").update(body).digest("hex"), "utf8").toString("base64url"), origin: "https://thenation.city" })).toString("base64url"),
+});
 
 type Reply = { status: number; body: any; text: string };
 
@@ -68,24 +80,15 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     }
     res.writeHead(404, { "content-type": "application/json" }); res.end("{}");
   });
-  // Robinhood Chain (4663) stand-in: enough for an invoice and an empty scan.
-  const chain = createServer(async (req, res) => {
-    let raw = ""; for await (const chunk of req) raw += chunk;
-    const answer = (call: { id: unknown; method: string }) => ({
-      jsonrpc: "2.0", id: call.id,
-      ...(call.method === "eth_chainId" ? { result: "0x1237" }
-        : call.method === "eth_blockNumber" ? { result: "0x100" }
-        : call.method === "eth_getLogs" ? { result: [] }
-        : { error: { code: -32601, message: "unsupported" } }),
-    });
-    const body = JSON.parse(raw);
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify(Array.isArray(body) ? body.map(answer) : answer(body)));
-  });
-  await Promise.all([provider, chain].map((server) => new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))));
-  const origin = (server: typeof provider) => `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+  const chain = await startFakeRobinhoodChain();
+  const turnkey = await startFakeTurnkey();
   const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, [], undefined,
-    origin(provider), undefined, undefined, undefined, { founderEmails: [FOUNDER], payments: { rpc: origin(chain), treasury: TREASURY } });
+    `http://127.0.0.1:${(provider.address() as { port: number }).port}`, undefined, undefined, undefined, {
+      founderEmails: [FOUNDER],
+      payments: { rpc: chain.url, treasury: TREASURY, confirmations: 1, scanSeconds: 5 },
+      turnkey: { url: turnkey.url, organizationId: turnkey.organizationId, apiPublicKey: turnkey.apiPublicKey, apiPrivateKey: turnkey.apiPrivateKey },
+    });
   const base = fixture.info.url;
   const outbox = join(fixture.info.dataDir, "mail-outbox");
   const linkFor = (email: string): string => {
@@ -115,10 +118,12 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
 
   try {
     // The founder's desk already has teammates and history.
-    const echo = (await owner("/api/bots", "POST", { name: "Echo" })).bot;
-    await owner("/api/bots", "POST", { name: "Pebble" });
-    const founderNames = (await owner("/api/bots")).bots.map((bot: any) => bot.name);
-    expect(founderNames).toEqual(expect.arrayContaining(["Echo", "Pebble"]));
+    // Names no starter teammate can be given (server/names.ts picks from a pool).
+    const echo = (await owner("/api/bots", "POST", { name: "Desk Echo" })).bot;
+    await owner("/api/bots", "POST", { name: "Desk Pebble" });
+    const founderBots = (await owner("/api/bots")).bots as Array<{ id: string; name: string; threadId: string }>;
+    expect(founderBots.map((bot) => bot.name)).toEqual(expect.arrayContaining(["Desk Echo", "Desk Pebble"]));
+    const founderIds = new Set(founderBots.flatMap((bot) => [bot.id, bot.threadId]));
 
     // The environment tells the app to show email sign-in.
     const environment = await (await fetch(`${base}/.well-known/nationteamchat/environment`)).json() as any;
@@ -135,8 +140,11 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     expect(aliceSession).toMatchObject({ kind: "session", scopes: ["client"], email: ALICE });
     const aliceBots = await alice.request("/api/bots");
     expect(aliceBots.status, aliceBots.text).toBe(200);
-    expect(aliceBots.body.bots.map((bot: any) => bot.name)).not.toEqual(expect.arrayContaining(["Echo"]));
-    expect(aliceBots.body.bots.map((bot: any) => bot.name)).not.toContain("Pebble");
+    const aliceNames = aliceBots.body.bots.map((bot: any) => bot.name);
+    expect(aliceNames).not.toContain("Desk Echo");
+    expect(aliceNames).not.toContain("Desk Pebble");
+    // Not one teammate or conversation id in common with the desk.
+    expect(aliceBots.body.bots.flatMap((bot: any) => [bot.id, bot.threadId]).filter((id: string) => founderIds.has(id))).toEqual([]);
     // …served by another process than the desk
     const health = await alice.request("/api/health");
     expect(health.body.app).toBe("nation-team-chat");
@@ -154,6 +162,16 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     expect(Number(invoice.body.amount)).toBeGreaterThanOrEqual(15);
     expect(Number(invoice.body.amount)).toBeLessThan(16);
 
+    // Her first-run progress is hers to save; the rest of the configuration is not.
+    const config = (await alice.request("/api/config")).body;
+    expect(config).toMatchObject({ isProductOwner: false, personalWorkspace: true, onboarding: { completedAt: "" } });
+    const completedAt = new Date().toISOString();
+    const saved = await alice.request("/api/workspace/preferences", { method: "PATCH", body: { onboarding: { completedAt, version: 1 }, profile: { name: "Alice" } } });
+    expect(saved.status, saved.text).toBe(200);
+    expect((await alice.request("/api/config")).body).toMatchObject({ onboarding: { completedAt, version: 1 }, profile: { name: "Alice" } });
+    expect((await alice.request("/api/workspace/preferences", { method: "PATCH", body: { signIn: { admins: [ALICE] } } })).status).toBe(400);
+    expect((await alice.request("/api/config", { method: "PUT", body: { onboarding: { completedAt } } })).status).toBe(403);
+
     // Her own teammate, and a conversation with it.
     const scout = (await alice.request("/api/bots", { method: "POST", body: { name: "Alice Scout" } })).body.bot;
     expect(scout?.name).toBe("Alice Scout");
@@ -165,17 +183,41 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     }, { timeout: 30_000, interval: 250 }).toBe(true);
     expect(prompts.join("\n")).toContain("Plan my launch week");
 
+    // The Starter invoice, paid from her own NATION wallet: a passkey creates
+    // it, she funds it, the passkey approves exactly this transfer, and the
+    // public server's payment scan credits her account in the shared ledger.
+    expect((await alice.request("/api/credits/wallet/embedded")).body).toEqual({ available: true, wallet: null });
+    const created = await alice.request("/api/credits/wallet/embedded", { method: "POST", body: ATTESTATION });
+    expect(created.status, created.text).toBe(201);
+    const walletAddress = created.body.wallet.address as string;
+    chain.fund(USDG, walletAddress, BigInt(Math.round(Number(invoice.body.amount) * 1e6)));
+    chain.fundEth(walletAddress, 10n ** 16n);
+    const prepared = await alice.request("/api/credits/wallet/embedded/prepare", { method: "POST", body: { invoiceId: invoice.body.id } });
+    expect(prepared.status, prepared.text).toBe(200);
+    const paid = await alice.request("/api/credits/wallet/embedded/pay", { method: "POST", body: { invoiceId: invoice.body.id, body: prepared.body.body, stamp: passkeyStamp(prepared.body.body) } });
+    expect(paid.status, paid.text).toBe(200);
+    expect(chain.balance(USDG, TREASURY)).toBe(BigInt(Math.round(Number(invoice.body.amount) * 1e6)));
+    await expect.poll(async () => (await alice.request("/api/credits/status")).body.plan, { timeout: 30_000, interval: 500 }).toBe("paid");
+    const afterPayment = (await alice.request("/api/credits/status")).body;
+    expect(afterPayment).toMatchObject({ onFreePlan: false, exempt: false });
+    expect(afterPayment.balanceUsd).toBeGreaterThan(15);
+    expect(afterPayment.invoices.find((row: any) => row.id === invoice.body.id)?.paid_tx).toBe(paid.body.txHash);
+    expect(turnkey.requests.map((request) => request.stamp)).toEqual(["api-key", "passkey"]);
+
     // 2. Bob: his own workspace, none of Alice's.
     const bob = browser(base);
     expect((await signIn(bob, BOB)).verified).toEqual({ ok: true, destination: "workspace", created: true });
     const bobBots = (await bob.request("/api/bots")).body.bots.map((bot: any) => bot.name);
     expect(bobBots).not.toContain("Alice Scout");
-    expect(bobBots).not.toContain("Echo");
+    expect(bobBots).not.toContain("Desk Echo");
     expect((await bob.request(`/api/threads/${scout.threadId}/messages`)).status).toBe(404);
     expect((await bob.request(`/api/bots/${scout.id}/messages`, { method: "POST", body: { text: "hi" } })).status).toBe(404);
     const bobCredits = (await bob.request("/api/credits/status")).body;
     expect(bobCredits.invoices).toEqual([]);
     expect(bobCredits.onFreePlan).toBe(true);
+    // …nor her wallet, nor her invoice.
+    expect((await bob.request("/api/credits/wallet/embedded")).body.wallet).toBeNull();
+    expect((await bob.request("/api/credits/wallet/embedded/prepare", { method: "POST", body: { invoiceId: invoice.body.id } })).status).toBe(404);
     // Bob can reach neither the desk's teammates nor its admin routes.
     expect((await bob.request(`/api/threads/${echo.threadId}/messages`)).status).toBe(404);
     expect((await bob.request("/api/admin/credits")).status).toBe(403);
@@ -194,7 +236,8 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
       return existsSync(file) && readFileSync(file, "utf8").includes(text);
     });
     expect(holding("Alice Scout")).toHaveLength(1);
-    expect(holding("Echo")).toHaveLength(0);
+    expect(holding("Desk Echo")).toHaveLength(0);
+    expect(holding(echo.id)).toHaveLength(0);
     expect(readFileSync(join(fixture.info.dataDir, "bots.json"), "utf8")).not.toContain("Alice Scout");
 
     // One ledger for everyone: Alice's invoice, on Alice's account.
@@ -213,7 +256,7 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     const founderSession = (await founder.request("/api/auth/session")).body;
     expect(founderSession.scopes).toContain("admin");
     const deskNames = (await founder.request("/api/bots")).body.bots.map((bot: any) => bot.name);
-    expect(deskNames).toEqual(expect.arrayContaining(["Echo", "Pebble"]));
+    expect(deskNames).toEqual(expect.arrayContaining(["Desk Echo", "Desk Pebble"]));
     expect(deskNames).not.toContain("Alice Scout");
     expect((await founder.request("/api/credits/status")).body.exempt).toBe(true);
 
@@ -222,7 +265,7 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     stale.jar.set("nation_account", "nas_" + "A".repeat(43));
     const refused = await stale.request("/api/bots", { origin: null });
     expect(refused.status).toBe(401);
-    expect(refused.text).not.toContain("Echo");
+    expect(refused.text).not.toContain("Desk Echo");
 
     // Signing out ends the account session.
     expect((await alice.request("/api/auth/logout", { method: "POST", body: {} })).status).toBe(200);
@@ -232,6 +275,8 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     expect((await again.request("/api/bots")).status).toBe(401);
   } finally {
     await fixture.close();
-    await Promise.all([provider, chain].map((server) => new Promise((resolve) => server.close(resolve))));
+    await new Promise((resolve) => provider.close(resolve));
+    await chain.close();
+    await turnkey.close();
   }
 }, 180_000);

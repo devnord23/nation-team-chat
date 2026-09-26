@@ -3,6 +3,7 @@ import { api, useStore, type Bot } from "@/state/store";
 import { isProductAdmin } from "@/lib/admin-gate";
 import { setEmailGateDone } from "@/lib/analytics";
 import { completionPatch, type BeatId } from "@/lib/onboarding";
+import { personalMember, preferencesRoute } from "@/lib/preferences";
 import type { NationMotion } from "@/lib/mascot";
 
 const STEPS = [
@@ -25,8 +26,9 @@ export function WelcomeFlow({ onDone, embedded = false }: {
     finishing.current = true;
     setEmailGateDone("submitted");
     onDone();
-    if (isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired })) {
-      void api("/api/config", { method: "PUT", body: JSON.stringify(completionPatch()) })
+    const route = preferencesRoute(state.config);
+    if (route && (personalMember(state.config) || isProductAdmin({ isProductOwner: state.config?.isProductOwner, pinRequired: state.config?.adminGate?.pinRequired }))) {
+      void api(route.path, { method: route.method, body: JSON.stringify(completionPatch()) })
         .then(config => dispatch({ type: "configStatus", config })).catch(() => undefined);
     }
   };

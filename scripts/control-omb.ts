@@ -404,11 +404,18 @@ export async function launchVerificationServer(
    * fixture's own outbox (<data dir>/mail-outbox) and every account gets
    * its own workspace server. Founder emails sign in to this server's desk.
    * Payments need an owned loopback Robinhood Chain stand-in. */
-  accounts?: { founderEmails?: string[]; payments?: { rpc: string; treasury: string; nationPriceUsd?: string } },
+  accounts?: {
+    founderEmails?: string[];
+    payments?: { rpc: string; treasury: string; nationPriceUsd?: string; confirmations?: number; scanSeconds?: number };
+    /** An owned loopback stand-in for the wallet service (server/testing/fake-turnkey.ts). */
+    turnkey?: { url: string; organizationId: string; apiPublicKey: string; apiPrivateKey: string };
+  },
 ): Promise<VerificationServer> {
+  const loopbackUrl = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/;
   if (accounts && (!(accounts.founderEmails ?? []).every((email) => /^[\w.+-]+@example\.test$/.test(email))
-    || (accounts.payments && (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(accounts.payments.rpc) || !/^0x[0-9a-fA-F]{40}$/.test(accounts.payments.treasury))))) {
-    throw new ControlOmbError("Account verification requires example.test founders and an owned loopback chain");
+    || (accounts.payments && (!loopbackUrl.test(accounts.payments.rpc) || !/^0x[0-9a-fA-F]{40}$/.test(accounts.payments.treasury)))
+    || (accounts.turnkey && !loopbackUrl.test(accounts.turnkey.url)))) {
+    throw new ControlOmbError("Account verification requires example.test founders and owned loopback chain and wallet services");
   }
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
@@ -513,6 +520,14 @@ export async function launchVerificationServer(
       NATION_TREASURY_ROBINHOOD: accounts.payments.treasury,
       NATION_RPC_ROBINHOOD: accounts.payments.rpc,
       ...(accounts.payments.nationPriceUsd ? { NATION_TOKEN_USD_PRICE: accounts.payments.nationPriceUsd } : {}),
+      ...(accounts.payments.confirmations ? { NATION_CONFIRMATIONS: String(accounts.payments.confirmations) } : {}),
+      ...(accounts.payments.scanSeconds ? { NATION_CREDIT_SCAN_SECONDS: String(accounts.payments.scanSeconds) } : {}),
+    } : {}),
+    ...(accounts.turnkey ? {
+      TURNKEY_API_BASE_URL: accounts.turnkey.url,
+      TURNKEY_ORGANIZATION_ID: accounts.turnkey.organizationId,
+      TURNKEY_API_PUBLIC_KEY: accounts.turnkey.apiPublicKey,
+      TURNKEY_API_PRIVATE_KEY: accounts.turnkey.apiPrivateKey,
     } : {}),
   });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
