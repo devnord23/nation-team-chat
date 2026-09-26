@@ -261,7 +261,8 @@ export class WorkspaceHost {
     this.options = options;
     this.env = options.env ?? process.env;
     this.log = options.log ?? ((line) => console.warn(line));
-    this.maxRunning = options.maxRunning ?? positiveInteger(this.env.NATION_WORKSPACE_MAX_RUNNING, 20, 1_000);
+    // Each running workspace is a server process of about 200 MB; eight at once is about 1.6 GB.
+    this.maxRunning = options.maxRunning ?? positiveInteger(this.env.NATION_WORKSPACE_MAX_RUNNING, 8, 1_000);
     this.idleMs = options.idleMs ?? positiveInteger(this.env.NATION_WORKSPACE_IDLE_MINUTES, 30, 24 * 60) * 60_000;
     this.sweeper = setInterval(() => { void this.sweep(); }, 60_000);
     this.sweeper.unref();

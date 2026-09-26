@@ -162,6 +162,31 @@ describe("NATION wallet", () => {
     expect(ledger.balance(creditAccount(alice).id)).toBe(invoice.amount_micros);
   });
 
+  it("pays a $NATION invoice in its exact token units (18 decimals, the discount applied)", async () => {
+    vi.stubEnv("NATION_TOKEN_USD_PRICE", "0.000286");
+    ledger = new CreditLedger(":memory:");
+    setCreditLedgerForTests(ledger);
+    const alice = member("alice@example.test");
+    const call = await serve(alice);
+    const address = (await call("/api/credits/wallet/embedded", attestation)).body.wallet.address as string;
+    const nation = creditChains().find((item) => item.symbol === "$NATION")!;
+    const invoice = ledger.createInvoice(creditAccount(alice), nation, 49, 256n);
+    expect(invoice.token_amount).toMatch(/^\d{19,}$/);
+    chain.fund(nation.token, address, BigInt(invoice.token_amount));
+    chain.fundEth(address, 10n ** 16n);
+    const prepared = await call("/api/credits/wallet/embedded/prepare", { invoiceId: invoice.id });
+    expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+    expect(prepared.body.symbol).toBe("$NATION");
+    const paid = await call("/api/credits/wallet/embedded/pay", { invoiceId: invoice.id, body: prepared.body.body, stamp: passkeyStamp(prepared.body.body) });
+    expect(paid.status, JSON.stringify(paid.body)).toBe(200);
+    expect(chain.balance(nation.token, TREASURY)).toBe(BigInt(invoice.token_amount));
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(await scanCreditPayments(ledger, creditChains(), { log: (line) => lines.push(line) })).toEqual([]);
+    expect(ledger.invoice(invoice.id)?.paid_tx).toBe(paid.body.txHash);
+    // The whole pack is credited although less $NATION was sent.
+    expect(ledger.balance(creditAccount(alice).id)).toBe(invoice.amount_micros);
+  });
+
   it("forwards nothing that is not exactly this account's invoice transfer", async () => {
     const alice = member("alice@example.test");
     const call = await serve(alice);
