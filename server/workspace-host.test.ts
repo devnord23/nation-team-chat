@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   forwardedRequestHeaders,
+  ownServerCommand,
   returnedResponseHeaders,
   workspaceConfig,
   workspaceServerEnvironment,
@@ -69,7 +70,7 @@ describe("a workspace's own config", () => {
       profile: { name: "Alice" }, onboarding: { completedAt: "2026-09-26T00:00:00Z", version: 1 },
       signIn: { admins: ["mallory@example.test"], members: ["mallory@example.test"] },
       instances: { claude: { driver: "claudeAgent" } }, defaultModelSelection: { instanceId: "claude", model: "x" },
-      box: { token: "t" }, vps: { sshAlias: "a" }, localVm: { mode: "shared" }, anthropic: { key: "k" }, composio: { apiKey: "k" },
+      box: { token: "t" }, vps: { sshAlias: "a" }, localVm: { mode: "shared" }, anthropic: { key: "k" }, composio: { apiKey: "k", userId: "u", sessionId: "s" },
       features: { browser: true, computers: true, sharedComputers: true, showToolCalls: true },
     }, "alice@example.test", { modelRouting: { enabled: true } });
     expect(next).toEqual({
@@ -77,6 +78,8 @@ describe("a workspace's own config", () => {
       signIn: { admins: [], members: ["alice@example.test"] },
       instances: { nationApi: { driver: "nation-openrouter", displayName: "NATION API" } },
       features: { browser: false, computers: false, sharedComputers: false, showToolCalls: true },
+      // its own connected-apps session ids stay; a key never does
+      composio: { userId: "u", sessionId: "s" },
       modelRouting: { enabled: true },
     });
   });
@@ -86,6 +89,15 @@ describe("a workspace's own config", () => {
     expect(first.defaultModelSelection).toEqual({ instanceId: "nationApi", model: "moonshotai/kimi-k2" });
     expect(first.webSearch).toEqual({ provider: "brave" });
     expect(workspaceConfig(first, "a@example.test", {}).webSearch).toBeUndefined();
+  });
+});
+
+describe("the workspace server's entry point", () => {
+  it("is this server's own entry, or the one a process manager or the operator names", () => {
+    expect(ownServerCommand({}).args.at(-1)).toBe(process.argv[1]);
+    expect(ownServerCommand({ pm_exec_path: "/srv/nation/dist-server/index.js" }).args.at(-1)).toBe("/srv/nation/dist-server/index.js");
+    expect(ownServerCommand({ pm_exec_path: "/srv/pm2.js", NATION_WORKSPACE_SERVER_ENTRY: "/srv/nation/server/index.ts" }).args.at(-1)).toBe("/srv/nation/server/index.ts");
+    expect(ownServerCommand({}).file).toBe(process.execPath);
   });
 });
 

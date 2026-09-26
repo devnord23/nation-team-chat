@@ -263,6 +263,11 @@ environment):
 - Optional: `NATION_WORKSPACE_MAX_RUNNING` (8), `NATION_WORKSPACE_IDLE_MINUTES`
   (30), `NATION_WORKSPACE_MAX_TOTAL` (500), `NATION_MAGIC_LINK_TTL_MINUTES`
   (15), `NATION_MAGIC_LINKS_PER_HOUR` (500)
+- Each workspace server is started with this server's own entry point and
+  Node flags. Under PM2 the script path is read from PM2; any other wrapper
+  needs `NATION_WORKSPACE_SERVER_ENTRY=<path to server/index.ts or
+  dist-server/index.js>`. A workspace stops by itself when the server that
+  started it is gone.
 - `NATION_TRUST_PROXY`: behind the web app's rewrite, every browser reaches the
   server from the proxy's few addresses, so per-network limits (sign-in links,
   starter credit per network per day) count the proxy. Set it to 1 only if the

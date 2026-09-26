@@ -117,7 +117,11 @@ export function workspaceConfig(existing: Record<string, unknown>, email: string
   };
   const selection = next.defaultModelSelection as { instanceId?: unknown } | undefined;
   if (selection && selection.instanceId !== "nationApi") delete next.defaultModelSelection;
-  for (const key of ["box", "vps", "localVm", "anthropic", "xai", "openaiCompat", "opencodeGo", "composio", "customDomain", "cliStartup"]) delete next[key];
+  // Never copied in, and removed if present. (`composio` stays: the workspace
+  // records its own connected-apps session ids there, and never a key.)
+  for (const key of ["box", "vps", "localVm", "anthropic", "xai", "openaiCompat", "opencodeGo", "customDomain", "cliStartup"]) delete next[key];
+  const composio = next.composio as Record<string, unknown> | undefined;
+  if (composio && typeof composio === "object") delete composio.apiKey;
   if (shared.modelRouting !== undefined) next.modelRouting = shared.modelRouting;
   else delete next.modelRouting;
   if (shared.webSearch !== undefined) next.webSearch = shared.webSearch;
@@ -233,10 +237,14 @@ export interface WorkspaceHostOptions {
   log?: (line: string) => void;
 }
 
-/** This process's own entry point, without debugger flags a second process could not reuse. */
-export function ownServerCommand(): { file: string; args: string[]; cwd?: string } {
+/** This process's own entry point, without debugger flags a second process
+ * could not reuse. Under a process manager the script may be its wrapper, so
+ * NATION_WORKSPACE_SERVER_ENTRY names the server's entry explicitly, and PM2's
+ * own record of the script (pm_exec_path) is preferred to argv. */
+export function ownServerCommand(env: NodeJS.ProcessEnv = process.env): { file: string; args: string[]; cwd?: string } {
   const execArgv = process.execArgv.filter((arg) => !arg.startsWith("--inspect") && !arg.startsWith("--debug"));
-  return { file: process.execPath, args: [...execArgv, process.argv[1]!] };
+  const entry = env.NATION_WORKSPACE_SERVER_ENTRY?.trim() || env.pm_exec_path?.trim() || process.argv[1]!;
+  return { file: process.execPath, args: [...execArgv, entry] };
 }
 
 function positiveInteger(value: string | undefined, fallback: number, max: number): number {
@@ -354,7 +362,7 @@ export class WorkspaceHost {
   private async launch(ref: WorkspaceRef, root: string): Promise<Running> {
     const port = await freePortPair();
     const key = randomBytes(32).toString("base64url");
-    const command = this.options.command ?? ownServerCommand();
+    const command = this.options.command ?? ownServerCommand(this.env);
     const log = this.openLog(root);
     let child: ChildProcess;
     try {
