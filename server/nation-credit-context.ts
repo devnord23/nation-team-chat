@@ -7,7 +7,12 @@ import type { RequestAuth } from "./request-auth.ts";
 
 export const creditContext = new AsyncLocalStorage<CreditAccount | null>();
 let ledger: CreditLedger | undefined;
-export function nationLedger(): CreditLedger { return ledger ??= new CreditLedger(join(nationDataDir(), "nation-credits.db")); }
+/** The ledger file. A workspace server (server/workspace-host.ts) is pointed at the
+ * public server's own with NATION_CREDITS_DB, so every account shares one ledger. */
+export function nationCreditsFile(env: NodeJS.ProcessEnv = process.env): string {
+  return env.NATION_CREDITS_DB?.trim() || join(nationDataDir(env), "nation-credits.db");
+}
+export function nationLedger(): CreditLedger { return ledger ??= new CreditLedger(nationCreditsFile()); }
 export function setCreditLedgerForTests(value?: CreditLedger) { ledger = value; }
 export function creditAccount(auth: RequestAuth): CreditAccount {
   const operator = auth.scopes.includes("admin") && (process.env.NATION_PRODUCT_OWNER === "1" || process.env.NATION_PRODUCT_ADMIN === "1");

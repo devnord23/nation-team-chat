@@ -400,7 +400,16 @@ export async function launchVerificationServer(
     trustedOrigins?: { exact?: string; patterns?: string } },
   /** Programmatic tests only: enables the secret-gated test capability route. */
   testCapabilityKey?: string,
+  /** Public sign-up (server/account-gateway.ts): email links land in the
+   * fixture's own outbox (<data dir>/mail-outbox) and every account gets
+   * its own workspace server. Founder emails sign in to this server's desk.
+   * Payments need an owned loopback Robinhood Chain stand-in. */
+  accounts?: { founderEmails?: string[]; payments?: { rpc: string; treasury: string; nationPriceUsd?: string } },
 ): Promise<VerificationServer> {
+  if (accounts && (!(accounts.founderEmails ?? []).every((email) => /^[\w.+-]+@example\.test$/.test(email))
+    || (accounts.payments && (!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(accounts.payments.rpc) || !/^0x[0-9a-fA-F]{40}$/.test(accounts.payments.treasury))))) {
+    throw new ControlOmbError("Account verification requires example.test founders and an owned loopback chain");
+  }
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
   }
@@ -496,6 +505,16 @@ export async function launchVerificationServer(
     } : {}),
   });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
+  if (accounts) Object.assign(childEnv, {
+    NATION_ACCOUNTS: "1",
+    NATION_MAIL_OUTBOX: "1",
+    ...(accounts.founderEmails?.length ? { OMB_SIGNIN_EMAILS: accounts.founderEmails.join(",") } : {}),
+    ...(accounts.payments ? {
+      NATION_TREASURY_ROBINHOOD: accounts.payments.treasury,
+      NATION_RPC_ROBINHOOD: accounts.payments.rpc,
+      ...(accounts.payments.nationPriceUsd ? { NATION_TOKEN_USD_PRICE: accounts.payments.nationPriceUsd } : {}),
+    } : {}),
+  });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,
     env: childEnv,
