@@ -1622,6 +1622,12 @@ function claimNewThread(threadId: string | undefined): void {
 }
 /** This account's own open conversation with a shared bot (created when it
  * has none, never the bot's globally open task when that is someone else's). */
+/** Conversations viewerActiveThread is creating right now, by account and
+ * bot. The store announces a new conversation before it can be claimed, and
+ * projecting that announcement for the same account must not create another
+ * one: that one would be announced unclaimed too, and so on until the stack
+ * ran out, leaving hundreds of empty conversations behind. */
+const creatingViewerThreads = new Set<string>();
 function viewerActiveThread(viewer: string, botId: string, create = true): string | undefined {
   const bot = store.bot(botId);
   if (!bot) return undefined;
@@ -1635,10 +1641,22 @@ function viewerActiveThread(viewer: string, botId: string, create = true): strin
       .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0]?.threadId;
   if (pick) { threadOwnership.setActive(viewer, bot.id, pick); return pick; }
   if (!create) return undefined;
-  const task = threadOwnerContext.run(viewer, () => store.createTask(bot.id, undefined, false));
+  const creating = `${viewer}\u0000${bot.id}`;
+  if (creatingViewerThreads.has(creating)) return undefined;
+  creatingViewerThreads.add(creating);
+  let task: ReturnType<typeof store.createTask>;
+  try {
+    task = threadOwnerContext.run(viewer, () => store.createTask(bot.id, undefined, false));
+  } finally {
+    creatingViewerThreads.delete(creating);
+  }
   if (!task) return undefined;
   threadOwnership.claim(task.threadId, viewer);
   threadOwnership.setActive(viewer, bot.id, task.threadId);
+  // Its announcement went out before the claim, without it: announce the
+  // bot again so this account's open windows show their conversation.
+  const updated = store.bot(bot.id);
+  if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
   return task.threadId;
 }
 /** A wire bot as one account sees it: its own open conversation and tasks. */

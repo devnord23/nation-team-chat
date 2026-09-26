@@ -136,6 +136,14 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     expect(alice.jar.has("nation_account")).toBe(true);
     // The link worked once.
     expect((await alice.request("/api/auth/magic/verify", { method: "POST", body: { token: aliceLink.token } })).status).toBe(401);
+    // The app opens its event stream as it loads. A first look at a teammate
+    // then creates this account's own conversation with it: exactly one, even
+    // while the stream is being told about it.
+    const events = new AbortController();
+    const stream = await fetch(`${base}/api/events`, { headers: { cookie: [...alice.jar].map(([name, value]) => `${name}=${value}`).join("; "), origin: base }, signal: events.signal });
+    expect(stream.status).toBe(200);
+    void stream.body?.pipeTo(new WritableStream()).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 300));
     const aliceSession = (await alice.request("/api/auth/session")).body;
     expect(aliceSession).toMatchObject({ kind: "session", scopes: ["client"], email: ALICE });
     const aliceBots = await alice.request("/api/bots");
@@ -145,6 +153,11 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     expect(aliceNames).not.toContain("Desk Pebble");
     // Not one teammate or conversation id in common with the desk.
     expect(aliceBots.body.bots.flatMap((bot: any) => [bot.id, bot.threadId]).filter((id: string) => founderIds.has(id))).toEqual([]);
+    // (The first answer was built before that conversation existed; the next one lists it.)
+    const onceMore = (await alice.request("/api/bots")).body.bots;
+    expect(onceMore.map((bot: any) => (bot.tasks ?? []).length)).toEqual([1]);
+    expect(onceMore[0].threadId).toBe(onceMore[0].tasks[0].threadId);
+    events.abort();
     // …served by another process than the desk
     const health = await alice.request("/api/health");
     expect(health.body.app).toBe("nation-team-chat");
@@ -231,6 +244,9 @@ it("gives every email its own workspace and keeps the founder desk out of reach"
     // Separate data roots: each workspace holds only its own teammates.
     const roots = readdirSync(join(fixture.info.dataDir, "workspaces")).filter((name) => name.startsWith("ws_"));
     expect(roots).toHaveLength(2);
+    for (const root of roots) {
+      expect(readFileSync(join(fixture.info.dataDir, "workspaces", root, "logs", "server.log"), "utf8")).not.toMatch(/change listener threw|ReferenceError|Maximum call stack/);
+    }
     const holding = (text: string) => roots.filter((name) => {
       const file = join(fixture.info.dataDir, "workspaces", name, "bots.json");
       return existsSync(file) && readFileSync(file, "utf8").includes(text);
