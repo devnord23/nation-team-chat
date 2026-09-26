@@ -7,7 +7,7 @@ import { creditChains, creditError, USD_SCALE } from "../nation-credits.ts";
 import { chainClient, confirmCreditPayment } from "../nation-payments.ts";
 import { parseCookies } from "../request-auth.ts";
 
-const invoiceSchema = z.object({ chain: z.number().int(), packUsd: z.number().positive() }).strict();
+const invoiceSchema = z.object({ chain: z.number().int(), packUsd: z.number().positive(), token: z.string().regex(/^0x[0-9a-f]{40}$/i).optional() }).strict();
 const confirmSchema = z.object({ invoiceId: z.string().uuid(), txHash: z.string().regex(/^0x[0-9a-f]{64}$/i) }).strict();
 const challengeSchema = z.object({ address: z.string().regex(/^0x[0-9a-f]{40}$/i) }).strict();
 const signatureSchema = z.object({ challengeId: z.string().uuid(), signature: z.string().regex(/^0x[0-9a-f]+$/i).max(4096) }).strict();
@@ -59,7 +59,9 @@ export function createNationCreditRoutes(): RouteHandler {
     }
     if (path === "/api/credits/invoices" && method === "POST") {
       const input = invoiceSchema.parse(await readBody(req));
-      const chain = creditChains().find(chain => chain.id === input.chain);
+      const chain = input.token
+        ? creditChains().find(c => c.id === input.chain && c.token.toLowerCase() === input.token!.toLowerCase())
+        : creditChains().find(c => c.id === input.chain);
       if (!chain) throw creditError("Top up coming soon", 503);
       const rpc = chainClient(chain);
       if (await rpc.getChainId() !== chain.id) throw creditError("Payment network is unavailable.", 503);

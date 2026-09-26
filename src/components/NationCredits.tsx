@@ -45,6 +45,21 @@ type StripStatus = {
 type Chain = CreditStatus["chains"][number];
 type Invoice = CreditStatus["invoices"][number];
 
+// ─── Orphan invoice guard (exported for unit tests) ───────────────────────────
+/**
+ * Return only pending invoices whose chain+token pair is still present in the
+ * live `chains` list. Invoices on dropped chains (e.g. old Base invoices after
+ * the Robinhood-only migration) are excluded so the symbol never falls back to
+ * "?".
+ */
+export function filterLivePendingInvoices(
+  invoices: Invoice[],
+  chains: Chain[],
+): Invoice[] {
+  const live = new Set(chains.map((c) => `${c.id}:${c.token}`));
+  return invoices.filter((i) => !i.paid_tx && live.has(`${i.chain}:${i.token}`));
+}
+
 // ─── wallet helpers ───────────────────────────────────────────────────────────
 async function injectedWallet() {
   const { createWalletClient, custom } = await import("viem");
@@ -655,31 +670,30 @@ export function NationCredits() {
         ))}
       </div>
 
-      {status?.invoices.some((i) => !i.paid_tx) && (
+      {filterLivePendingInvoices(status?.invoices ?? [], status?.chains ?? []).length > 0 && (
         <div className="space-y-1.5 pt-1">
           <p className="text-[12px] font-medium text-ink-secondary">
             Resume a pending payment
           </p>
-          {status.invoices
-            .filter((i) => !i.paid_tx)
-            .map((i) => {
-              const c = status.chains.find((ch) => ch.id === i.chain);
-              const isN = c?.symbol === "$NATION";
-              const amt =
-                isN && i.token_amount
-                  ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
-                  : (i.amount_micros / 1e6).toFixed(4);
-              return (
-                <button
-                  key={i.id}
-                  className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
-                  onClick={() => { setInvoice(i); setHash(""); }}
-                >
-                  {amt} {c?.symbol ?? "?"} · expires{" "}
-                  {new Date(i.expires_at).toLocaleTimeString()}
-                </button>
-              );
-            })}
+          {filterLivePendingInvoices(status!.invoices, status!.chains).map((i) => {
+            // Safe: filterLivePendingInvoices guarantees this chain+token pair exists.
+            const c = status!.chains.find((ch) => ch.id === i.chain && ch.token === i.token)!;
+            const isN = c.symbol === "$NATION";
+            const amt =
+              isN && i.token_amount
+                ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
+                : (i.amount_micros / 1e6).toFixed(4);
+            return (
+              <button
+                key={i.id}
+                className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
+                onClick={() => { setInvoice(i); setHash(""); }}
+              >
+                {amt} {c.symbol} · expires{" "}
+                {new Date(i.expires_at).toLocaleTimeString()}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -793,28 +807,27 @@ export function NationCredits() {
                   ))}
                 </div>
 
-                {/* Resume pending invoices */}
-                {status.invoices.some((i) => !i.paid_tx) && (
+                {/* Resume pending invoices — only those on a still-live chain+token pair */}
+                {filterLivePendingInvoices(status.invoices, status.chains).length > 0 && (
                   <div className="mt-8 space-y-1.5">
                     <p className="text-[12px] font-medium text-ink-secondary">Resume a pending payment</p>
-                    {status.invoices
-                      .filter((i) => !i.paid_tx)
-                      .map((i) => {
-                        const c = status.chains.find((ch) => ch.id === i.chain);
-                        const isN = c?.symbol === "$NATION";
-                        const amt = isN && i.token_amount
-                          ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
-                          : (i.amount_micros / 1e6).toFixed(4);
-                        return (
-                          <button
-                            key={i.id}
-                            className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
-                            onClick={() => { setInvoice(i); setHash(""); }}
-                          >
-                            {amt} {c?.symbol ?? "?"} · expires {new Date(i.expires_at).toLocaleTimeString()}
-                          </button>
-                        );
-                      })}
+                    {filterLivePendingInvoices(status.invoices, status.chains).map((i) => {
+                      // Safe: filterLivePendingInvoices guarantees this chain+token pair exists.
+                      const c = status.chains.find((ch) => ch.id === i.chain && ch.token === i.token)!;
+                      const isN = c.symbol === "$NATION";
+                      const amt = isN && i.token_amount
+                        ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
+                        : (i.amount_micros / 1e6).toFixed(4);
+                      return (
+                        <button
+                          key={i.id}
+                          className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
+                          onClick={() => { setInvoice(i); setHash(""); }}
+                        >
+                          {amt} {c.symbol} · expires {new Date(i.expires_at).toLocaleTimeString()}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
