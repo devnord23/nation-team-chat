@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { encodeEventTopics, encodeAbiParameters, parseAbiItem, type Hex } from "viem";
-import { CreditLedger, creditSettings, creditChains, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
+import { CreditLedger, creditSettings, creditChains, invoiceChain, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
 import { confirmCreditPayment, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
 
 const ledgers: CreditLedger[] = [], roots: string[] = [];
@@ -54,6 +54,19 @@ describe("credit ledger", () => {
     // Without the price env, no NATION chain
     const noNation = creditChains({ NATION_TREASURY_ROBINHOOD: treasury });
     expect(noNation.find(c => c.symbol === "$NATION")).toBeUndefined();
+  });
+
+  it("resolves an invoice's token on the shared Robinhood chain id; token-less requests get USDG", () => {
+    const chains = creditChains({ NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286" });
+    // $NATION is listed first, so a lookup by chain id alone would bill a USDG buyer in $NATION.
+    expect(chains.map(c => c.symbol)).toEqual(["$NATION", "USDG"]);
+    expect(invoiceChain(chains, 4663)).toMatchObject({ symbol: "USDG", decimals: 6 });
+    expect(invoiceChain(chains, 4663, "0xc839A88A05B231515a82c71EE97b4F18973C1340")).toMatchObject({ symbol: "$NATION", decimals: 18 });
+    expect(invoiceChain(chains, 4663, "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168")).toMatchObject({ symbol: "USDG" });
+    // A token that is not offered on that chain, or a dropped chain, never falls back to another entry.
+    expect(invoiceChain(chains, 4663, token)).toBeUndefined();
+    expect(invoiceChain(chains, 8453)).toBeUndefined();
+    expect(invoiceChain(creditChains({ NATION_TREASURY_ROBINHOOD: treasury }), 4663, nationToken)).toBeUndefined();
   });
 
   it("computes token_amount correctly for USDC (6 dec) and $NATION (18 dec)", () => {

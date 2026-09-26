@@ -74,6 +74,13 @@ export function creditChains(env: NodeJS.ProcessEnv = process.env): CreditChain[
   return specs.flatMap(spec => spec.treasury && /^0x[0-9a-f]{40}$/i.test(spec.treasury) && !/^0x0{40}$/i.test(spec.treasury)
     ? [{ ...spec, treasury: spec.treasury.toLowerCase(), token: spec.token.toLowerCase() }] : []);
 }
+/** The payment entry an invoice request names. USDG and $NATION share Robinhood Chain's id, so the token
+ * address decides; a request without one (a client from before the pay toggle) gets the stablecoin rather
+ * than whichever entry happens to be listed first. */
+export function invoiceChain(chains: CreditChain[], id: number, token?: string): CreditChain | undefined {
+  const onChain = chains.filter(chain => chain.id === id);
+  return token ? onChain.find(chain => chain.token === token.toLowerCase()) : onChain.find(chain => chain.symbol !== "$NATION");
+}
 const DISPOSABLE = new Set(["mailinator.com", "guerrillamail.com", "guerrillamail.net", "10minutemail.com", "10minutemail.net", "tempmail.com", "temp-mail.org", "yopmail.com", "yopmail.fr", "dispostable.com", "trashmail.com", "getnada.com", "sharklasers.com", "grr.la", "guerrillamailblock.com", "maildrop.cc", "mohmal.com", "fakeinbox.com", "throwawaymail.com"]);
 export function disposableEmail(email: string, extra = process.env.NATION_DISPOSABLE_EMAIL_DOMAINS ?? ""): boolean {
   const domain = email.toLowerCase().split("@").at(-1) ?? "";

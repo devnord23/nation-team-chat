@@ -210,7 +210,7 @@ export function SidebarProfileMenu() {
             key: "add-credits",
             label: credits.status?.exempt ? "Top up / Billing" : "Add credits",
             icon: <CreditCard size={18} />,
-            onSelect: () => credits.openSheet(),
+            onSelect: () => credits.openSubscription(),
           } satisfies SidebarMenuItem,
           {
             key: "billing",

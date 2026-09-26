@@ -1,8 +1,9 @@
 /**
- * Lightweight React context that lets any component open the Nation credit
- * sheet and read the latest credit status without prop-drilling through the
- * whole component tree. NationCredits provides the value; SidebarProfileMenu
- * and any other consumer reads it.
+ * Lightweight React context that lets any component reach Full Plans (or the
+ * starter-credit sheet) and read the latest credit status without
+ * prop-drilling through the whole component tree. NationCreditsProvider wraps
+ * the app and provides the value; NationCredits, SidebarProfileMenu and the
+ * Settings row read it.
  */
 import { createContext, useContext } from "react";
 
@@ -26,17 +27,22 @@ export type CreditStatus = {
 
 export interface NationCreditsCtxValue {
   status: CreditStatus | null;
-  open: boolean;
-  openSheet: () => void;
-  closeSheet: () => void;
+  /** Re-read the status now (after a payment or verification). */
+  refresh: () => Promise<void>;
+  /** The "Get free starter credit" sheet. Buying credit never uses it. */
+  starterOpen: boolean;
+  openStarter: () => void;
+  closeStarter: () => void;
+  /** Navigate to Full Plans (/subscription): every "Top up" / "Add credits" entry. */
   openSubscription: () => void;
 }
 
 export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
   status: null,
-  open: false,
-  openSheet: () => {},
-  closeSheet: () => {},
+  refresh: async () => {},
+  starterOpen: false,
+  openStarter: () => {},
+  closeStarter: () => {},
   openSubscription: () => {},
 });
 
