@@ -33,6 +33,8 @@ export interface EnvironmentDescriptor {
     selfUpdate: "desktop-managed" | "operator";
     /** Whether /pair offers "sign in with your email" (an allow-list is set). */
     emailSignIn?: boolean;
+    /** Anyone may sign in with an emailed link and get a workspace of their own. */
+    accountSignIn?: true;
   };
 }
 
@@ -118,7 +120,7 @@ export function serverVersion(): string {
   return "unknown";
 }
 
-export function environmentDescriptor(input: { environmentId: string; desktopManaged: boolean; emailSignIn?: boolean; sharedComputers?: boolean }): EnvironmentDescriptor {
+export function environmentDescriptor(input: { environmentId: string; desktopManaged: boolean; emailSignIn?: boolean; accountSignIn?: boolean; sharedComputers?: boolean }): EnvironmentDescriptor {
   return {
     environmentId: input.environmentId,
     label: process.env.NATION_PUBLIC_NAME?.trim() || process.env.OMB_PUBLIC_NAME?.trim() || process.env.OMB_ENVIRONMENT_LABEL?.trim() || "Nation Team Chat",
@@ -131,6 +133,8 @@ export function environmentDescriptor(input: { environmentId: string; desktopMan
       ...(input.sharedComputers === true ? { sharedComputers: true as const } : {}),
       selfUpdate: input.desktopManaged ? "desktop-managed" : "operator",
       emailSignIn: input.emailSignIn === true,
+      // Email-link sign-in to a workspace of one's own (server/account-gateway.ts).
+      ...(input.accountSignIn === true ? { accountSignIn: true as const } : {}),
     },
   };
 }

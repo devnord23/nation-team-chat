@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { readSessionState, takePairingCodeFromLocation, takeInvitedEmailFromLocation } from "./lib/session";
+import { readEnvironment, readSessionState, takeLoginTokenFromLocation, takePairingCodeFromLocation, takeInvitedEmailFromLocation } from "./lib/session";
 import { bootstrapBrand } from "./lib/brand";
 import { applySkin, readSkin } from "./lib/skins";
+import { LoginPage } from "./pair/LoginPage";
 import { PairPage } from "./pair/PairPage";
 import "katex/dist/katex.min.css";
 import "./styles.css";
@@ -14,15 +15,23 @@ import "./styles.css";
 // flashes the default name; it waits at most a moment and falls back silently.
 applySkin(readSkin());
 
-/** A pairing link lands on /pair. A remote browser without a session lands
- * there too, because every API call would otherwise fail with "pair this
- * device"; on the owner's own machine the server trusts loopback and this
- * check is a single fast request. */
+/** An emailed sign-in link lands on `#login=…`, a pairing link on /pair. A
+ * remote browser without a session sees the email sign-in page when the
+ * server offers it (anyone may sign up), and the pair page otherwise,
+ * because every API call would fail with "pair this device"; on the owner's
+ * own machine the server trusts loopback and this check is a single fast
+ * request. */
 async function chooseRoot(): Promise<React.ReactNode> {
+  const loginToken = takeLoginTokenFromLocation();
+  if (loginToken) return <LoginPage initialToken={loginToken} />;
   const pairPath = `${import.meta.env.BASE_URL}pair`.replace(/\/\//g, "/");
   if (location.pathname === pairPath) return <PairPage initialCode={takePairingCodeFromLocation()} initialEmail={takeInvitedEmailFromLocation()} />;
   const session = await readSessionState();
-  if (session.kind === "unauthenticated") return <PairPage initialCode={null} reason={session.error} />;
+  if (session.kind === "unauthenticated") {
+    const environment = await readEnvironment();
+    if (environment?.capabilities.accountSignIn) return <LoginPage reason={session.error} />;
+    return <PairPage initialCode={null} reason={session.error} />;
+  }
   return <App />;
 }
 
