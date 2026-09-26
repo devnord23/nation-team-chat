@@ -211,6 +211,12 @@ export function createAccountGateway(deps: AccountGatewayDeps): AccountGateway {
         json(res, 401, { error: SIGNED_OUT });
         return true;
       }
+      // The workspace server's own loopback routes are for this server alone
+      // (they also need its per-start key, which is never forwarded).
+      if (path.startsWith("/api/workspace-host/")) {
+        json(res, 404, { error: "not found" });
+        return true;
+      }
       if (method === "POST" && path === "/api/auth/logout") {
         deps.accounts.revokeSession(identity.session.id);
         res.setHeader("set-cookie", clearSessionCookie(ACCOUNT_COOKIE));

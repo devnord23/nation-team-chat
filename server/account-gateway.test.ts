@@ -186,6 +186,13 @@ describe("requests from a signed-in account", () => {
     expect(reply.cookies[0]).toMatch(/^nation_account=nas_/);
   });
 
+  it("never reach the workspace server's own loopback routes", async () => {
+    const { call, cookie, forwarded } = await signedIn();
+    expect((await call("/api/workspace-host/session", { headers: { cookie, "x-nation-workspace-key": "guess" }, body: { email: "alice@example.test", userId: "x" } })).status).toBe(404);
+    expect((await call("/api/workspace-host/activity", { headers: { cookie } })).status).toBe(404);
+    expect(forwarded).toEqual([]);
+  });
+
   it("answer who is signed in without the workspace", async () => {
     const { call, cookie, forwarded } = await signedIn();
     const session = (await call("/api/auth/session", { headers: { cookie } })).body;
