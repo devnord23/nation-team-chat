@@ -364,11 +364,15 @@ export function requiredScope(method: string, path: string, features: { sharedCo
 }
 
 /** Fields a client session may change on a bot: how it looks in the list,
- * never what it may do. Returns the first offending field, or null. */
+ * never what it may do. Returns the first offending field, or null.
+ * Pass `extraAllowed` to permit additional fields for the calling context
+ * (e.g. hosted-model workspaces allow `modelSelection`). */
 const CLIENT_BOT_PATCH_FIELDS = new Set(["unread", "pinned", "pinnedMessageId", "color", "mascotExpression", "mascotBody"]);
-export function clientBotPatchViolation(body: unknown): string | null {
+export function clientBotPatchViolation(body: unknown, extraAllowed?: ReadonlySet<string>): string | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return "body";
-  for (const key of Object.keys(body)) if (!CLIENT_BOT_PATCH_FIELDS.has(key)) return key;
+  for (const key of Object.keys(body)) {
+    if (!CLIENT_BOT_PATCH_FIELDS.has(key) && !extraAllowed?.has(key)) return key;
+  }
   return null;
 }
 

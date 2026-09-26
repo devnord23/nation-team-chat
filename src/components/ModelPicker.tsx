@@ -374,8 +374,9 @@ function AdminModelPicker({
     pinRequired: state.config?.adminGate?.pinRequired,
     isProductOwner: state.config?.isProductOwner,
   });
+  const hostedModelSelection = Boolean(state.config?.hostedModelSelection);
   const pickerInstances = configuredModelInstances(state.instances).filter(
-    (instance) => admin || instance.driverKind !== "claudeAgent",
+    (instance) => admin || hostedModelSelection || instance.driverKind !== "claudeAgent",
   );
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
     active?.models.options.find((option) => option.id === selection.model)?.variants?.find((option) => option.id === selection.variant)
@@ -890,10 +891,13 @@ function AdminModelPicker({
   );
 }
 
-/** The private picker never mounts for a member, including direct navigation. */
+/** The private picker never mounts for a member, including direct navigation.
+ * Exception: hosted-model workspaces expose a read-only catalog so members
+ * may select from the operator-assigned models without any admin access. */
 export function ModelPicker(props: Parameters<typeof AdminModelPicker>[0]) {
   const { state } = useStore();
   const admin = isProductAdmin({ isProductOwner: state.config?.isProductOwner,
     pinRequired: state.config?.adminGate?.pinRequired, remoteClient: Boolean(window.ogb?.remoteClient) });
-  return admin ? <AdminModelPicker {...props} /> : <span title="NATION API" className="text-[12px] font-medium text-ink-secondary">NATION API</span>;
+  const hostedModelSelection = Boolean(state.config?.hostedModelSelection);
+  return (admin || hostedModelSelection) ? <AdminModelPicker {...props} /> : <span title="NATION API" className="text-[12px] font-medium text-ink-secondary">NATION API</span>;
 }

@@ -165,6 +165,17 @@ describe("scopes", () => {
     expect(clientGroupPatchViolation({ cwd: "/tmp" })).toBe("cwd");
     expect(clientGroupPatchViolation({ memberIds: [] })).toBe("memberIds");
   });
+
+  it("allows extra fields when the calling context explicitly permits them", () => {
+    const modelAllowed = new Set(["modelSelection", "requireAvailableModel"]);
+    expect(clientBotPatchViolation({ modelSelection: {} }, modelAllowed)).toBeNull();
+    expect(clientBotPatchViolation({ modelSelection: {}, requireAvailableModel: true }, modelAllowed)).toBeNull();
+    expect(clientBotPatchViolation({ unread: true, modelSelection: {} }, modelAllowed)).toBeNull();
+    // cwd is not in extraAllowed — still rejected
+    expect(clientBotPatchViolation({ modelSelection: {}, cwd: "/" }, modelAllowed)).toBe("cwd");
+    // without extraAllowed, modelSelection is still rejected
+    expect(clientBotPatchViolation({ modelSelection: {} })).toBe("modelSelection");
+  });
 });
 
 describe("resolveRequestAuth", () => {
