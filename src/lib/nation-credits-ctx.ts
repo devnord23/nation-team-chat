@@ -21,8 +21,12 @@ export type CreditStatus = {
   tiers: CreditTier[];
   nationPriceUsd: number | null;
   nationDiscount: number | null;
+  /** The discount the server applies to $NATION invoices. Servers that bill $NATION at the full
+   * price never send it, so "Save N%" is keyed on this and not on nationDiscount. */
+  nationInvoiceDiscount?: number | null;
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string; decimals: number }>;
-  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; expires_at: number; paid_tx: string | null }>;
+  /** discount_bps: how much less this invoice asks in $NATION (2000 = 20%); the credit is unchanged. */
+  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; discount_bps?: number; expires_at: number; paid_tx: string | null }>;
 };
 
 export interface NationCreditsCtxValue {

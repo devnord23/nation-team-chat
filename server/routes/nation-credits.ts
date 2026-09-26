@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { verifyMessage, type Hex } from "viem";
+import { getAddress, verifyMessage, type Hex } from "viem";
 import { z } from "zod";
 import { PASS, type RouteHandler } from "./table.ts";
 import { creditAccount, nationLedger } from "../nation-credit-context.ts";
@@ -47,15 +47,20 @@ export function createNationCreditRoutes(): RouteHandler {
       const ip = (typeof forwarded === "string" && /^[0-9a-f:.]+$/i.test(forwarded) ? forwarded : req.socket.remoteAddress) ?? "";
       const grant = ledger.grant(account, ip, device);
       const balanceUsd = Math.max(0, ledger.balance(account.id) / USD_SCALE);
-      const chains = creditChains().map(({ rpc: _rpc, ...chain }) => chain);
-      // Compute NATION price display for the tier cards toggle
+      // Treasuries are stored lowercase; show them checksummed, as a wallet shows the address.
+      const chains = creditChains().map(({ rpc: _rpc, ...chain }) => ({ ...chain, treasury: getAddress(chain.treasury) }));
+      // $NATION price for the pack cards, and the discount createInvoice applies to $NATION invoices.
+      // nationInvoiceDiscount is new: a client keys "Save N%" on it, so it never advertises a
+      // discount to a server that still bills $NATION at the full price.
       const nationPriceUsd = Number(process.env.NATION_TOKEN_USD_PRICE ?? "");
-      const nationDiscount = Number.isFinite(nationPriceUsd) && nationPriceUsd > 0 ? 0.2 : null;
+      const nationPriced = Number.isFinite(nationPriceUsd) && nationPriceUsd > 0;
+      const nationDiscount = nationPriced && ledger.settings.nationDiscount > 0 ? ledger.settings.nationDiscount : null;
       return json(res, 200, { balanceUsd, label: account.exempt ? "NATION API · owner/admin" : `$${balanceUsd.toFixed(2)} credit left`,
         verified: account.verified, exempt: account.exempt === true, lowBalance: !account.exempt && balanceUsd < ledger.settings.lowUsd,
         topUpEnabled: chains.length > 0, topUpMessage: chains.length ? "Top up" : "Top up coming soon", packs: ledger.settings.packs,
-        tiers: ledger.settings.tiers, nationPriceUsd: nationPriceUsd || null, nationDiscount, chains,
-        starterMessage: grant.reason, invoices: ledger.db.prepare("SELECT id,chain,treasury,token,pack_micros,amount_micros,token_amount,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 5").all(account.id) });
+        tiers: ledger.settings.tiers, nationPriceUsd: nationPriced ? nationPriceUsd : null, nationDiscount, nationInvoiceDiscount: nationDiscount, chains,
+        starterMessage: grant.reason, invoices: ledger.db.prepare("SELECT id,chain,treasury,token,pack_micros,amount_micros,token_amount,discount_bps,expires_at,paid_tx FROM credit_invoices WHERE user_id=? ORDER BY created_at DESC LIMIT 5").all(account.id)
+          .map(row => ({ ...row, treasury: getAddress(String(row.treasury)) })) });
     }
     if (path === "/api/credits/invoices" && method === "POST") {
       const input = invoiceSchema.parse(await readBody(req));
@@ -64,7 +69,7 @@ export function createNationCreditRoutes(): RouteHandler {
       const rpc = chainClient(chain);
       if (await rpc.getChainId() !== chain.id) throw creditError("Payment network is unavailable.", 503);
       const invoice = ledger.createInvoice(account, chain, input.packUsd, await rpc.getBlockNumber());
-      return json(res, 201, { ...invoice, amount: (invoice.amount_micros / USD_SCALE).toFixed(6), symbol: chain.symbol, chainName: chain.name });
+      return json(res, 201, { ...invoice, treasury: getAddress(invoice.treasury), amount: (invoice.amount_micros / USD_SCALE).toFixed(6), symbol: chain.symbol, chainName: chain.name });
     }
     if (path === "/api/credits/confirm" && method === "POST") {
       const input = confirmSchema.parse(await readBody(req));

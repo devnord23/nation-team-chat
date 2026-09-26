@@ -41,37 +41,43 @@ export async function confirmCreditPayment(ledger: CreditLedger, invoice: Credit
   ledger.paid(invoice, hash, amount);
 }
 
+/** One pass of the payment scan. Each chain + token pair keeps its own cursor and matches only its
+ * own invoices: USDG and $NATION share Robinhood Chain's id, and a cursor per chain id let the first
+ * token's pass move past blocks the second had never scanned. Throws so the caller retries later. */
+export async function scanCreditPayments(ledger: CreditLedger, chains: CreditChain[] = creditChains()): Promise<void> {
+  for (const chain of chains) {
+    const invoices = ledger.db.prepare("SELECT * FROM credit_invoices WHERE chain=? AND lower(token)=? AND paid_tx IS NULL ORDER BY created_at").all(chain.id, chain.token.toLowerCase()) as unknown as CreditInvoice[];
+    if (!invoices.length) continue;
+    const rpc = chainClient(chain);
+    if (await rpc.getChainId() !== chain.id) throw new Error("Payment RPC network mismatch");
+    const head = await rpc.getBlockNumber();
+    const end = head - BigInt(ledger.settings.confirmations) + 1n;
+    const cursor = ledger.db.prepare("SELECT block FROM credit_scan_cursors WHERE chain=? AND token=?").get(chain.id, chain.token.toLowerCase());
+    const earliest = invoices.reduce((min, invoice) => BigInt(invoice.from_block) < min ? BigInt(invoice.from_block) : min, BigInt(invoices[0]!.from_block));
+    const start = cursor ? BigInt(String(cursor.block)) + 1n : earliest;
+    if (end < start) continue;
+    const to = start + 499n < end ? start + 499n : end;
+    // A treasury may have changed since an invoice was created. Query each retained destination.
+    for (const treasury of new Set(invoices.map(invoice => invoice.treasury))) {
+      const logs = await rpc.getLogs({ address: chain.token as Hex, event: transferEvent, args: { to: treasury as Hex }, fromBlock: start, toBlock: to, strict: true });
+      for (const log of logs) {
+        const invoice = invoices.find(invoice => invoice.treasury === treasury && BigInt(invoice.token_amount || invoice.amount_micros) === log.args.value);
+        if (!invoice || !log.transactionHash) continue;
+        await confirmCreditPayment(ledger, invoice, log.transactionHash, rpc);
+      }
+    }
+    ledger.db.prepare("INSERT INTO credit_scan_cursors VALUES(?,?,?) ON CONFLICT(chain, token) DO UPDATE SET block=excluded.block").run(chain.id, chain.token.toLowerCase(), String(to));
+  }
+}
+
 /** Persisted scan cursors + retained invoices also recover matching late transfers after a restart. */
 export function startCreditWatcher(ledger: CreditLedger): () => void {
   let running = false, stopped = false;
   const tick = async () => {
     if (running || stopped) return;
     running = true;
-    try {
-      for (const chain of creditChains()) {
-        const invoices = ledger.db.prepare("SELECT * FROM credit_invoices WHERE chain=? AND paid_tx IS NULL ORDER BY created_at").all(chain.id) as unknown as CreditInvoice[];
-        if (!invoices.length) continue;
-        const rpc = chainClient(chain);
-        if (await rpc.getChainId() !== chain.id) throw new Error("Payment RPC network mismatch");
-        const head = await rpc.getBlockNumber();
-        const end = head - BigInt(ledger.settings.confirmations) + 1n;
-        const cursor = ledger.db.prepare("SELECT block FROM credit_cursors WHERE chain=?").get(chain.id);
-        const earliest = invoices.reduce((min, invoice) => BigInt(invoice.from_block) < min ? BigInt(invoice.from_block) : min, BigInt(invoices[0]!.from_block));
-        const start = cursor ? BigInt(String(cursor.block)) + 1n : earliest;
-        if (end < start) continue;
-        const to = start + 499n < end ? start + 499n : end;
-        // A treasury may have changed since an invoice was created. Query each retained destination.
-        for (const treasury of new Set(invoices.map(invoice => invoice.treasury))) {
-          const logs = await rpc.getLogs({ address: chain.token as Hex, event: transferEvent, args: { to: treasury as Hex }, fromBlock: start, toBlock: to, strict: true });
-          for (const log of logs) {
-            const invoice = invoices.find(invoice => invoice.treasury === treasury && BigInt(invoice.token_amount || invoice.amount_micros) === log.args.value);
-            if (!invoice || !log.transactionHash) continue;
-            await confirmCreditPayment(ledger, invoice, log.transactionHash, rpc);
-          }
-        }
-        ledger.db.prepare("INSERT INTO credit_cursors VALUES(?,?) ON CONFLICT(chain) DO UPDATE SET block=excluded.block").run(chain.id, String(to));
-      }
-    } catch { console.error("NATION payment scan paused; retained invoices will be retried."); }
+    try { await scanCreditPayments(ledger); }
+    catch { console.error("NATION payment scan paused; retained invoices will be retried."); }
     finally { running = false; }
   };
   const timer = setInterval(() => { void tick(); }, 30_000); timer.unref();
