@@ -1,4 +1,4 @@
-import { NationCredits } from "@/components/NationCredits";
+import { NationCredits, NationCreditsProvider, isFullPlansPath } from "@/components/NationCredits";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { StoreProvider, apiUrl, useStore } from "@/state/store";
@@ -405,15 +405,26 @@ function Application() {
   useEffect(() => {
     initAnalytics();
   }, []);
+  // Full Plans is a page of its own (navigation to and from it is a full load):
+  // no chat shell or tour underneath to take focus or paint over it.
+  const fullPlans = isFullPlansPath(window.location.pathname, import.meta.env.BASE_URL);
   return (
     <DesktopCapabilitiesProvider>
       <StoreProvider>
-        <ThreadRefsProvider>
-          <Shell />
-        </ThreadRefsProvider>
-        <WelcomeGate />
-        <GuidedTour />
-        <FirstConversationTour />
+        <NationCreditsProvider>
+          {fullPlans ? (
+            <NationCredits />
+          ) : (
+            <>
+              <ThreadRefsProvider>
+                <Shell />
+              </ThreadRefsProvider>
+              <WelcomeGate />
+              <GuidedTour />
+              <FirstConversationTour />
+            </>
+          )}
+        </NationCreditsProvider>
       </StoreProvider>
     </DesktopCapabilitiesProvider>
   );

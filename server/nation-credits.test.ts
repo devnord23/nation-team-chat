@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { createServer } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { encodeEventTopics, encodeAbiParameters, parseAbiItem, type Hex } from "viem";
-import { CreditLedger, creditSettings, creditChains, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
-import { confirmCreditPayment, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
+import { encodeEventTopics, encodeAbiParameters, pad, parseAbiItem, toHex, type Hex } from "viem";
+import { CreditLedger, creditSettings, creditChains, invoiceChain, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
+import { confirmCreditPayment, scanCreditPayments, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
 
 const ledgers: CreditLedger[] = [], roots: string[] = [];
 afterEach(() => { ledgers.splice(0).forEach(ledger => ledger.close()); roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })); });
@@ -56,6 +57,19 @@ describe("credit ledger", () => {
     expect(noNation.find(c => c.symbol === "$NATION")).toBeUndefined();
   });
 
+  it("resolves an invoice's token on the shared Robinhood chain id; token-less requests get USDG", () => {
+    const chains = creditChains({ NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286" });
+    // $NATION is listed first, so a lookup by chain id alone would bill a USDG buyer in $NATION.
+    expect(chains.map(c => c.symbol)).toEqual(["$NATION", "USDG"]);
+    expect(invoiceChain(chains, 4663)).toMatchObject({ symbol: "USDG", decimals: 6 });
+    expect(invoiceChain(chains, 4663, "0xc839A88A05B231515a82c71EE97b4F18973C1340")).toMatchObject({ symbol: "$NATION", decimals: 18 });
+    expect(invoiceChain(chains, 4663, "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168")).toMatchObject({ symbol: "USDG" });
+    // A token that is not offered on that chain, or a dropped chain, never falls back to another entry.
+    expect(invoiceChain(chains, 4663, token)).toBeUndefined();
+    expect(invoiceChain(chains, 8453)).toBeUndefined();
+    expect(invoiceChain(creditChains({ NATION_TREASURY_ROBINHOOD: treasury }), 4663, nationToken)).toBeUndefined();
+  });
+
   it("computes token_amount correctly for USDC (6 dec) and $NATION (18 dec)", () => {
     const amountMicros = 15_500_000;
     // USDC: token_amount == amount_micros
@@ -65,6 +79,43 @@ describe("credit ledger", () => {
     expect(BigInt(nationAmt)).toBe(31_000_000_000_000_000_000n);
     // Missing price throws
     expect(() => invoiceTokenAmount(amountMicros, nationChain, {})).toThrow("NATION_TOKEN_USD_PRICE");
+  });
+
+  it("defaults the $NATION discount to 20%, allows 0 to turn it off, and rejects nonsense", () => {
+    expect(creditSettings({}).nationDiscount).toBe(0.2);
+    expect(creditSettings({ NATION_TOKEN_DISCOUNT: "" }).nationDiscount).toBe(0.2);
+    expect(creditSettings({ NATION_TOKEN_DISCOUNT: "0" }).nationDiscount).toBe(0);
+    expect(creditSettings({ NATION_TOKEN_DISCOUNT: "0.25" }).nationDiscount).toBe(0.25);
+    for (const bad of ["1", "-0.1", "abc"]) expect(() => creditSettings({ NATION_TOKEN_DISCOUNT: bad })).toThrow("NATION_TOKEN_DISCOUNT");
+  });
+
+  it("prices $NATION at the discount and keeps the price's own precision", () => {
+    // $15.50 at $0.50 with 20% off: the buyer sends 24.8 $NATION.
+    expect(BigInt(invoiceTokenAmount(15_500_000, nationChain, { NATION_TOKEN_USD_PRICE: "0.50" }, 2000))).toBe(24_800_000_000_000_000_000n);
+    // $1 at $0.00028637 is 1e30 / 286_370_000 units; rounding the price to whole micro-dollars ($0.000286) would ask 0.13% more.
+    expect(BigInt(invoiceTokenAmount(1_000_000, nationChain, { NATION_TOKEN_USD_PRICE: "0.00028637" }))).toBe(10n ** 30n / 286_370_000n);
+    expect(() => invoiceTokenAmount(1_000_000, nationChain, { NATION_TOKEN_USD_PRICE: "0.0000000000001" })).toThrow("NATION_TOKEN_USD_PRICE");
+    expect(() => invoiceTokenAmount(1_000_000, nationChain, { NATION_TOKEN_USD_PRICE: "0.5" }, 10_000)).toThrow("discount");
+  });
+
+  it("bills $NATION invoices 20% under the pack price, bills USDG in full, and credits both in full", () => {
+    const env = { NATION_TOKEN_USD_PRICE: "0.000286" };
+    const db = ledger(env);
+    db.account(account());
+    const nation = db.createInvoice(account(), nationChain, 49, 1n);
+    expect(nation.discount_bps).toBe(2000);
+    const undiscounted = BigInt(invoiceTokenAmount(nation.amount_micros, nationChain, env));
+    expect(Number(BigInt(nation.token_amount) * 1_000_000n / undiscounted) / 1_000_000).toBeCloseTo(0.8, 5);
+    expect(nation.amount_micros).toBeGreaterThanOrEqual(49_000_000); // the credit stays the full pack
+    const usdg = db.createInvoice(account(), { ...nationChain, symbol: "USDG", token, decimals: 6 }, 49, 1n);
+    expect(usdg.discount_bps).toBe(0);
+    expect(usdg.token_amount).toBe(String(usdg.amount_micros));
+    // Turning the discount off bills $NATION at the full price.
+    const full = ledger({ ...env, NATION_TOKEN_DISCOUNT: "0" });
+    full.account(account("full"));
+    const fullInvoice = full.createInvoice(account("full"), nationChain, 49, 1n);
+    expect(fullInvoice.discount_bps).toBe(0);
+    expect(fullInvoice.token_amount).toBe(invoiceTokenAmount(fullInvoice.amount_micros, nationChain, env));
   });
 
   it("stores token_amount on NATION invoices and '' for USDC invoices", () => {
@@ -171,11 +222,13 @@ describe("credit ledger", () => {
       CREATE TABLE credit_cursors(chain INTEGER PRIMARY KEY, block TEXT NOT NULL);
     `);
     legacyDb.close();
-    // Opening with new CreditLedger should not throw (migration adds token_amount)
-    const migrated = new CreditLedger(file, creditSettings({})); ledgers.push(migrated);
+    // Opening with new CreditLedger should not throw (migration adds token_amount and discount_bps)
+    const migrated = new CreditLedger(file, creditSettings({}), { NATION_TOKEN_USD_PRICE: "0.000286" }); ledgers.push(migrated);
     migrated.account(account());
     const inv = migrated.createInvoice(account(), usdcChain, 15, 1n);
     expect(inv.token_amount).toBeDefined();
+    expect(inv.discount_bps).toBe(0);
+    expect(migrated.createInvoice(account(), nationChain, 15, 1n).discount_bps).toBe(2000);
   });
 });
 describe("server-side transfer verification", () => {
@@ -205,5 +258,112 @@ describe("server-side transfer verification", () => {
       return { ...receipt, logs: [log] };
     } });
     await expect(verifyCreditPayment(inv, tx(), bad, 3)).rejects.toThrow("does not match");
+  });
+});
+describe("discounted $NATION payments", () => {
+  const nationReceipt = (inv: CreditInvoice, value: bigint): PaymentRpc => rpc(inv, {
+    getChainId: async () => 4663,
+    getTransactionReceipt: async ({ hash }) => ({ status: "success", transactionHash: hash, blockNumber: 10n, blockHash: tx("b"), logs: [{ address: nationToken,
+      topics: encodeEventTopics({ abi: [event], eventName: "Transfer", args: { from: "0x2222222222222222222222222222222222222222", to: treasury } }) as Hex[],
+      data: encodeAbiParameters([{ type: "uint256" }], [value]),
+    }] }),
+  });
+
+  it("a pasted hash for the discounted amount credits the full pack; the undiscounted amount is refused", async () => {
+    const env = { NATION_TOKEN_USD_PRICE: "0.000286" };
+    const db = ledger(env);
+    db.account(account());
+    const inv = db.createInvoice(account(), nationChain, 49, 10n, 1_000_000);
+    const undiscounted = BigInt(invoiceTokenAmount(inv.amount_micros, nationChain, env));
+    await expect(verifyCreditPayment(inv, tx("d"), nationReceipt(inv, undiscounted), 3)).rejects.toThrow("exact amount");
+    await confirmCreditPayment(db, inv, tx("e"), nationReceipt(inv, BigInt(inv.token_amount)));
+    expect(db.balance(inv.user_id)).toBe(inv.amount_micros);
+    expect(db.invoice(inv.id)?.paid_tx).toBe(tx("e"));
+  });
+});
+
+describe("payment watcher", () => {
+  /** A loopback JSON-RPC stand-in for Robinhood Chain: real viem requests, fixture transfers only. */
+  async function fakeChain(transfers: Array<{ token: string; to: string; value: bigint; hash: Hex; block: bigint }>, head: bigint, timestamp: bigint) {
+    const topic = (address: string) => pad(address as Hex, { size: 32 }).toLowerCase();
+    const blockHash = (n: bigint) => pad(toHex(n), { size: 32 });
+    const toLog = (t: (typeof transfers)[number]) => ({
+      address: t.token, topics: [...encodeEventTopics({ abi: [event], eventName: "Transfer", args: { from: "0x2222222222222222222222222222222222222222", to: t.to as Hex } })],
+      data: encodeAbiParameters([{ type: "uint256" }], [t.value]), blockNumber: toHex(t.block), blockHash: blockHash(t.block),
+      transactionHash: t.hash, transactionIndex: "0x0", logIndex: "0x0", removed: false,
+    });
+    const methods: string[] = [];
+    const server = createServer(async (req, res) => {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const call = JSON.parse(raw) as { id: number; method: string; params: any[] };
+      methods.push(call.method);
+      const reply = (result: unknown) => res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, result }));
+      if (call.method === "eth_chainId") return reply("0x1237");
+      if (call.method === "eth_blockNumber") return reply(toHex(head));
+      if (call.method === "eth_getLogs") {
+        const filter = call.params[0], from = BigInt(filter.fromBlock), to = BigInt(filter.toBlock);
+        return reply(transfers.filter(t => t.token === String(filter.address).toLowerCase() && topic(t.to) === String(filter.topics?.[2]).toLowerCase()
+          && t.block >= from && t.block <= to).map(toLog));
+      }
+      if (call.method === "eth_getTransactionReceipt") {
+        const t = transfers.find(t => t.hash === call.params[0]);
+        return reply(t ? { transactionHash: t.hash, blockNumber: toHex(t.block), blockHash: blockHash(t.block), status: "0x1", logs: [toLog(t)],
+          transactionIndex: "0x0", from: "0x2222222222222222222222222222222222222222", to: t.token, cumulativeGasUsed: "0x0", gasUsed: "0x0",
+          effectiveGasPrice: "0x0", contractAddress: null, type: "0x2", logsBloom: "0x" + "0".repeat(512) } : null);
+      }
+      if (call.method === "eth_getBlockByNumber") {
+        const n = BigInt(call.params[0]);
+        return reply({ number: toHex(n), hash: blockHash(n), parentHash: blockHash(n - 1n), timestamp: toHex(timestamp), transactions: [],
+          gasLimit: "0x0", gasUsed: "0x0", miner: "0x0000000000000000000000000000000000000000", difficulty: "0x0", extraData: "0x", size: "0x0" });
+      }
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, error: { code: -32601, message: "fixture: unsupported" } }));
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    closers.push(() => new Promise<void>(resolve => server.close(() => resolve())));
+    return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, methods };
+  }
+  const closers: Array<() => Promise<void>> = [];
+  afterEach(async () => { await Promise.all(closers.splice(0).map(close => close())); });
+
+  it("finds a USDG payment even though $NATION is listed first on the same chain id", async () => {
+    const now = Date.now();
+    const transfers: Parameters<typeof fakeChain>[0] = [];
+    const chainRpc = await fakeChain(transfers, 20n, BigInt(Math.floor(now / 1000)) + 5n);
+    const env = { NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286", NATION_RPC_ROBINHOOD: chainRpc.url };
+    const chains = creditChains(env);
+    expect(chains.map(c => c.symbol)).toEqual(["$NATION", "USDG"]);
+    const db = ledger(env);
+    db.account(account());
+    const usdg = db.createInvoice(account(), chains[1]!, 15, 10n, now);
+    const nation = db.createInvoice(account(), chains[0]!, 15, 10n, now);
+    transfers.push({ token: chains[1]!.token, to: treasury, value: BigInt(usdg.token_amount), hash: tx("f"), block: 12n });
+
+    await scanCreditPayments(db, chains);
+
+    expect(db.invoice(usdg.id)?.paid_tx).toBe(tx("f"));
+    expect(db.balance(account().id)).toBe(usdg.amount_micros);
+    expect(db.invoice(nation.id)?.paid_tx).toBeNull();
+    // One cursor per token, each at the last confirmed block (head 20, 3 confirmations).
+    expect(db.db.prepare("SELECT token, block FROM credit_scan_cursors ORDER BY token").all())
+      .toEqual([{ token: chains[1]!.token, block: "18" }, { token: chains[0]!.token, block: "18" }].sort((a, b) => a.token.localeCompare(b.token)));
+    expect(chainRpc.methods).toContain("eth_getTransactionReceipt");
+  });
+
+  it("a $NATION transfer for the discounted amount is found and credited in full", async () => {
+    const now = Date.now();
+    const transfers: Parameters<typeof fakeChain>[0] = [];
+    const chainRpc = await fakeChain(transfers, 20n, BigInt(Math.floor(now / 1000)) + 5n);
+    const env = { NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286", NATION_RPC_ROBINHOOD: chainRpc.url };
+    const chains = creditChains(env);
+    const db = ledger(env);
+    db.account(account());
+    const nation = db.createInvoice(account(), chains[0]!, 49, 10n, now);
+    transfers.push({ token: chains[0]!.token, to: treasury, value: BigInt(nation.token_amount), hash: tx("9"), block: 11n });
+
+    await scanCreditPayments(db, chains);
+
+    expect(db.invoice(nation.id)?.paid_tx).toBe(tx("9"));
+    expect(db.balance(account().id)).toBe(nation.amount_micros);
   });
 });

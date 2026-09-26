@@ -13,7 +13,8 @@ export function creditError(message: string, status = 400): Error & { status: nu
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
 export interface CreditTier { id: string; name: string; usd: number; creditUsd: number; popular: boolean }
-export interface CreditSettings { freeUsd: number; markup: number; lowUsd: number; packs: number[]; grantsPerIp: number; confirmations: number; tiers: CreditTier[] }
+/** nationDiscount: share of the pack price a $NATION payment skips (0.2 = send 20% less; the credit is unchanged). */
+export interface CreditSettings { freeUsd: number; markup: number; lowUsd: number; packs: number[]; grantsPerIp: number; confirmations: number; tiers: CreditTier[]; nationDiscount: number }
 
 const DEFAULT_TIERS: CreditTier[] = [
   { id: "starter", name: "Starter", usd: 15, creditUsd: 15, popular: false },
@@ -37,29 +38,37 @@ export function creditSettings(env: NodeJS.ProcessEnv = process.env): CreditSett
     const def = defaultByUsd.get(usd);
     return def ?? { id: `pack${i}`, name: `$${usd} pack`, usd, creditUsd: usd, popular: false };
   });
+  // An empty NATION_TOKEN_DISCOUNT= line means the default, not "no discount"; set 0 to turn it off.
+  const nationDiscount = env.NATION_TOKEN_DISCOUNT?.trim() ? number("NATION_TOKEN_DISCOUNT", 0.2, 0, 0.9) : 0.2;
   return { freeUsd: number("NATION_FREE_CREDIT_USD", 3, 2, 5), markup: number("NATION_CREDIT_MARKUP", 1, 0.01, 100),
-    lowUsd: number("NATION_LOW_BALANCE_USD", 0.5, 0, 1000), packs: [...new Set(packs)], grantsPerIp, confirmations, tiers };
+    lowUsd: number("NATION_LOW_BALANCE_USD", 0.5, 0, 1000), packs: [...new Set(packs)], grantsPerIp, confirmations, tiers, nationDiscount };
 }
 export interface CreditAccount { id: string; verified: boolean; email?: string; exempt?: boolean }
-/** token_amount: expected ERC-20 transfer uint256 value as decimal string; empty string means use amount_micros (legacy USDC invoices). */
-export interface CreditInvoice { id: string; user_id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; created_at: number; expires_at: number; paid_tx: string | null; from_block: string; token_amount: string }
+/** token_amount: expected ERC-20 transfer uint256 value as decimal string; empty string means use amount_micros (legacy USDC invoices).
+ * amount_micros is always what the payment credits; discount_bps records how much less a $NATION buyer sends for it. */
+export interface CreditInvoice { id: string; user_id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; created_at: number; expires_at: number; paid_tx: string | null; from_block: string; token_amount: string; discount_bps: number }
 /** decimals: ERC-20 token decimals (6 for USDC/USDG, 18 for $NATION). */
 export interface CreditChain { id: number; name: string; symbol: string; token: string; treasury: string; rpc: string; decimals: number }
+
+/** NATION_TOKEN_USD_PRICE is held in pico-dollars: a $0.000286 token keeps every digit an operator sets. */
+const PRICE_SCALE = 1_000_000_000_000;
 
 /**
  * Compute the expected ERC-20 transfer uint256 value for an invoice.
  * For 6-decimal tokens (USDC/USDG) this equals amountMicros directly.
- * For 18-decimal tokens ($NATION) this converts USD micros → token units via NATION_TOKEN_USD_PRICE.
+ * For 18-decimal tokens ($NATION) this converts USD micros → token units via NATION_TOKEN_USD_PRICE,
+ * less discountBps (2000 = the buyer sends 20% less $NATION; the invoice still credits amountMicros).
  * Returns result as a decimal string safe for BigInt.
  */
-export function invoiceTokenAmount(amountMicros: number, chain: CreditChain, env: NodeJS.ProcessEnv = process.env): string {
+export function invoiceTokenAmount(amountMicros: number, chain: CreditChain, env: NodeJS.ProcessEnv = process.env, discountBps = 0): string {
   if (chain.decimals === 6) return String(amountMicros);
   const priceUsd = Number(env.NATION_TOKEN_USD_PRICE ?? "");
-  if (!Number.isFinite(priceUsd) || priceUsd <= 0) throw creditError("NATION_TOKEN_USD_PRICE must be set to a positive number to use $NATION payments.", 503);
-  // token_units = floor(amountMicros * 10^(decimals-6) * USD_SCALE / round(priceUsd * USD_SCALE))
-  const scale = BigInt(10 ** (chain.decimals - 6));
-  const priceMicros = BigInt(Math.round(priceUsd * USD_SCALE));
-  return String((BigInt(amountMicros) * scale * BigInt(USD_SCALE)) / priceMicros);
+  const pricePico = Number.isFinite(priceUsd) ? BigInt(Math.round(priceUsd * PRICE_SCALE)) : 0n;
+  if (pricePico <= 0n) throw creditError("NATION_TOKEN_USD_PRICE must be set to a positive number to use $NATION payments.", 503);
+  if (!Number.isInteger(discountBps) || discountBps < 0 || discountBps >= 10_000) throw creditError("Invalid $NATION discount");
+  // token_units = floor(amountMicros/USD_SCALE × (1 − discount) ÷ (pricePico/PRICE_SCALE) × 10^decimals), in integers.
+  return String((BigInt(amountMicros) * BigInt(10_000 - discountBps) * BigInt(PRICE_SCALE) * 10n ** BigInt(chain.decimals))
+    / (BigInt(USD_SCALE) * 10_000n * pricePico));
 }
 
 export function creditChains(env: NodeJS.ProcessEnv = process.env): CreditChain[] {
@@ -73,6 +82,13 @@ export function creditChains(env: NodeJS.ProcessEnv = process.env): CreditChain[
   ];
   return specs.flatMap(spec => spec.treasury && /^0x[0-9a-f]{40}$/i.test(spec.treasury) && !/^0x0{40}$/i.test(spec.treasury)
     ? [{ ...spec, treasury: spec.treasury.toLowerCase(), token: spec.token.toLowerCase() }] : []);
+}
+/** The payment entry an invoice request names. USDG and $NATION share Robinhood Chain's id, so the token
+ * address decides; a request without one (a client from before the pay toggle) gets the stablecoin rather
+ * than whichever entry happens to be listed first. */
+export function invoiceChain(chains: CreditChain[], id: number, token?: string): CreditChain | undefined {
+  const onChain = chains.filter(chain => chain.id === id);
+  return token ? onChain.find(chain => chain.token === token.toLowerCase()) : onChain.find(chain => chain.symbol !== "$NATION");
 }
 const DISPOSABLE = new Set(["mailinator.com", "guerrillamail.com", "guerrillamail.net", "10minutemail.com", "10minutemail.net", "tempmail.com", "temp-mail.org", "yopmail.com", "yopmail.fr", "dispostable.com", "trashmail.com", "getnada.com", "sharklasers.com", "grr.la", "guerrillamailblock.com", "maildrop.cc", "mohmal.com", "fakeinbox.com", "throwawaymail.com"]);
 export function disposableEmail(email: string, extra = process.env.NATION_DISPOSABLE_EMAIL_DOMAINS ?? ""): boolean {
@@ -101,17 +117,23 @@ export class CreditLedger {
       CREATE INDEX IF NOT EXISTS credit_ledger_user ON credit_ledger(user_id, created_at);
       CREATE TABLE IF NOT EXISTS credit_grants(user_id TEXT PRIMARY KEY REFERENCES credit_accounts(id), ip_hash TEXT NOT NULL, device_hash TEXT NOT NULL UNIQUE, day TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS credit_grants_ip_day ON credit_grants(ip_hash, day);
-      CREATE TABLE IF NOT EXISTS credit_invoices(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES credit_accounts(id), chain INTEGER NOT NULL, treasury TEXT NOT NULL, token TEXT NOT NULL, pack_micros INTEGER NOT NULL, amount_micros INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, paid_tx TEXT UNIQUE, from_block TEXT NOT NULL, token_amount TEXT NOT NULL DEFAULT '', UNIQUE(chain,amount_micros));
+      CREATE TABLE IF NOT EXISTS credit_invoices(id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES credit_accounts(id), chain INTEGER NOT NULL, treasury TEXT NOT NULL, token TEXT NOT NULL, pack_micros INTEGER NOT NULL, amount_micros INTEGER NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, paid_tx TEXT UNIQUE, from_block TEXT NOT NULL, token_amount TEXT NOT NULL DEFAULT '', discount_bps INTEGER NOT NULL DEFAULT 0, UNIQUE(chain,amount_micros));
       CREATE TABLE IF NOT EXISTS credit_wallets(session_id TEXT PRIMARY KEY, address TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_challenges(id TEXT PRIMARY KEY, session_id TEXT NOT NULL, address TEXT NOT NULL, message TEXT NOT NULL, expires_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_calls(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, state TEXT NOT NULL, provider_id TEXT, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_sponsors(thread_id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_cursors(chain INTEGER PRIMARY KEY, block TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS credit_scan_cursors(chain INTEGER NOT NULL, token TEXT NOT NULL, block TEXT NOT NULL, PRIMARY KEY(chain, token));
     `);
-    // Forward-compatible migration: add token_amount column to existing databases that predate this field.
+    // credit_cursors kept one block per chain id, which USDG and $NATION share; the payment
+    // scan now keeps one per chain + token in credit_scan_cursors and no longer reads it.
+    // Forward-compatible migrations: add columns to existing databases that predate them.
     const cols = (this.db.prepare("PRAGMA table_info(credit_invoices)").all() as { name: string }[]).map(c => c.name);
     if (!cols.includes("token_amount")) {
       this.db.exec("ALTER TABLE credit_invoices ADD COLUMN token_amount TEXT NOT NULL DEFAULT ''");
+    }
+    if (!cols.includes("discount_bps")) {
+      this.db.exec("ALTER TABLE credit_invoices ADD COLUMN discount_bps INTEGER NOT NULL DEFAULT 0");
     }
   }
   close() { this.db.close(); }
@@ -194,6 +216,8 @@ export class CreditLedger {
     if (!account.verified) throw creditError("Verify your account first.", 403);
     if (!this.settings.packs.includes(packUsd)) throw creditError("Unknown credit pack");
     this.account(account, now);
+    // Only $NATION is discounted; the stablecoin pays the pack price.
+    const discountBps = chain.symbol === "$NATION" ? Math.round(this.settings.nationDiscount * 10_000) : 0;
     return this.transaction(() => {
       const open = Number(this.db.prepare("SELECT COUNT(*) AS n FROM credit_invoices WHERE user_id=? AND expires_at>? AND paid_tx IS NULL").get(account.id, now)?.n ?? 0);
       if (open >= 5) throw creditError("Use one of your current payment requests before creating another.", 429);
@@ -202,8 +226,8 @@ export class CreditLedger {
         const amount = pack + randomInt(1, 1_000_000);
         if (this.db.prepare("SELECT 1 FROM credit_invoices WHERE chain=? AND amount_micros=?").get(chain.id, amount)) continue;
         const id = randomUUID();
-        const tokenAmt = invoiceTokenAmount(amount, chain, this.env);
-        this.db.prepare("INSERT INTO credit_invoices(id,user_id,chain,treasury,token,pack_micros,amount_micros,created_at,expires_at,paid_tx,from_block,token_amount) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?)").run(id, account.id, chain.id, chain.treasury, chain.token.toLowerCase(), pack, amount, now, now + 30 * 60_000, String(block), tokenAmt);
+        const tokenAmt = invoiceTokenAmount(amount, chain, this.env, discountBps);
+        this.db.prepare("INSERT INTO credit_invoices(id,user_id,chain,treasury,token,pack_micros,amount_micros,created_at,expires_at,paid_tx,from_block,token_amount,discount_bps) VALUES(?,?,?,?,?,?,?,?,?,NULL,?,?,?)").run(id, account.id, chain.id, chain.treasury, chain.token.toLowerCase(), pack, amount, now, now + 30 * 60_000, String(block), tokenAmt, discountBps);
         return this.invoice(id)!;
       }
       throw creditError("Payment requests are busy. Please try again.", 503);

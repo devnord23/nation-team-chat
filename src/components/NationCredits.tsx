@@ -1,25 +1,42 @@
 /**
  * Nation credit top-up UX.
  *
- * Entry points:
- *   – /subscription → full-page Plans screen (founder-preferred primary surface)
- *   – /subscription?pack=15|49|99 → auto-opens checkout for that pack
- *   – /subscription?asset=USDG|NATION → pre-selects pay token
- *   – Bottom-left account chip (SidebarProfileMenu) → openSheet() → bottom sheet
- *   – Top banner "Top up" link → openSheet() → bottom sheet
- *   – Settings → Usage "NationCreditsSettingsRow" → openSubscription() → /subscription
+ * Full Plans is the one place credit is bought:
+ *   – thenation.city/subscription (vercel.json rewrite) and <base>/subscription render it
+ *   – ?pack=15|49|99 starts checkout for that pack; ?asset=USDG|NATION pre-selects the pay token
+ *   – the top strip's "Top up", Settings → Billing & Credits and the account menu's
+ *     "Add credits" all navigate there with a full page load
+ * The bottom sheet is kept only for "Get free starter credit" (wallet verification).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { ChevronLeft, CircleDollarSign } from "lucide-react";
 import type { EIP1193Provider, Hex } from "viem";
 import { api, useStore } from "@/state/store";
 import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier } from "@/lib/nation-credits-ctx";
 import { SettingRow } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
 
-// Module-level constant so subscription path is stable across renders.
-// import.meta.env.BASE_URL is "/swarm/" in Vite dev, "/" on the live VPS.
-const SUBSCRIPTION_PATH = (import.meta.env.BASE_URL + "subscription").replace(/\/\//g, "/");
+const BASE_URL = import.meta.env.BASE_URL;
+
+/** Where Full Plans lives. Production hosts answer thenation.city/subscription (a vercel.json
+ * rewrite; the desktop server serves the app for every path), while the Vite dev server only
+ * serves paths under the base. */
+export function fullPlansHref(dev: boolean, base: string): string {
+  return dev ? `${base}subscription`.replace(/\/\//g, "/") : "/subscription";
+}
+export const FULL_PLANS_HREF = fullPlansHref(import.meta.env.DEV, BASE_URL);
+
+/** The public URL and the base-relative one both render Full Plans. */
+export function isFullPlansPath(pathname: string, base: string): boolean {
+  const path = pathname.replace(/\/+$/, "");
+  return path === "/subscription" || path === `${base}subscription`.replace(/\/\//g, "/");
+}
+
+/** Buying credit is a page of its own, never the sheet. */
+export function goToFullPlans(): void {
+  window.location.assign(FULL_PLANS_HREF);
+}
 
 // ─── style tokens ────────────────────────────────────────────────────────────
 const btn =
@@ -45,6 +62,46 @@ type StripStatus = {
 type Chain = CreditStatus["chains"][number];
 type Invoice = CreditStatus["invoices"][number];
 
+// ─── Payment helpers (exported for unit tests) ───────────────────────────────
+/** An invoice's own chain entry. USDG and $NATION share Robinhood Chain's id, so the token
+ * address has to match too. */
+function chainFor(invoice: Pick<Invoice, "chain" | "token">, chains: Chain[]): Chain | undefined {
+  return chains.find((c) => c.id === invoice.chain && c.token.toLowerCase() === invoice.token.toLowerCase());
+}
+
+/** $NATION is offered only when the server lists its chain entry and prices it. */
+export function nationPayable(status: Pick<CreditStatus, "chains" | "nationPriceUsd"> | null): boolean {
+  return Boolean(
+    status && status.nationPriceUsd != null && status.nationPriceUsd > 0 &&
+      status.chains.some((c) => c.symbol === "$NATION"),
+  );
+}
+
+/** Body for POST /api/credits/invoices. The token address, not the shared chain id, picks
+ * the currency the invoice is billed in. */
+export function invoiceRequest(
+  chains: Chain[],
+  payWithNation: boolean,
+  packUsd: number,
+): { chain: number; token: string; packUsd: number } | null {
+  const chain = chains.find((c) => (c.symbol === "$NATION") === payWithNation);
+  return chain ? { chain: chain.id, token: chain.token, packUsd } : null;
+}
+
+/** An exact on-chain amount in whole tokens: 52447552447552447552447n at 18 decimals is
+ * "52447.552447552447552447". A rounded figure would ask for a transfer that never matches. */
+export function formatTokenUnits(units: bigint, decimals: number): string {
+  const scale = 10n ** BigInt(decimals);
+  const fraction = (units % scale).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return fraction ? `${units / scale}.${fraction}` : String(units / scale);
+}
+
+/** What an invoice asks for, in whole tokens of its chain entry. Stablecoin invoices from
+ * before token_amount existed carry only micros, which are already their token units. */
+export function invoiceAmount(invoice: Invoice, chain: Chain): string {
+  return formatTokenUnits(BigInt(invoice.token_amount || invoice.amount_micros), chain.decimals ?? 6);
+}
+
 // ─── Orphan invoice guard (exported for unit tests) ───────────────────────────
 /**
  * Return only pending invoices whose chain+token pair is still present in the
@@ -56,8 +113,31 @@ export function filterLivePendingInvoices(
   invoices: Invoice[],
   chains: Chain[],
 ): Invoice[] {
-  const live = new Set(chains.map((c) => `${c.id}:${c.token}`));
-  return invoices.filter((i) => !i.paid_tx && live.has(`${i.chain}:${i.token}`));
+  return invoices.filter((i) => !i.paid_tx && chainFor(i, chains) !== undefined);
+}
+
+export type PendingRow = { invoice: Invoice; symbol: string; amount: string; expired: boolean };
+
+/** Pending payment requests worth offering to resume: unpaid, on a chain+token pair the
+ * server still offers, and for an amount that is not zero at the precision shown. Anything
+ * else is what used to render as "25.1462 ?" or "0.0000 $NATION". */
+export function pendingInvoiceRows(invoices: Invoice[], chains: Chain[], now = Date.now()): PendingRow[] {
+  return filterLivePendingInvoices(invoices, chains).flatMap((invoice) => {
+    const chain = chainFor(invoice, chains)!;
+    let amount: number;
+    try {
+      amount = Number(invoiceAmount(invoice, chain));
+    } catch {
+      return [];
+    }
+    if (!(amount >= 0.00005)) return [];
+    return [{
+      invoice,
+      symbol: chain.symbol,
+      amount: amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
+      expired: invoice.expires_at <= now,
+    }];
+  });
 }
 
 // ─── wallet helpers ───────────────────────────────────────────────────────────
@@ -72,9 +152,9 @@ async function injectedWallet() {
 }
 
 // ─── Pure strip (exported for tests and reuse) ────────────────────────────────
-/** Top banner shown in the chat shell. `onOpen` is called when the user clicks
- * any credit action. Hidden automatically on the /subscription full page. */
-export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; onOpen: () => void }) {
+/** Top banner shown in the chat shell. "Top up" is a link to Full Plans; only the free
+ * starter credit opens the sheet. Hidden on Full Plans itself. */
+export function NationCreditsStrip({ status, onStarter }: { status: StripStatus; onStarter: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-3 border-b border-hairline/30 bg-panel px-4 py-2 text-xs text-ink">
       <span>{status.exempt ? "NATION API" : status.label}</span>
@@ -82,14 +162,14 @@ export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; on
         <span>Your teammates are ready when you are. Add credit to keep going.</span>
       )}
       {!status.verified && (
-        <button className="underline" onClick={onOpen}>
+        <button className="underline" onClick={onStarter}>
           Get free starter credit
         </button>
       )}
       {status.topUpEnabled ? (
-        <button className="font-medium underline" onClick={onOpen}>
+        <a className="font-medium underline" href={FULL_PLANS_HREF}>
           Top up
-        </button>
+        </a>
       ) : !status.exempt ? (
         <span>{status.topUpMessage}</span>
       ) : status.topUpMessage ? (
@@ -99,147 +179,271 @@ export function NationCreditsStrip({ status, onOpen }: { status: StripStatus; on
   );
 }
 
-// ─── Tier card ───────────────────────────────────────────────────────────────
-/** Exported for unit tests. Tapping the card calls onSelect directly — no
- * separate "Pay" button is required at the parent level. */
-export function TierCard({
-  tier,
-  selected,
-  payWithNation,
-  nationPriceUsd,
-  nationDiscount,
-  nonNationSymbol,
-  onSelect,
-  disabled,
-}: {
-  tier: CreditTier;
-  selected: boolean;
-  payWithNation: boolean;
-  nationPriceUsd: number | null;
-  nationDiscount: number | null;
-  nonNationSymbol: string;
-  onSelect: () => void;
-  disabled: boolean;
-}) {
-  const usdLabel = `$${tier.usd}`;
-  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+// ─── Full Plans pieces (exported for unit tests) ─────────────────────────────
+/** The NATION column mark. Swapping the logo means replacing this one file. */
+export const NATION_MARK_SRC = `${BASE_URL}nation-mark.png`;
 
-  const nationAmount =
-    nationPriceUsd && nationPriceUsd > 0
-      ? (tier.usd / nationPriceUsd).toFixed(2)
-      : null;
-  const nationLabel = nationAmount ? `${nationAmount} $NATION` : null;
+/** The discount this server applies to $NATION invoices, or 0. Only a server that reports
+ * nationInvoiceDiscount applies one: an older server sends nationDiscount but bills $NATION at
+ * the full pack price, and "Save 20%" must never sit over a full-price charge. */
+export function nationInvoiceDiscount(status: Pick<CreditStatus, "nationInvoiceDiscount"> | null): number {
+  const discount = status?.nationInvoiceDiscount;
+  return typeof discount === "number" && discount > 0 && discount < 1 ? discount : 0;
+}
 
-  const primaryPrice = payWithNation && nationLabel ? nationLabel : usdLabel;
+/** What a pack costs in USD when paid with a token carrying `discount` — the share the server
+ * keeps is (10000 − discount in basis points) / 10000, exactly as it prices the invoice. */
+export function packPriceUsd(packUsd: number, discount: number): number {
+  return Math.round(packUsd * (10_000 - Math.round(discount * 10_000))) / 10_000;
+}
 
-  // Secondary price shows the alternative token when both are available.
-  const secondaryPrice =
-    nationLabel && payWithNation
-      ? `= ${usdLabel} value`
-      : nationLabel
-        ? `≈ ${nationLabel} · save ~${discountPct}%`
-        : null;
+/** "$12", "$39.20". */
+export function formatUsd(value: number): string {
+  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
+}
 
-  const ctaLabel = payWithNation
-    ? `Pay ${primaryPrice} in $NATION`
-    : `Pay ${usdLabel} with ${nonNationSymbol}`;
+function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
 
+/** Full Plans header: the mark, a short headline and one pitch. */
+export function FullPlansHeader({ status }: { status: CreditStatus | null }) {
+  const stableSymbol = status?.chains.find((c) => c.symbol !== "$NATION")?.symbol ?? "USDG";
+  const tokens = nationPayable(status) ? `${stableSymbol} or $NATION` : stableSymbol;
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onSelect}
-      className={cn(
-        "relative flex flex-col gap-3 rounded-2xl border p-5 text-left transition-all",
-        selected
-          ? "border-accent bg-accent/8 shadow-sm ring-1 ring-accent/40"
-          : "border-hairline/60 bg-panel hover:border-accent/40 hover:bg-raised/50",
-        disabled && "opacity-50 pointer-events-none",
-      )}
-    >
-      {tier.popular && (
-        <span className="absolute -top-2.5 right-4 rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-ink">
-          Most popular
-        </span>
-      )}
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[15px] font-semibold text-ink">{tier.name}</p>
-          <p className="mt-0.5 text-[22px] font-bold text-ink">{primaryPrice}</p>
-          {secondaryPrice && (
-            <p className="mt-0.5 text-[12px] font-medium text-accent">{secondaryPrice}</p>
-          )}
-        </div>
-        {payWithNation && (
-          <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent">
-            Save ~{discountPct}%
-          </span>
-        )}
+    <header className="max-w-3xl">
+      <div className="flex items-center gap-3">
+        <img src={NATION_MARK_SRC} alt="NATION" width={40} height={40} className="size-10 rounded-xl" />
+        <span className="text-[13px] font-semibold uppercase tracking-[0.16em] text-nation-text">Full Plans</span>
       </div>
-      <p className="text-[12px] text-ink-secondary">
-        ${tier.creditUsd} permanent credit · never expires
+      <h1 id="full-plans-title" className="mt-6 text-[34px] font-bold leading-[1.1] tracking-tight text-ink sm:text-[44px]">
+        Permanent credit for your whole AI team.
+      </h1>
+      <p className="mt-3 text-[17px] leading-relaxed text-ink-secondary">
+        Top up once with {tokens} on Robinhood Chain. Credit never expires and is only spent when your
+        teammates work — no subscription, nothing renews.
       </p>
-      <div
-        className={cn(
-          "mt-1 w-full rounded-xl py-2.5 text-center text-[13px] font-semibold",
-          selected
-            ? "bg-accent text-accent-ink"
-            : "bg-raised/70 text-ink hover:bg-raised",
-        )}
-      >
-        {ctaLabel}
-      </div>
-    </button>
+    </header>
   );
 }
 
-// ─── Payment token toggle ─────────────────────────────────────────────────────
-/** Shown only when ≥2 payable symbols exist (hasNation = true). */
-export function TokenToggle({
+/** "Pay with": compact pills. USDG is the default; $NATION appears only when the server prices it. */
+export function PayWith({
   payWithNation,
   hasNation,
-  nonNationSymbol,
+  stableSymbol,
   nationDiscount,
   onChange,
+  disabled = false,
 }: {
   payWithNation: boolean;
   hasNation: boolean;
-  nonNationSymbol: string;
-  nationDiscount: number | null;
+  stableSymbol: string;
+  /** The discount the server applies to $NATION invoices (0 when none). */
+  nationDiscount: number;
   onChange: (nation: boolean) => void;
+  disabled?: boolean;
 }) {
-  if (!hasNation) return null;
-  const discountPct = nationDiscount ? Math.round(nationDiscount * 100) : 20;
+  const labelId = useId();
+  const pct = Math.round(nationDiscount * 100);
+  const pill = "flex items-center gap-2 rounded-full px-4 py-1.5 text-[15px] font-semibold";
+  const chosen = "bg-panel text-ink shadow-sm ring-1 ring-hairline";
+  const stableIcon = <CircleDollarSign aria-hidden size={18} className="text-ink-secondary" />;
+  const options = [
+    { nation: true, label: "$NATION", icon: <img src={NATION_MARK_SRC} alt="" width={20} height={20} className="size-5 rounded-[5px]" /> },
+    { nation: false, label: stableSymbol, icon: stableIcon },
+  ];
   return (
-    <div className="flex items-center justify-center gap-1 rounded-xl border border-hairline/50 bg-inset p-1 text-sm">
-      <button
-        type="button"
-        onClick={() => onChange(true)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
-          payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
-        )}
-      >
-        <span className="font-semibold text-accent">$NATION</span>
-        <span className="rounded-full bg-accent/15 px-1.5 py-px text-[10px] font-semibold text-accent">
-          Save ~{discountPct}%
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+      <span id={labelId} className="text-[14px] font-medium text-ink-secondary">Pay with</span>
+      {hasNation ? (
+        <div role="radiogroup" aria-labelledby={labelId} className="inline-flex rounded-full border border-hairline bg-inset p-1">
+          {options.map(({ nation, label, icon }) => {
+            const checked = payWithNation === nation;
+            return (
+              <label
+                key={label}
+                className={cn(
+                  pill,
+                  "cursor-pointer transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-focus",
+                  checked ? chosen : "text-ink-secondary hover:text-ink",
+                  disabled && "pointer-events-none opacity-60",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="nation-pay-asset"
+                  value={nation ? "NATION" : stableSymbol}
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={() => onChange(nation)}
+                  className="sr-only"
+                />
+                {icon}
+                {label}
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <span className="inline-flex rounded-full border border-hairline bg-inset p-1">
+          <span className={cn(pill, chosen)}>{stableIcon}{stableSymbol}</span>
         </span>
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(false)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors",
-          !payWithNation ? "bg-panel text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
-        )}
-      >
-        {nonNationSymbol}
-      </button>
+      )}
+      {hasNation && pct > 0 && (
+        <p className="text-[14px] text-ink-secondary">
+          <strong className="font-semibold text-ink">$NATION saves about {pct}%.</strong> Same packs, lower price.
+        </p>
+      )}
     </div>
   );
 }
 
-// ─── Checkout panel (shared between sheet and modal) ─────────────────────────
+const PACK_BLURB: Record<string, string> = {
+  starter: "Try your AI team on real work.",
+  builder: "For everyday work across your team.",
+  swarm: "For heavy, all-day agent work.",
+};
+
+/** A pack card. Its prices are what the token chosen under "Pay with" pays; the button starts
+ * checkout for this pack in that token. */
+export function PackCard({
+  tier,
+  payWithNation,
+  nationPriceUsd,
+  nationDiscount,
+  stableSymbol,
+  busy,
+  onSelect,
+}: {
+  tier: CreditTier;
+  payWithNation: boolean;
+  nationPriceUsd: number | null;
+  /** The discount the server applies to $NATION invoices (0 when none). */
+  nationDiscount: number;
+  stableSymbol: string;
+  busy: boolean;
+  onSelect: () => void;
+}) {
+  const nation = payWithNation && nationPriceUsd != null && nationPriceUsd > 0;
+  const pct = nation ? Math.round(nationDiscount * 100) : 0;
+  const price = packPriceUsd(tier.usd, pct ? nationDiscount : 0);
+  const nationAmount = nation
+    ? (price / nationPriceUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })
+    : null;
+  const cta = nation
+    ? `Pay ${formatUsd(price)} worth of $NATION${pct ? ` · Save ${pct}%` : ""}`
+    : `Pay ${formatUsd(price)} with ${stableSymbol}`;
+  return (
+    <article
+      className={cn(
+        "flex flex-col rounded-2xl border bg-panel p-6",
+        tier.popular ? "border-nation-text bg-gradient-to-b from-nation/10 to-panel shadow-lg" : "border-hairline",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-[22px] font-semibold text-ink">{tier.name}</h3>
+        {tier.popular && (
+          <span className="pt-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-nation-text">Most popular</span>
+        )}
+      </div>
+      <p className="mt-4 flex items-baseline gap-2">
+        <span className="text-[44px] font-bold leading-none tracking-tight text-ink">{formatUsd(price)}</span>
+        <span className="text-[14px] text-ink-secondary">one-time</span>
+      </p>
+      {pct > 0 && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[13px] text-ink-secondary">
+            instead of <s>{formatUsd(tier.usd)} {stableSymbol}</s>
+          </p>
+          <span className="rounded-full bg-nation/15 px-2.5 py-1 text-[12px] font-semibold text-nation-text">Save {pct}%</span>
+        </div>
+      )}
+      {nationAmount && <p className="mt-1 text-[13px] text-ink-secondary">≈ {nationAmount} $NATION</p>}
+      <p className="mt-4 text-[15px] leading-relaxed text-ink-secondary">{PACK_BLURB[tier.id] ?? "Permanent prepaid credit."}</p>
+      {/* Values sit on one baseline even when a label wraps to two lines. */}
+      <dl className="mt-5 grid grid-cols-2 divide-x divide-hairline rounded-xl bg-inset">
+        <div className="flex flex-col justify-between px-4 py-3">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">Permanent credit</dt>
+          <dd className="mt-1 text-[20px] font-semibold text-ink">{formatUsd(tier.creditUsd)}</dd>
+        </div>
+        <div className="flex flex-col justify-between px-4 py-3">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-secondary">Expires</dt>
+          <dd className="mt-1 text-[20px] font-semibold text-ink">Never</dd>
+        </div>
+      </dl>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onSelect}
+        aria-label={`${tier.name}: ${cta}`}
+        className={cn(
+          "mt-5 w-full rounded-xl px-4 py-3 text-[15px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50",
+          tier.popular ? "bg-nation" : "bg-ink text-app",
+        )}
+      >
+        {cta}
+      </button>
+    </article>
+  );
+}
+
+/** Pending payment requests on Full Plans. */
+export function PendingInvoices({
+  rows,
+  onResume,
+  disabled,
+}: {
+  rows: PendingRow[];
+  onResume: (invoice: Invoice) => void;
+  disabled: boolean;
+}) {
+  if (!rows.length) return null;
+  return (
+    <section className="mt-10">
+      <h2 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary">Resume a pending payment</h2>
+      <div className="mt-3 divide-y divide-hairline/60 overflow-hidden rounded-2xl border border-hairline bg-panel">
+        {rows.map(({ invoice, symbol, amount, expired }) => (
+          <button
+            key={invoice.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onResume(invoice)}
+            className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-3 text-left text-[14px] text-ink hover:bg-raised/50 disabled:opacity-50"
+          >
+            <span className="font-semibold">
+              {amount} {symbol}
+            </span>
+            <span className="text-[13px] text-ink-secondary">
+              {expired ? "Expired" : `Expires ${new Date(invoice.expires_at).toLocaleTimeString()}`}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const write = navigator.clipboard?.writeText(value);
+        if (!write) return;
+        void write.then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }, () => {});
+      }}
+      className="shrink-0 rounded-lg px-2 py-1 text-[12px] font-medium text-ink-secondary hover:bg-raised hover:text-ink"
+    >
+      {copied ? "Copied" : `Copy ${label}`}
+    </button>
+  );
+}
+
 /** Exported for unit tests. */
 export function CheckoutPanel({
   invoice,
@@ -260,128 +464,192 @@ export function CheckoutPanel({
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const chain = status.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
-  const paid = Boolean(invoice.paid_tx);
-  const isNation = chain?.symbol === "$NATION";
-  const displaySymbol = chain?.symbol ?? "USDG";
-  const displayAmount =
-    isNation && invoice.token_amount
-      ? (Number(BigInt(invoice.token_amount)) / 1e18).toFixed(6)
-      : (invoice.amount_micros / 1e6).toFixed(6);
-  const networkName = chain?.name ?? "Robinhood Chain";
-
+  const chain = chainFor(invoice, status.chains);
   const packUsd = invoice.pack_micros / 1_000_000;
-  const tierInfo = status.tiers.find((t) => t.usd === packUsd);
-  const tierName = tierInfo?.name ?? `$${packUsd}`;
+  const tierName = status.tiers.find((t) => t.usd === packUsd)?.name ?? formatUsd(packUsd);
+  // The whole amount, suffix included, is credited; shown to the cent.
+  const credit = formatUsd(Math.floor(invoice.amount_micros / 10_000) / 100);
+  const pct = Math.round((invoice.discount_bps ?? 0) / 100);
+  const back = (
+    <button
+      type="button"
+      onClick={onBack}
+      disabled={busy}
+      className="shrink-0 text-[13px] text-ink-secondary hover:text-ink"
+    >
+      ← Back to packs
+    </button>
+  );
 
-  return (
-    <div className="space-y-4 rounded-2xl bg-inset p-5">
-      {paid ? (
-        <p role="status" className="text-center text-[15px] font-medium text-accent">
+  if (invoice.paid_tx) {
+    return (
+      <div className="space-y-5 rounded-2xl border border-hairline bg-panel p-6 text-center">
+        <p role="status" className="text-[17px] font-semibold text-success">
           ✓ Payment verified. Your credit is ready.
         </p>
-      ) : (
-        <>
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-ink">Send payment</h3>
-            <button
-              type="button"
-              onClick={onBack}
-              disabled={busy}
-              className="text-[13px] text-ink-secondary hover:text-ink"
-            >
-              ← Back
-            </button>
-          </div>
+        <div className="flex flex-wrap justify-center gap-3">
+          <a className="rounded-xl bg-ink px-4 py-2 font-semibold text-app" href={BASE_URL}>
+            Back to chat
+          </a>
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-xl border border-hairline px-4 py-2 font-semibold text-ink hover:bg-raised"
+          >
+            Buy another pack
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-          {/* Order summary */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-xl bg-panel px-3 py-2 text-[13px]">
-            <span className="font-semibold text-ink">{tierName} pack</span>
-            <span className="text-hairline/60">·</span>
-            <span className="font-semibold text-ink">{displayAmount} {displaySymbol}</span>
-            <span className="text-hairline/60">·</span>
-            <span className="text-ink-secondary">{networkName}</span>
-          </div>
+  let amount: string | null = null;
+  try {
+    if (chain) amount = invoiceAmount(invoice, chain);
+  } catch {
+    amount = null;
+  }
+  if (!chain || amount === null) {
+    return (
+      <div className="space-y-3 rounded-2xl border border-hairline bg-panel p-6">
+        <p className="text-[14px] text-ink">
+          This payment request is for a network or token that is no longer offered. Choose a
+          pack to start a new one.
+        </p>
+        {back}
+      </div>
+    );
+  }
 
-          <div className="rounded-xl bg-panel p-3 text-[13px] space-y-1">
-            <p className="font-semibold text-ink">
-              Send exactly {displayAmount} {displaySymbol}
-            </p>
-            <p className="text-xs text-ink-secondary">
-              The unique amount identifies your payment — the full amount is credited.
-            </p>
-          </div>
-          <code className="block break-all rounded-xl bg-panel p-3 text-xs text-ink">
-            {invoice.treasury}
-          </code>
-          <div className="flex justify-center">
-            <div className="w-fit rounded-xl bg-white p-3">
-              <QRCodeSVG
-                value={`ethereum:${invoice.token}@${invoice.chain}/transfer?address=${invoice.treasury}&uint256=${invoice.token_amount || invoice.amount_micros}`}
-                size={160}
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-ink-secondary text-center">
-            Pay within 30 minutes. Matching late transfers are still credited.{" "}
-            {isNation
-              ? "Switch your wallet to Robinhood Chain."
-              : "Your wallet may require a separate ETH network fee."}
+  return (
+    <section className="rounded-2xl border border-hairline bg-panel p-5 sm:p-7">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary">{tierName} pack</p>
+          <h2 tabIndex={-1} className="mt-1 text-[22px] font-semibold text-ink focus:outline-none">
+            Send payment
+          </h2>
+        </div>
+        {back}
+      </div>
+
+      <div className="mt-5 rounded-xl bg-inset p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-ink-secondary">Send exactly</p>
+          <CopyButton value={amount} label="amount" />
+        </div>
+        <p className="mt-1 break-all font-mono text-[20px] font-bold text-ink">
+          {amount} {chain.symbol}
+        </p>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-secondary">
+          {pct > 0 && <span className="font-semibold text-nation-text">Save {pct}% with $NATION. </span>}
+          You receive {credit} of permanent credit. The unique amount identifies your payment.
+        </p>
+      </div>
+
+      <div className="mt-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-ink-secondary">
+            To the NATION treasury on {chain.name}
           </p>
-          {status.exempt && (
-            <p className="text-[11px] text-ink-secondary text-center">
-              Usage is not charged to this account. Test payments still credit the ledger if they complete.
-            </p>
-          )}
-          <button
-            className={cn(btn, "w-full")}
-            disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
-            onClick={onPay}
-          >
-            Pay with wallet
-          </button>
-          <div>
-            <label className="mb-1 block text-[13px] text-ink-secondary">
-              Already paid? Paste your transaction hash
-            </label>
-            <input
-              className={field}
-              value={hash}
-              onChange={(e) => onHash(e.target.value)}
-              placeholder="0x…"
-              spellCheck={false}
-            />
-          </div>
-          <button
-            className={cn(btn, "w-full")}
-            disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())}
-            onClick={onConfirm}
-          >
-            I've paid — confirm
-          </button>
-          {hash && (
-            <p className="text-center text-[11px] text-ink-secondary">
-              Waiting for network confirmations. You can check again without sending another payment.
-            </p>
-          )}
-        </>
+          <CopyButton value={invoice.treasury} label="address" />
+        </div>
+        <code className="mt-1 block break-all rounded-xl bg-inset p-3 font-mono text-[13px] text-ink">
+          {invoice.treasury}
+        </code>
+      </div>
+
+      <div className="mt-5 flex justify-center">
+        <div className="w-fit rounded-xl bg-white p-3">
+          <QRCodeSVG
+            value={`ethereum:${invoice.token}@${invoice.chain}/transfer?address=${invoice.treasury}&uint256=${invoice.token_amount || invoice.amount_micros}`}
+            size={160}
+          />
+        </div>
+      </div>
+      <p className="mt-4 text-center text-[12px] text-ink-secondary">
+        Pay within 30 minutes. Matching late transfers are still credited.{" "}
+        {chain.symbol === "$NATION"
+          ? "Switch your wallet to Robinhood Chain."
+          : "Your wallet may require a separate ETH network fee."}
+      </p>
+      {status.exempt && (
+        <p className="mt-2 text-center text-[12px] text-ink-secondary">
+          Usage is not charged to this account. Test payments still credit the ledger if they complete.
+        </p>
       )}
-    </div>
+      <button
+        className="mt-5 w-full rounded-xl bg-ink py-3 font-semibold text-app transition-opacity disabled:opacity-50"
+        disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
+        onClick={onPay}
+      >
+        Pay with wallet
+      </button>
+      <div className="mt-5">
+        <label className="mb-1 block text-[13px] text-ink-secondary">
+          Already paid? Paste your transaction hash
+        </label>
+        <input
+          className={field}
+          value={hash}
+          onChange={(e) => onHash(e.target.value)}
+          placeholder="0x…"
+          spellCheck={false}
+        />
+      </div>
+      <button
+        className="mt-3 w-full rounded-xl border border-hairline py-3 font-semibold text-ink transition-opacity hover:bg-raised disabled:opacity-50"
+        disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash.trim())}
+        onClick={onConfirm}
+      >
+        I've paid — confirm
+      </button>
+      {hash && (
+        <p className="mt-3 text-center text-[12px] text-ink-secondary">
+          Waiting for network confirmations. You can check again without sending another payment.
+        </p>
+      )}
+    </section>
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-/** Top-strip + bottom sheet (inline triggers) or full-page (/subscription).
- * Provides NationCreditsCtx for the rest of the tree. */
-export function NationCredits() {
+// ─── Provider ─────────────────────────────────────────────────────────────────
+/** Owns the credit status and the starter sheet for the whole app, so the account
+ * menu and Settings see the same status as the strip. Mount inside StoreProvider. */
+export function NationCreditsProvider({ children }: { children: ReactNode }) {
   const { state } = useStore();
   const [status, setStatus] = useState<CreditStatus | null>(null);
-  const [open, setOpen] = useState(false);
+  const [starterOpen, setStarterOpen] = useState(false);
+  const isPlansPage = isFullPlansPath(window.location.pathname, BASE_URL);
+
+  const refresh = useCallback(async () => {
+    setStatus(await api("/api/credits/status"));
+  }, []);
+
+  useEffect(() => {
+    if (!state.connected) return;
+    void refresh().catch(() => {});
+    const timer = setInterval(() => void refresh().catch(() => {}), starterOpen || isPlansPage ? 5000 : 15000);
+    return () => clearInterval(timer);
+  }, [state.connected, starterOpen, isPlansPage, refresh]);
+
+  const openStarter = useCallback(() => setStarterOpen(true), []);
+  const closeStarter = useCallback(() => setStarterOpen(false), []);
+  const value = useMemo(
+    () => ({ status, refresh, starterOpen, openStarter, closeStarter, openSubscription: goToFullPlans }),
+    [status, refresh, starterOpen, openStarter, closeStarter],
+  );
+  return <NationCreditsCtx.Provider value={value}>{children}</NationCreditsCtx.Provider>;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+/** Top strip + starter-credit sheet in the chat shell, Full Plans on /subscription. */
+export function NationCredits() {
+  const { status, refresh, starterOpen, openStarter, closeStarter } = useNationCredits();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [hash, setHash] = useState("");
-  const [selectedTier, setSelectedTier] = useState<number>(15);
 
   // Lazily initialize payWithNation from ?asset= URL param.
   const [payWithNation, setPayWithNation] = useState(() => {
@@ -391,75 +659,48 @@ export function NationCredits() {
     } catch { return false; }
   });
 
-  // Detect subscription page mode. Navigation to/from /subscription is always
-  // a full page reload (window.location.assign), so this is stable per session.
-  const isSubscriptionPage =
-    window.location.pathname === SUBSCRIPTION_PATH ||
-    window.location.pathname === SUBSCRIPTION_PATH + "/";
+  // Navigation to and from Full Plans is always a full page load, so this is
+  // stable for the life of the component.
+  const isPlansPage = isFullPlansPath(window.location.pathname, BASE_URL);
 
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const checkoutRef = useRef<HTMLDivElement>(null);
   // Pending deep-link pack: consumed on first status load.
   const deepLinkPackRef = useRef<number | null>(null);
 
-  const refresh = useCallback(async () => {
-    const value: CreditStatus = await api("/api/credits/status");
-    setStatus(value);
+  // Keep the open payment request in step with each status poll (paid_tx arrives this way).
+  useEffect(() => {
+    if (!status) return;
     setInvoice((cur) =>
-      cur ? (value.invoices.find((i) => i.id === cur.id) ?? cur) : null,
+      cur ? (status.invoices.find((i) => i.id === cur.id) ?? cur) : null,
     );
-  }, []);
+  }, [status]);
 
+  // ?pack= deep link: Full Plans starts that pack's checkout once status loads;
+  // anywhere else forwards to Full Plans with the same query.
   useEffect(() => {
-    if (!state.connected) return;
-    void refresh().catch(() => {});
-    const timer = setInterval(() => void refresh().catch(() => {}), open || isSubscriptionPage ? 5000 : 15000);
-    return () => clearInterval(timer);
-  }, [state.connected, open, isSubscriptionPage, refresh]);
-
-  // Parse ?pack= deep-link param (bottom sheet only; subscription page handles it separately).
-  useEffect(() => {
-    if (isSubscriptionPage) return;
     try {
-      const path = window.location.pathname;
-      // /subscription path detection for bottom-sheet fallback (e.g. old bookmarks without the full-page support)
-      if (path === SUBSCRIPTION_PATH || path === SUBSCRIPTION_PATH + "/") return;
-      const pack = new URLSearchParams(window.location.search).get("pack");
-      if (pack) {
-        const n = Number(pack);
-        if (Number.isInteger(n) && n > 0) {
-          deepLinkPackRef.current = n;
-          setOpen(true);
-        }
-      }
+      const pack = Number(new URLSearchParams(window.location.search).get("pack"));
+      if (!Number.isInteger(pack) || pack <= 0) return;
+      if (isPlansPage) deepLinkPackRef.current = pack;
+      else window.location.replace(FULL_PLANS_HREF + window.location.search);
     } catch { /* ignore */ }
-  }, [isSubscriptionPage]);
-
-  // On the subscription page, parse ?pack= and open it.
-  useEffect(() => {
-    if (!isSubscriptionPage) return;
-    try {
-      const pack = new URLSearchParams(window.location.search).get("pack");
-      if (pack) {
-        const n = Number(pack);
-        if (Number.isInteger(n) && n > 0) deepLinkPackRef.current = n;
-      }
-    } catch { /* ignore */ }
-  }, [isSubscriptionPage]);
+  }, [isPlansPage]);
 
   useEffect(() => {
-    if (open) closeRef.current?.focus();
-  }, [open]);
+    if (starterOpen) closeRef.current?.focus();
+  }, [starterOpen]);
 
-  // Keyboard close + focus trap for bottom sheet
+  // Keyboard close + focus trap for the starter sheet
   useEffect(() => {
-    if (!open || isSubscriptionPage) return;
+    if (!starterOpen || isPlansPage) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) setOpen(false);
+      if (e.key === "Escape" && !busy) closeStarter();
       if (e.key === "Tab" && sheetRef.current) {
         const els = [
           ...sheetRef.current.querySelectorAll<HTMLElement>(
-            "button:not(:disabled),input:not(:disabled)",
+            "a[href],button:not(:disabled),input:not(:disabled)",
           ),
         ];
         const first = els[0], last = els.at(-1);
@@ -474,11 +715,11 @@ export function NationCredits() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, busy, isSubscriptionPage]);
+  }, [starterOpen, busy, isPlansPage, closeStarter]);
 
-  // Keyboard close for subscription page modal
+  // Escape on Full Plans steps back from checkout to the packs
   useEffect(() => {
-    if (!isSubscriptionPage || !invoice) return;
+    if (!isPlansPage || !invoice) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) {
         setInvoice(null);
@@ -487,22 +728,16 @@ export function NationCredits() {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isSubscriptionPage, invoice, busy]);
+  }, [isPlansPage, invoice, busy]);
 
-  const openSheet = useCallback(() => setOpen(true), []);
-  const closeSheet = useCallback(() => setOpen(false), []);
-  const openSubscription = useCallback(() => {
-    window.location.assign(SUBSCRIPTION_PATH);
-  }, []);
-
-  // Auto-open the credits sheet when the SPA is served at /subscription
-  // (vercel.json rewrites /subscription → /swarm/index.html).
+  // Checkout replaces the packs in place: bring the steps and the payment into
+  // view, and move focus to the payment heading.
+  const checkoutId = invoice?.id;
   useEffect(() => {
-    const { pathname } = window.location;
-    if (pathname === "/subscription" || pathname === "/subscription/") {
-      setOpen(true);
-    }
-  }, []);
+    if (!isPlansPage || !checkoutId) return;
+    checkoutRef.current?.scrollIntoView?.({ block: "start" });
+    checkoutRef.current?.querySelector<HTMLElement>("h2")?.focus();
+  }, [isPlansPage, checkoutId]);
 
   const run = async (work: () => Promise<void>) => {
     if (busy) return;
@@ -537,20 +772,13 @@ export function NationCredits() {
       });
     });
 
-  // Find the best chain for the current token selection.
-  const resolveChain = (useNation: boolean): Chain | undefined => {
-    if (!status) return undefined;
-    if (useNation) return status.chains.find((c) => c.symbol === "$NATION");
-    return status.chains.find((c) => c.symbol !== "$NATION");
-  };
-
-  const createInvoice = (tierUsd: number, useNation = payWithNation) =>
+  const createInvoice = (packUsd: number, useNation: boolean) =>
     run(async () => {
-      const chain = resolveChain(useNation);
-      if (!chain) throw new Error("No payment network available for the selected currency.");
+      const body = invoiceRequest(status?.chains ?? [], useNation, packUsd);
+      if (!body) throw new Error("No payment network available for the selected currency.");
       const inv: Invoice = await api("/api/credits/invoices", {
         method: "POST",
-        body: JSON.stringify({ chain: chain.id, packUsd: tierUsd }),
+        body: JSON.stringify(body),
       });
       setInvoice(inv);
       setHash("");
@@ -567,16 +795,13 @@ export function NationCredits() {
       const transferAbi = parseAbi([
         "function transfer(address to, uint256 amount) returns (bool)",
       ]);
-      const chainMeta = status?.chains.find((c) => c.id === invoice.chain && c.token === invoice.token);
-      const rpcUrl =
-        invoice.chain === 8453
-          ? "https://mainnet.base.org"
-          : "https://rpc.mainnet.chain.robinhood.com";
+      const chainMeta = status ? chainFor(invoice, status.chains) : undefined;
+      if (!chainMeta) throw new Error("This payment request is for a network or token that is no longer offered.");
       const chain = defineChain({
         id: invoice.chain,
-        name: chainMeta?.name ?? (invoice.chain === 8453 ? "Base" : "Robinhood Chain"),
+        name: chainMeta.name,
         nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: { default: { http: [rpcUrl] } },
+        rpcUrls: { default: { http: ["https://rpc.mainnet.chain.robinhood.com"] } },
       });
       try {
         await wallet.switchChain({ id: chain.id });
@@ -619,288 +844,175 @@ export function NationCredits() {
   useEffect(() => {
     if (!status || deepLinkPackRef.current === null) return;
     const pack = deepLinkPackRef.current;
-    if (!status.verified || !status.topUpEnabled || !status.packs.includes(pack)) {
-      deepLinkPackRef.current = null;
-      return;
-    }
-    const hasNationChain =
-      status.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null;
-    const useNation = payWithNation && hasNationChain;
-    if (payWithNation && !hasNationChain) setPayWithNation(false);
     deepLinkPackRef.current = null;
-    setSelectedTier(pack);
-    void createInvoice(pack, useNation);
+    if (!status.verified || !status.topUpEnabled || !status.packs.includes(pack)) return;
+    void createInvoice(pack, payWithNation && nationPayable(status));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // $NATION option requires both a chain entry AND a configured price.
-  const hasNation = Boolean(
-    status?.chains.some((c) => c.symbol === "$NATION") && status.nationPriceUsd != null,
-  );
+  const hasNation = nationPayable(status);
   const nonNationSymbol =
     status?.chains.find((c) => c.symbol !== "$NATION")?.symbol ?? "USDG";
   const tiers: CreditTier[] = status?.tiers ?? [];
-
-  // ── Shared plan picker JSX ────────────────────────────────────────────────
-  const planPicker = (
-    <div className="space-y-5">
-      <TokenToggle
-        payWithNation={payWithNation}
-        hasNation={hasNation}
-        nonNationSymbol={nonNationSymbol}
-        nationDiscount={status?.nationDiscount ?? null}
-        onChange={setPayWithNation}
-      />
-      <div className="grid gap-3 sm:grid-cols-3">
-        {tiers.map((tier) => (
-          <TierCard
-            key={tier.id}
-            tier={tier}
-            selected={selectedTier === tier.usd}
-            payWithNation={payWithNation && hasNation}
-            nationPriceUsd={status?.nationPriceUsd ?? null}
-            nationDiscount={status?.nationDiscount ?? null}
-            nonNationSymbol={nonNationSymbol}
-            onSelect={() => {
-              setSelectedTier(tier.usd);
-              void createInvoice(tier.usd);
-            }}
-            disabled={busy}
-          />
-        ))}
-      </div>
-
-      {filterLivePendingInvoices(status?.invoices ?? [], status?.chains ?? []).length > 0 && (
-        <div className="space-y-1.5 pt-1">
-          <p className="text-[12px] font-medium text-ink-secondary">
-            Resume a pending payment
-          </p>
-          {filterLivePendingInvoices(status!.invoices, status!.chains).map((i) => {
-            // Safe: filterLivePendingInvoices guarantees this chain+token pair exists.
-            const c = status!.chains.find((ch) => ch.id === i.chain && ch.token === i.token)!;
-            const isN = c.symbol === "$NATION";
-            const amt =
-              isN && i.token_amount
-                ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
-                : (i.amount_micros / 1e6).toFixed(4);
-            return (
-              <button
-                key={i.id}
-                className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
-                onClick={() => { setInvoice(i); setHash(""); }}
-              >
-                {amt} {c.symbol} · expires{" "}
-                {new Date(i.expires_at).toLocaleTimeString()}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <p className="text-center text-[11px] text-ink-secondary">
-        Credits never expire by time — only when spent.
-      </p>
-    </div>
-  );
+  const discount = nationInvoiceDiscount(status);
+  const treasury = status?.chains[0]?.treasury;
+  const backToPacks = () => { setInvoice(null); setHash(""); };
+  // Back to where the visitor came from inside the app, else to the chat.
+  const leavePlans = () => {
+    try {
+      if (document.referrer && new URL(document.referrer).origin === window.location.origin && window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+    } catch { /* fall through */ }
+    window.location.assign(BASE_URL);
+  };
 
   return (
-    <NationCreditsCtx.Provider value={{ status, open, openSheet, closeSheet, openSubscription }}>
-
-      {/* ── Full-page /subscription layout ──────────────────────────────── */}
-      {isSubscriptionPage && (
+    <>
+      {/* ── Full Plans (/subscription) ───────────────────────────────────── */}
+      {isPlansPage && (
         <div className="fixed inset-0 z-[90] overflow-auto bg-app">
-          {/* Sticky nav */}
-          <nav className="sticky top-0 z-10 flex items-center gap-3 border-b border-hairline/30 bg-panel/95 px-5 py-3 backdrop-blur-sm">
-            <button
-              type="button"
-              onClick={() => {
-                if (window.history.length > 1) window.history.back();
-                else window.location.assign(import.meta.env.BASE_URL ?? "/");
-              }}
-              className="rounded-lg px-2 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
-            >
-              ← Back
-            </button>
-            <span className="flex-1 text-center text-[13px] font-semibold text-ink">
-              Plans
-            </span>
-            {status && (
-              <span className="text-[12px] text-ink-secondary">
-                {status.exempt
-                  ? "Owner / admin"
-                  : `$${status.balanceUsd.toFixed(2)} balance`}
-              </span>
-            )}
-          </nav>
-
-          {/* Main content */}
-          <main className="mx-auto w-full max-w-3xl px-5 pb-20 pt-10">
-            {!status ? (
-              <div className="flex h-32 items-center justify-center">
-                <span className="text-[13px] text-ink-secondary">Loading plans…</span>
-              </div>
-            ) : !status.verified ? (
-              <div className="mx-auto max-w-md space-y-5 text-center">
-                <div>
-                  <h1 className="text-[26px] font-bold text-ink">Verify your account</h1>
-                  <p className="mt-2 text-[14px] text-ink-secondary">{status.starterMessage}</p>
-                </div>
-                <p className="text-[13px] text-ink-secondary">
-                  Sign in with your verified email, or verify a wallet with a free signature. No payment is needed to start.
-                </p>
-                <button className={cn(btn, "mx-auto block")} disabled={busy} onClick={() => void verify()}>
-                  Verify wallet for starter credit
-                </button>
-              </div>
-            ) : !status.topUpEnabled ? (
-              <p className="text-center text-[15px] text-ink-secondary">Top up coming soon</p>
-            ) : (
-              <>
-                {/* Hero */}
-                <div className="mb-10 text-center">
-                  <h1 className="text-[30px] font-bold tracking-tight text-ink sm:text-[36px]">
-                    Plans
-                  </h1>
-                  <p className="mt-2 text-[15px] text-ink-secondary">
-                    Prepaid AI credits for your whole team.
-                  </p>
-                  <p className="mt-0.5 text-[13px] text-ink-secondary">
-                    No subscriptions · no expiry · pay only when you choose.
-                  </p>
-                  {status.exempt && (
-                    <p className="mt-2 text-[12px] text-ink-secondary">
-                      Usage is not charged to this account. Test payments still credit the ledger.
-                    </p>
-                  )}
-                </div>
-
-                {/* Token toggle centered */}
-                {hasNation && (
-                  <div className="mb-8 flex justify-center">
-                    <TokenToggle
-                      payWithNation={payWithNation}
-                      hasNation={hasNation}
-                      nonNationSymbol={nonNationSymbol}
-                      nationDiscount={status.nationDiscount}
-                      onChange={setPayWithNation}
-                    />
-                  </div>
-                )}
-
-                {/* Tier cards */}
-                <div className="grid gap-4 sm:grid-cols-3">
-                  {tiers.map((tier) => (
-                    <TierCard
-                      key={tier.id}
-                      tier={tier}
-                      selected={selectedTier === tier.usd && !invoice}
-                      payWithNation={payWithNation && hasNation}
-                      nationPriceUsd={status.nationPriceUsd}
-                      nationDiscount={status.nationDiscount}
-                      nonNationSymbol={nonNationSymbol}
-                      onSelect={() => {
-                        setSelectedTier(tier.usd);
-                        void createInvoice(tier.usd);
-                      }}
-                      disabled={busy}
-                    />
-                  ))}
-                </div>
-
-                {/* Resume pending invoices — only those on a still-live chain+token pair */}
-                {filterLivePendingInvoices(status.invoices, status.chains).length > 0 && (
-                  <div className="mt-8 space-y-1.5">
-                    <p className="text-[12px] font-medium text-ink-secondary">Resume a pending payment</p>
-                    {filterLivePendingInvoices(status.invoices, status.chains).map((i) => {
-                      // Safe: filterLivePendingInvoices guarantees this chain+token pair exists.
-                      const c = status.chains.find((ch) => ch.id === i.chain && ch.token === i.token)!;
-                      const isN = c.symbol === "$NATION";
-                      const amt = isN && i.token_amount
-                        ? (Number(BigInt(i.token_amount)) / 1e18).toFixed(4)
-                        : (i.amount_micros / 1e6).toFixed(4);
-                      return (
-                        <button
-                          key={i.id}
-                          className="block w-full rounded-xl border border-hairline/40 bg-inset px-3 py-2 text-left text-[12px] text-ink hover:bg-raised/50"
-                          onClick={() => { setInvoice(i); setHash(""); }}
-                        >
-                          {amt} {c.symbol} · expires {new Date(i.expires_at).toLocaleTimeString()}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <p className="mt-8 text-center text-[11px] text-ink-secondary">
-                  Credits never expire by time — only when spent.
-                </p>
-              </>
-            )}
-
-            {/* Errors shown in page */}
-            {error && (
-              <p role="alert" className="mt-6 rounded-xl bg-danger/10 px-4 py-2 text-[13px] text-danger text-center">
-                {error}
-              </p>
-            )}
-            {busy && !invoice && (
-              <p role="status" className="mt-4 text-center text-[13px] text-ink-secondary">
-                Please wait…
-              </p>
-            )}
-          </main>
-
-          {/* Centered checkout modal */}
-          {invoice && (
-            <div
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
-              onClick={(e) => {
-                if (e.target === e.currentTarget && !busy) {
-                  setInvoice(null);
-                  setHash("");
-                }
-              }}
-            >
-              <div
-                className="w-full max-w-md overflow-auto rounded-3xl bg-panel shadow-2xl"
-                style={{ maxHeight: "90dvh" }}
+          <main className="mx-auto w-full max-w-6xl px-5 pb-24 pt-6 sm:px-8 sm:pt-8">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={leavePlans}
+                className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-4 py-2 text-[14px] font-medium text-ink hover:bg-raised"
               >
-                <div className="p-1">
+                <ChevronLeft aria-hidden size={16} />
+                Back to chat
+              </button>
+              {status && (
+                <span className="rounded-full border border-hairline px-3.5 py-1.5 text-[13px] text-ink-secondary">
+                  {status.exempt ? "Owner / admin" : `$${status.balanceUsd.toFixed(2)} credit`}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-8">
+              <FullPlansHeader status={status} />
+            </div>
+
+            <div ref={checkoutRef} className="mt-8 scroll-mt-6">
+              {!status ? (
+                <div className="flex h-32 items-center justify-center">
+                  <span className="text-[13px] text-ink-secondary">Loading plans…</span>
+                </div>
+              ) : !status.verified ? (
+                <div className="max-w-md space-y-4 rounded-2xl border border-hairline bg-panel p-6">
+                  <div>
+                    <h2 className="text-[20px] font-semibold text-ink">Verify your account</h2>
+                    <p className="mt-2 text-[14px] text-ink-secondary">{status.starterMessage}</p>
+                  </div>
+                  <p className="text-[13px] text-ink-secondary">
+                    Sign in with your verified email, or verify a wallet with a free signature. No payment is needed to start.
+                  </p>
+                  <button className={btn} disabled={busy} onClick={() => void verify()}>
+                    Verify wallet for starter credit
+                  </button>
+                </div>
+              ) : !status.topUpEnabled ? (
+                <p className="text-[15px] text-ink-secondary">Top up coming soon</p>
+              ) : invoice ? (
+                <div className="mx-auto max-w-xl">
                   <CheckoutPanel
                     invoice={invoice}
-                    status={status!}
+                    status={status}
                     busy={busy}
                     hash={hash}
                     onHash={setHash}
                     onPay={() => void pay()}
                     onConfirm={() => void confirm()}
-                    onBack={() => { setInvoice(null); setHash(""); }}
+                    onBack={backToPacks}
                   />
                 </div>
-              </div>
+              ) : (
+                <>
+                  <PayWith
+                    payWithNation={payWithNation && hasNation}
+                    hasNation={hasNation}
+                    stableSymbol={nonNationSymbol}
+                    nationDiscount={discount}
+                    onChange={setPayWithNation}
+                    disabled={busy}
+                  />
+                  {status.exempt && (
+                    <p className="mt-3 text-[13px] text-ink-secondary">
+                      Owner / admin: usage is not charged to this account. Test payments still credit the ledger.
+                    </p>
+                  )}
+                  <hr className="my-8 border-hairline/70" />
+                  <div className="grid gap-5 md:grid-cols-3">
+                    {tiers.map((tier) => (
+                      <PackCard
+                        key={tier.id}
+                        tier={tier}
+                        payWithNation={payWithNation && hasNation}
+                        nationPriceUsd={status.nationPriceUsd}
+                        nationDiscount={discount}
+                        stableSymbol={nonNationSymbol}
+                        busy={busy}
+                        onSelect={() => void createInvoice(tier.usd, payWithNation && hasNation)}
+                      />
+                    ))}
+                  </div>
+
+                  <PendingInvoices
+                    rows={pendingInvoiceRows(status.invoices, status.chains)}
+                    onResume={(i) => { setInvoice(i); setHash(""); }}
+                    disabled={busy}
+                  />
+
+                  <footer className="mt-12 border-t border-hairline/70 pt-6 text-[14px] leading-relaxed text-ink-secondary">
+                    <strong className="font-semibold text-ink">Every pack is the same permanent credit.</strong>{" "}
+                    It never expires and is only spent when your teammates work. Payments settle on Robinhood
+                    Chain to the NATION treasury
+                    {treasury && (
+                      <>
+                        {" "}
+                        <code title={treasury} className="font-mono text-[13px] text-ink">{shortAddress(treasury)}</code>
+                      </>
+                    )}
+                    .
+                  </footer>
+                </>
+              )}
+
+              {/* Errors shown in page */}
+              {error && (
+                <p role="alert" className="mt-6 rounded-xl bg-danger/10 px-4 py-2 text-[13px] text-danger">
+                  {error}
+                </p>
+              )}
+              {busy && (
+                <p role="status" className="mt-4 text-[13px] text-ink-secondary">
+                  Please wait…
+                </p>
+              )}
             </div>
-          )}
+          </main>
         </div>
       )}
 
-      {/* ── Top low-balance / unverified strip (not on /subscription) ───── */}
-      {status && !isSubscriptionPage && (
-        <NationCreditsStrip status={status} onOpen={openSheet} />
+      {/* ── Top low-balance / unverified strip (not on Full Plans) ───────── */}
+      {status && !isPlansPage && (
+        <NationCreditsStrip status={status} onStarter={openStarter} />
       )}
 
-      {/* ── Bottom sheet (inline triggers, not on /subscription) ─────────── */}
-      {open && !isSubscriptionPage && (
+      {/* ── Starter-credit sheet (not on Full Plans) ─────────────────────── */}
+      {starterOpen && !isPlansPage && (
         <div
           className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !busy) setOpen(false);
+            if (e.target === e.currentTarget && !busy) closeStarter();
           }}
         >
           <div
             ref={sheetRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="nation-credit-title"
+            aria-labelledby="nation-starter-title"
             className="w-full max-w-xl rounded-t-3xl bg-panel text-ink shadow-2xl"
             style={{ maxHeight: "92dvh", overflowY: "auto" }}
           >
@@ -911,12 +1023,12 @@ export function NationCredits() {
 
             <div className="px-5 pb-8 pt-2">
               <div className="mb-4 flex items-center justify-between gap-4">
-                <h2 id="nation-credit-title" className="text-xl font-semibold">
-                  {invoice ? "Complete payment" : "Top up credits"}
+                <h2 id="nation-starter-title" className="text-xl font-semibold">
+                  Get free starter credit
                 </h2>
                 <button
                   ref={closeRef}
-                  onClick={closeSheet}
+                  onClick={closeStarter}
                   disabled={busy}
                   aria-label="Close"
                   className="flex size-8 items-center justify-center rounded-full hover:bg-raised text-ink-secondary hover:text-ink"
@@ -924,22 +1036,6 @@ export function NationCredits() {
                   ✕
                 </button>
               </div>
-
-              {status && (
-                <div className="mb-5 flex items-center gap-3 rounded-2xl bg-inset px-4 py-3">
-                  <div className="flex-1">
-                    <p className="text-[13px] text-ink-secondary">Current balance</p>
-                    <p className="text-[17px] font-bold text-ink">
-                      {status.exempt ? "Owner / admin" : `$${status.balanceUsd.toFixed(2)}`}
-                    </p>
-                  </div>
-                  {!status.verified && (
-                    <span className="rounded-full bg-warning/20 px-2.5 py-1 text-[11px] font-medium text-warning">
-                      Unverified
-                    </span>
-                  )}
-                </div>
-              )}
 
               {!status ? null : !status.verified ? (
                 <div className="space-y-4">
@@ -956,35 +1052,15 @@ export function NationCredits() {
                     Verify wallet for starter credit
                   </button>
                 </div>
-              ) : !status.topUpEnabled ? (
-                <p className="text-center text-ink-secondary">Top up coming soon</p>
-              ) : invoice ? (
-                <CheckoutPanel
-                  invoice={invoice}
-                  status={status}
-                  busy={busy}
-                  hash={hash}
-                  onHash={setHash}
-                  onPay={() => void pay()}
-                  onConfirm={() => void confirm()}
-                  onBack={() => { setInvoice(null); setHash(""); }}
-                />
               ) : (
-                <div className="space-y-5">
-                  <div>
-                    <p className="text-[14px] font-medium text-ink">
-                      Power your team with prepaid AI credits.
-                    </p>
-                    <p className="mt-1 text-[12px] text-ink-secondary">
-                      No subscriptions · no expiry · pay only when you choose to top up.
-                    </p>
-                  </div>
-                  {status.exempt && (
-                    <p className="text-[12px] text-ink-secondary">
-                      Usage is not charged to this account. Test payments still credit the ledger if they complete.
-                    </p>
+                <div className="space-y-4">
+                  <p className="text-[14px] font-medium text-ink">Your account is verified.</p>
+                  <p className="text-[14px] text-ink-secondary">{status.starterMessage}</p>
+                  {status.topUpEnabled && (
+                    <a className={cn(btn, "block w-full text-center")} href={FULL_PLANS_HREF}>
+                      See Full Plans
+                    </a>
                   )}
-                  {planPicker}
                 </div>
               )}
 
@@ -1002,14 +1078,14 @@ export function NationCredits() {
           </div>
         </div>
       )}
-    </NationCreditsCtx.Provider>
+    </>
   );
 }
 
 // ─── Settings row (exported for UsageSection) ─────────────────────────────────
-/** Settings → Usage row. "Top up" navigates to the /subscription Plans page. */
+/** Settings → Usage row. "Top up" is a link to Full Plans. */
 export function NationCreditsSettingsRow() {
-  const { status, openSubscription } = useNationCredits();
+  const { status } = useNationCredits();
   if (!status) return null;
   return (
     <SettingRow
@@ -1021,9 +1097,9 @@ export function NationCreditsSettingsRow() {
       }
     >
       {status.topUpEnabled ? (
-        <button className="ui-button" onClick={openSubscription}>
+        <a className="ui-button hover:bg-raised-hover" href={FULL_PLANS_HREF}>
           Top up
-        </button>
+        </a>
       ) : (
         <span className="text-[13px] text-ink-secondary">
           {status.topUpMessage || "Coming soon"}

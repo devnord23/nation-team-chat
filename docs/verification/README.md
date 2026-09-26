@@ -197,6 +197,9 @@ managed desktop keeps so Firefox can start, with before/after acceptance evidenc
 The [Hetzner launch record](hetzner-launch-2026-09-07.md) is a dated self-hosting
 run on a disposable VPS: what passed, what was corrected, and what it does not prove.
 
+The [Full Plans money-path record](full-plans-2026-09-26.md) is a dated fixture run of
+top-up: both tokens paid to the treasury, the $NATION discount, hash-paste and automatic crediting.
+
 Keep the JSON from `wait` and `messages`, the exact command sequence, and the
 fixture's printed log path. Evidence must show both the action and the resulting
 state. A green unit test alone does not prove a user workflow.

@@ -1,8 +1,9 @@
 /**
- * Lightweight React context that lets any component open the Nation credit
- * sheet and read the latest credit status without prop-drilling through the
- * whole component tree. NationCredits provides the value; SidebarProfileMenu
- * and any other consumer reads it.
+ * Lightweight React context that lets any component reach Full Plans (or the
+ * starter-credit sheet) and read the latest credit status without
+ * prop-drilling through the whole component tree. NationCreditsProvider wraps
+ * the app and provides the value; NationCredits, SidebarProfileMenu and the
+ * Settings row read it.
  */
 import { createContext, useContext } from "react";
 
@@ -20,23 +21,32 @@ export type CreditStatus = {
   tiers: CreditTier[];
   nationPriceUsd: number | null;
   nationDiscount: number | null;
+  /** The discount the server applies to $NATION invoices. Servers that bill $NATION at the full
+   * price never send it, so "Save N%" is keyed on this and not on nationDiscount. */
+  nationInvoiceDiscount?: number | null;
   chains: Array<{ id: number; name: string; symbol: string; token: string; treasury: string; decimals: number }>;
-  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; expires_at: number; paid_tx: string | null }>;
+  /** discount_bps: how much less this invoice asks in $NATION (2000 = 20%); the credit is unchanged. */
+  invoices: Array<{ id: string; chain: number; treasury: string; token: string; pack_micros: number; amount_micros: number; token_amount: string; discount_bps?: number; expires_at: number; paid_tx: string | null }>;
 };
 
 export interface NationCreditsCtxValue {
   status: CreditStatus | null;
-  open: boolean;
-  openSheet: () => void;
-  closeSheet: () => void;
+  /** Re-read the status now (after a payment or verification). */
+  refresh: () => Promise<void>;
+  /** The "Get free starter credit" sheet. Buying credit never uses it. */
+  starterOpen: boolean;
+  openStarter: () => void;
+  closeStarter: () => void;
+  /** Navigate to Full Plans (/subscription): every "Top up" / "Add credits" entry. */
   openSubscription: () => void;
 }
 
 export const NationCreditsCtx = createContext<NationCreditsCtxValue>({
   status: null,
-  open: false,
-  openSheet: () => {},
-  closeSheet: () => {},
+  refresh: async () => {},
+  starterOpen: false,
+  openStarter: () => {},
+  closeStarter: () => {},
   openSubscription: () => {},
 });
 
