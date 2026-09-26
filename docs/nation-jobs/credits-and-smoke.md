@@ -26,10 +26,89 @@ the Full Plans page shows as "Save 20%". Invoice creation names the token, and
 a request without one (an older client) is billed in USDG. The payment scan keeps
 one block cursor per chain + token (`credit_scan_cursors`): the former cursor per
 chain id let the first token's pass skip blocks for the second, so USDG transfers
-were only credited through a pasted hash while $NATION was enabled. After this
-change each token's first scan starts from its oldest unpaid invoice, 500 blocks
-per 30-second pass, and credits any matching transfer it finds on the way.
+were only credited through a pasted hash while $NATION was enabled. How a pass
+chooses its blocks, and what it logs when an RPC fails, is under "Payment
+scanner" below.
 The overlay with the approved values is `deploy/nation-robinhood.env`.
+
+## Payment scanner
+
+`server/nation-payments.ts` scans every 30 seconds, one chain + token pair at a
+time, and only while that pair has an unpaid request that is still *fresh*:
+unexpired, or expired less than 24 hours ago (`LATE_PAYMENT_WINDOW_MS`).
+
+- **Isolation.** Each token is scanned in its own try/catch. When one fails (RPC
+  down, a rejected `eth_getLogs`, a chain id that is not 4663) the others are
+  still scanned, the failed token keeps its cursor, and the next pass retries it.
+- **Logs.** A failure is one `console.error` line naming the token, chain and
+  token contract, with the RPC's own reason, for example
+  `NATION payment scan failed for $NATION on Robinhood Chain (chain 4663, token 0xc839…): Request exceeds defined limit. (…)`.
+  The RPC URL, request bodies and anything secret-shaped are removed first, so a
+  provider key in `NATION_RPC_ROBINHOOD` never reaches the log. A wrong network
+  reads `payment RPC reports chain id N, expected 4663; refusing to scan the wrong network`.
+- **Cursor lag.** The cursor only moves while a token has fresh requests, so it
+  can sit far behind the head after a quiet spell. A pass starts at the later of
+  the cursor and the earliest block of any fresh request (no transfer before a
+  request's own block can pay it), then scans up to 20 chunks of 500 blocks
+  (10,000 blocks), saving the cursor after each chunk. A long gap therefore closes
+  in a few passes, and history is never rescanned.
+- **Expired requests.** A request that expired more than 24 hours ago no longer
+  draws the scan back to its block and never holds up a fresh one; it is still
+  matched in any range scanned for a fresh one. Full Plans lists an expired request
+  as an inert "Expired" row for 24 hours, then drops it.
+- **Transfers that can never pay.** A matching transfer that predates its
+  request is logged as "set aside" and skipped, so it cannot pin the cursor; a
+  receipt that is not yet visible is retried on the next pass instead.
+- **Paying twice.** A second transfer of exactly a credited request's amount is
+  never credited again. It is logged as `found a second transfer … already
+  credited by …` so the owner can refund it or credit it by hand. A transfer
+  already credited from its pasted hash is skipped quietly.
+
+If a transfer for a stale request did land while the scanner was stopped, check
+the transaction on the explorer (treasury, token, exact `token_amount`), then
+credit the account with Admin → credits adjust, citing the transaction hash in
+the reason. The scanner does not do this automatically.
+
+## Stale payment requests (manual, optional)
+
+Full Plans and `/api/credits/status` already hide unpaid requests on Base (8453)
+or on any token that is no longer offered, so they need no cleanup. An operator
+who wants them out of the table can archive them by hand. Nothing runs this
+automatically, and it must never run from CI or against a database you have not
+backed up. The API can keep running: SQLite's online backup is safe meanwhile.
+Checked against a scratch ledger on 2026-09-26: the preview picks exactly the
+Base row and the unpaid request expired over 7 days, the archive moves those two,
+paid requests and ledger rows are untouched, and a second run changes nothing.
+
+```sh
+cd "$NATION_DATA_DIR"   # the directory holding nation-credits.db
+sqlite3 nation-credits.db ".backup 'nation-credits.pre-archive.db'"
+sqlite3 nation-credits.db <<'SQL'
+-- 1. Preview: unpaid requests on a dropped chain, or expired over 7 days ago.
+SELECT id, user_id, chain, token, amount_micros, datetime(expires_at / 1000, 'unixepoch') AS expired
+FROM credit_invoices
+WHERE paid_tx IS NULL
+  AND (chain <> 4663 OR expires_at < (strftime('%s', 'now') - 7 * 86400) * 1000);
+SQL
+```
+
+Only after reading that list, archive the same rows (the archive keeps every
+column, so a row can be copied back):
+
+```sh
+sqlite3 nation-credits.db <<'SQL'
+BEGIN IMMEDIATE;
+CREATE TABLE IF NOT EXISTS credit_invoices_archived AS SELECT * FROM credit_invoices WHERE 0;
+INSERT INTO credit_invoices_archived SELECT * FROM credit_invoices
+WHERE paid_tx IS NULL AND (chain <> 4663 OR expires_at < (strftime('%s', 'now') - 7 * 86400) * 1000);
+DELETE FROM credit_invoices
+WHERE paid_tx IS NULL AND (chain <> 4663 OR expires_at < (strftime('%s', 'now') - 7 * 86400) * 1000);
+COMMIT;
+SQL
+```
+
+An archived request is no longer matched by the scanner, so a transfer for it
+that arrives later is credited by hand as above. Paid requests are never touched.
 
 ## Accounting and payment behavior
 

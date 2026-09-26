@@ -450,7 +450,7 @@ function DiagnosticsRow() {
 export function SettingsModal() {
   const { state, dispatch } = useStore();
   const remoteActive = window.ogb?.remoteClient?.active === true;
-  const section: AppSettingsSection =
+  const requestedSection: AppSettingsSection =
     (remoteActive && !["appearance", "desktopWorkspaces"].includes(state.appSettingsSection)) || state.appSettingsSection === "remote"
       ? "companion"
       : state.appSettingsSection;
@@ -473,8 +473,13 @@ export function SettingsModal() {
     if (!admin && isAdminOnlySettingsSection(entry.id)) return false;
     return sectionMatches(entry, q);
   });
+  // A member never renders an admin-only section (Local VM, Connections…),
+  // not even for the paint before the effect below moves Settings away.
+  const section: AppSettingsSection = admin || !isAdminOnlySettingsSection(requestedSection)
+    ? requestedSection
+    : visibleSections[0]?.id ?? "general";
   const sectionLabelKey = SECTIONS.find((entry) => entry.id === section)?.labelKey;
-  const nextVisibleSection = visibleSections.some((entry) => entry.id === section) ? undefined : visibleSections[0]?.id;
+  const nextVisibleSection = visibleSections.some((entry) => entry.id === requestedSection) ? undefined : visibleSections[0]?.id;
 
   useEffect(() => {
     // Translated matches can change without the query changing. Follow the

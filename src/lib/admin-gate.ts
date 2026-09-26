@@ -76,9 +76,12 @@ export function isProductAdmin(options: {
  * Settings section ids that are admin-only.
  * "engines" is intentionally absent — it no longer lives in Settings at all;
  * it is only accessible via the Admin page.
+ * "computer" is the Local VM / desk inventory section: Box, SSH and Local VM
+ * setup belong to the owner, and every route behind it is admin-scoped.
  */
 export const ADMIN_ONLY_SETTINGS_SECTIONS = new Set([
   "connections",
+  "computer",
   "experimental",
   "workspaces",
 ]);

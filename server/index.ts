@@ -490,6 +490,7 @@ import {
 import { json, readBody, setBodyGuard, setResponseOwner, setResponseProjector } from "./harness/http.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
+import { createComputerInventoryRoutes } from "./routes/computer-inventory.ts";
 import {
   ServerViewerRelay,
   createVpsViewerRoutes,
@@ -3854,7 +3855,11 @@ function broadcast(payload: Record<string, unknown>) {
   sessions.revalidateEmailSessions();
   const seq = ++lastSeq;
   const kind = String(payload.kind ?? "");
-  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...payload, seq }, true))}\n\n`;
+  // Config events carry the server's owner verdict in both projections. An owner's
+  // client that receives config without one treats the session as unconfirmed and
+  // hides every admin-only section (Local VM, Connections) until it refetches.
+  const adminPayload = kind === "config" ? configForAccess(payload as ReturnType<typeof configStatus>, true) : payload;
+  const frame = `id: ${STREAM_ID}:${seq}\ndata: ${JSON.stringify(publicResponse({ ...adminPayload, seq }, true))}\n\n`;
   // Store both projections as immutable frames: live and reconnecting clients
   // must receive the same filtered config without changing the admin event.
   const clientPayload = kind === "config" ? configForAccess(payload as ReturnType<typeof configStatus>, false) : payload;
@@ -3871,7 +3876,7 @@ function broadcast(payload: Record<string, unknown>) {
     // ./sse-fanout.ts for the backpressure/bound decision this makes.
     const own = client.viewer === null
       ? client.admin ? frame : clientFrame
-      : viewerFrame(client.viewer, client.admin, { ...(client.admin ? payload : clientPayload), kind }, seq);
+      : viewerFrame(client.viewer, client.admin, { ...(client.admin ? adminPayload : clientPayload), kind }, seq);
     if (own === null) continue;
     if (deliverSseFrame(client, kind, own) === "disconnected") {
       sseClients.delete(client);
@@ -11813,6 +11818,12 @@ creditReconciliation.unref();
 
 const serverViewer = new ServerViewerRelay();
 ROUTES.push(createVpsViewerRoutes(serverViewer));
+// Settings desk inventories answer within a deadline, never as a gateway error.
+ROUTES.push(createComputerInventoryRoutes({
+  listBoxes: () => box.listManagedBoxes(cfg, managedBoxOwners()),
+  listVps: () => vps.listManagedVpsComputers(cfg, managedBoxOwners()),
+  vpsAlias: () => vpsSshAlias(cfg),
+}));
 
 const toolResults = new ToolResults();
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
@@ -17688,12 +17699,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     // Account-wide Box inventory is a Settings surface, never a provisioning
-    // path. Listing remains read-only; lifecycle changes require explicit
-    // JSON actions and are revalidated against a fresh provider listing.
-    if (method === "GET" && path === "/api/computers/boxes") {
-      res.setHeader("cache-control", "private, no-store");
-      return json(res, 200, await box.listManagedBoxes(cfg, managedBoxOwners()));
-    }
+    // path. Listing (server/routes/computer-inventory.ts) remains read-only;
+    // lifecycle changes require explicit JSON actions and are revalidated
+    // against a fresh provider listing.
     m = path.match(/^\/api\/computers\/boxes\/([\w-]+)\/(sleep|delete)$/);
     if (m && method === "POST") {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
@@ -17722,10 +17730,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       } finally {
         releaseInventoryRequest();
       }
-    }
-    if (method === "GET" && path === "/api/computers/vps") {
-      res.setHeader("cache-control", "private, no-store");
-      return json(res, 200, await vps.listManagedVpsComputers(cfg, managedBoxOwners()));
     }
     m = path.match(/^\/api\/computers\/vps\/([\w-]+)\/remove$/);
     if (m && method === "POST") {
@@ -19012,7 +19016,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         finalized.acknowledgements.every(Boolean),
         removedBrowserProfileIds.length === 1 ? "The browser profile" : "The browser profiles",
       );
-      return json(res, 200, finalized.value);
+      // Only an admin session reaches this route: the saved config keeps its owner verdict.
+      return json(res, 200, configForAccess(finalized.value, true));
       } finally {
         for (const provider of transitioningProviders) computerProviderConfigTransitions.delete(provider);
         if (changingLocalVmMode) localVmModeChangeBusy = false;

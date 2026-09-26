@@ -12,6 +12,7 @@ import {
   cloudComputerInventoryState,
   computerInventoryRequest,
   confirmComputerAction,
+  fetchDeskInventory,
   localVmInventoryState,
   reconcileCloudInventoryPayload,
   perBotLocalVmDeletePlan,
@@ -46,6 +47,33 @@ const ownedCloudComputer: CloudComputerInventoryInstance = {
 };
 
 afterEach(() => setLocale("en"));
+
+describe("desk inventory reads never surface a gateway failure", () => {
+  const reply = (status: number, body: string) => vi.fn(async () => new Response(body, { status })) as unknown as typeof fetch;
+
+  it("treats a proxy's bare 502 or 504 as desks unreachable, not as an error code", async () => {
+    await expect(fetchDeskInventory("vps", undefined, reply(502, "<html>Bad Gateway</html>"))).resolves.toBeNull();
+    await expect(fetchDeskInventory("cloud", undefined, reply(504, ""))).resolves.toBeNull();
+    // even the server's own 5xx never reaches the card as raw text
+    await expect(fetchDeskInventory("vps", undefined, reply(500, JSON.stringify({ error: "ssh: connect to host" })))).resolves.toBeNull();
+  });
+
+  it("treats a dropped connection as unreachable but still honours an abort", async () => {
+    const dropped = vi.fn(async () => { throw new TypeError("Failed to fetch"); }) as unknown as typeof fetch;
+    await expect(fetchDeskInventory("vps", undefined, dropped)).resolves.toBeNull();
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = vi.fn(async () => { throw new DOMException("aborted", "AbortError"); }) as unknown as typeof fetch;
+    await expect(fetchDeskInventory("cloud", controller.signal, aborted)).rejects.toThrow(/aborted/);
+  });
+
+  it("keeps the server's own words for a refusal and returns a healthy body", async () => {
+    await expect(fetchDeskInventory("vps", undefined, reply(403, JSON.stringify({ error: "forbidden: this session lacks the admin scope" }))))
+      .rejects.toThrow("forbidden: this session lacks the admin scope");
+    const body = { configured: true, available: true, sshAlias: "nation-vps", problem: null, instances: [] };
+    await expect(fetchDeskInventory("vps", undefined, reply(200, JSON.stringify(body)))).resolves.toEqual(body);
+  });
+});
 
 describe("computer inventory request wiring", () => {
   it("keeps every mount and refresh request observation-only", () => {

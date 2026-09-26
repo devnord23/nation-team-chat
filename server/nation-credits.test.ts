@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { encodeEventTopics, encodeAbiParameters, pad, parseAbiItem, toHex, type Hex } from "viem";
 import { CreditLedger, creditSettings, creditChains, invoiceChain, invoiceTokenAmount, micros, type CreditAccount, type CreditChain, type CreditInvoice } from "./nation-credits.ts";
-import { confirmCreditPayment, scanCreditPayments, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
+import { LATE_PAYMENT_WINDOW_MS, SCAN_CHUNK_BLOCKS, confirmCreditPayment, scanCreditPayments, scanErrorText, verifyCreditPayment, type PaymentRpc } from "./nation-payments.ts";
+import { creditPlan, liveInvoices } from "./routes/nation-credits.ts";
 
 const ledgers: CreditLedger[] = [], roots: string[] = [];
 afterEach(() => { ledgers.splice(0).forEach(ledger => ledger.close()); roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })); });
@@ -282,9 +283,41 @@ describe("discounted $NATION payments", () => {
   });
 });
 
+describe("credit plan", () => {
+  it("is free until a pack is paid, with the starter credit the ledger actually granted", () => {
+    const db = ledger({ NATION_FREE_CREDIT_USD: "4" });
+    const member = account("plan-member");
+    // before verification: the configured amount it would receive
+    expect(creditPlan(db.db, member.id, db.settings.freeUsd)).toEqual({ plan: "free", starterCreditUsd: 4, starterGranted: false });
+    expect(db.grant(member, "203.0.113.4", "device-plan").granted).toBe(true);
+    expect(creditPlan(db.db, member.id, 3)).toEqual({ plan: "free", starterCreditUsd: 4, starterGranted: true });
+    // an owner adjustment is not a purchase
+    db.adjust(member.id, 10, "goodwill", "owner");
+    expect(creditPlan(db.db, member.id, 3).plan).toBe("free");
+    const inv = db.createInvoice(member, usdcChain, 15, 10n, 1_000_000);
+    db.paid(inv, tx("c"), inv.amount_micros);
+    expect(creditPlan(db.db, member.id, 3)).toEqual({ plan: "paid", starterCreditUsd: 4, starterGranted: true });
+  });
+});
+
+describe("credit status invoices", () => {
+  it("lists only rows on a chain id and token this server still bills", () => {
+    const chains = creditChains({ NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286" });
+    const rows = [
+      { id: "base", chain: 8453, token },
+      { id: "usdg", chain: 4663, token: chains[1]!.token.toUpperCase().replace("0X", "0x") },
+      { id: "nation", chain: 4663, token: nationToken },
+      { id: "dropped-token", chain: 4663, token },
+    ];
+    expect(liveInvoices(chains, rows).map(row => row.id)).toEqual(["usdg", "nation"]);
+    expect(liveInvoices([], rows)).toEqual([]);
+  });
+});
+
 describe("payment watcher", () => {
   /** A loopback JSON-RPC stand-in for Robinhood Chain: real viem requests, fixture transfers only. */
-  async function fakeChain(transfers: Array<{ token: string; to: string; value: bigint; hash: Hex; block: bigint }>, head: bigint, timestamp: bigint) {
+  async function fakeChain(transfers: Array<{ token: string; to: string; value: bigint; hash: Hex; block: bigint }>, head: bigint, timestamp: bigint,
+    fixture: { chainId?: number; failLogsFor?: string } = {}) {
     const topic = (address: string) => pad(address as Hex, { size: 32 }).toLowerCase();
     const blockHash = (n: bigint) => pad(toHex(n), { size: 32 });
     const toLog = (t: (typeof transfers)[number]) => ({
@@ -293,16 +326,21 @@ describe("payment watcher", () => {
       transactionHash: t.hash, transactionIndex: "0x0", logIndex: "0x0", removed: false,
     });
     const methods: string[] = [];
+    const ranges: Array<{ token: string; from: bigint; to: bigint }> = [];
     const server = createServer(async (req, res) => {
       let raw = "";
       for await (const chunk of req) raw += chunk;
       const call = JSON.parse(raw) as { id: number; method: string; params: any[] };
       methods.push(call.method);
       const reply = (result: unknown) => res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, result }));
-      if (call.method === "eth_chainId") return reply("0x1237");
+      if (call.method === "eth_chainId") return reply(toHex(fixture.chainId ?? 4663));
       if (call.method === "eth_blockNumber") return reply(toHex(head));
       if (call.method === "eth_getLogs") {
         const filter = call.params[0], from = BigInt(filter.fromBlock), to = BigInt(filter.toBlock);
+        ranges.push({ token: String(filter.address).toLowerCase(), from, to });
+        if (fixture.failLogsFor && String(filter.address).toLowerCase() === fixture.failLogsFor) {
+          return res.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, error: { code: -32005, message: "fixture: log query rejected" } }));
+        }
         return reply(transfers.filter(t => t.token === String(filter.address).toLowerCase() && topic(t.to) === String(filter.topics?.[2]).toLowerCase()
           && t.block >= from && t.block <= to).map(toLog));
       }
@@ -321,7 +359,7 @@ describe("payment watcher", () => {
     });
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
     closers.push(() => new Promise<void>(resolve => server.close(() => resolve())));
-    return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, methods };
+    return { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, methods, ranges };
   }
   const closers: Array<() => Promise<void>> = [];
   afterEach(async () => { await Promise.all(closers.splice(0).map(close => close())); });
@@ -365,5 +403,157 @@ describe("payment watcher", () => {
 
     expect(db.invoice(nation.id)?.paid_tx).toBe(tx("9"));
     expect(db.balance(account().id)).toBe(nation.amount_micros);
+  });
+
+  /** Both Robinhood tokens against one fake chain, with a USDG and a $NATION request open. */
+  async function twoTokens(head: bigint, fixture: Parameters<typeof fakeChain>[3] = {}, now = Date.now()) {
+    const transfers: Parameters<typeof fakeChain>[0] = [];
+    const chainRpc = await fakeChain(transfers, head, BigInt(Math.floor(now / 1000)) + 5n, fixture);
+    const env = { NATION_TREASURY_ROBINHOOD: treasury, NATION_TOKEN_USD_PRICE: "0.000286", NATION_RPC_ROBINHOOD: `${chainRpc.url}/v2/sk_live_fixturesecret` };
+    const chains = creditChains(env);
+    const db = ledger(env);
+    db.account(account());
+    const lines: string[] = [];
+    return { transfers, chainRpc, chains, db, lines, log: (line: string) => lines.push(line), now };
+  }
+
+  it("an RPC failure on one token is logged with its chain and token, and the other token is still scanned", async () => {
+    const fixture: { failLogsFor?: string } = { failLogsFor: nationToken };
+    const t = await twoTokens(20n, fixture);
+    const nation = t.db.createInvoice(account(), t.chains[0]!, 15, 10n, t.now);
+    const usdg = t.db.createInvoice(account(), t.chains[1]!, 15, 10n, t.now);
+    t.transfers.push({ token: t.chains[1]!.token, to: treasury, value: BigInt(usdg.token_amount), hash: tx("1"), block: 12n });
+
+    const failures = await scanCreditPayments(t.db, t.chains, { log: t.log });
+
+    // $NATION is listed first and fails; USDG is scanned and credited anyway
+    expect(t.db.invoice(usdg.id)?.paid_tx).toBe(tx("1"));
+    expect(t.db.invoice(nation.id)?.paid_tx).toBeNull();
+    expect(failures).toEqual([expect.objectContaining({ chain: 4663, symbol: "$NATION", token: nationToken })]);
+    expect(failures[0]!.error).toContain("fixture: log query rejected");
+    expect(t.lines).toHaveLength(1);
+    expect(t.lines[0]).toContain(`NATION payment scan failed for $NATION on Robinhood Chain (chain 4663, token ${nationToken})`);
+    // the RPC endpoint and its key never reach the log
+    expect(t.lines[0]).not.toMatch(/127\.0\.0\.1|sk_live|fixturesecret/);
+    // the failed token keeps its cursor where it was; the healthy one moves on
+    const cursors = Object.fromEntries(t.db.db.prepare("SELECT token, block FROM credit_scan_cursors").all().map((row) => [row.token, row.block]));
+    expect(cursors).toEqual({ [t.chains[1]!.token]: "18" });
+
+    // the next pass, with the RPC healthy again, picks the $NATION request up
+    t.transfers.push({ token: nationToken, to: treasury, value: BigInt(nation.token_amount), hash: tx("2"), block: 15n });
+    delete fixture.failLogsFor;
+    expect(await scanCreditPayments(t.db, t.chains, { log: t.log })).toEqual([]);
+    expect(t.db.invoice(nation.id)?.paid_tx).toBe(tx("2"));
+  });
+
+  it("refuses to scan a network whose chain id does not match, loudly, for every token", async () => {
+    const t = await twoTokens(20n, { chainId: 1 });
+    t.db.createInvoice(account(), t.chains[1]!, 15, 10n, t.now);
+    t.db.createInvoice(account(), t.chains[0]!, 15, 10n, t.now);
+    const failures = await scanCreditPayments(t.db, t.chains, { log: t.log });
+    expect(failures.map((f) => f.symbol)).toEqual(["$NATION", "USDG"]);
+    expect(t.lines).toHaveLength(2);
+    for (const line of t.lines) expect(line).toContain("payment RPC reports chain id 1, expected 4663; refusing to scan the wrong network");
+    expect(t.chainRpc.methods).not.toContain("eth_getLogs");
+    expect(t.db.db.prepare("SELECT COUNT(*) AS n FROM credit_scan_cursors").get()?.n).toBe(0);
+  });
+
+  it("expired requests never pull the scan back into history or hold up a fresh one", async () => {
+    const t = await twoTokens(1_000n);
+    const stale = t.db.createInvoice(account(), t.chains[1]!, 15, 1n, t.now - LATE_PAYMENT_WINDOW_MS - 3_600_000);
+    // a stale request alone costs no RPC call at all
+    expect(await scanCreditPayments(t.db, t.chains, { log: t.log })).toEqual([]);
+    expect(t.chainRpc.methods).toEqual([]);
+
+    const fresh = t.db.createInvoice(account(), t.chains[1]!, 49, 900n, t.now);
+    t.transfers.push({ token: t.chains[1]!.token, to: treasury, value: BigInt(fresh.token_amount), hash: tx("3"), block: 950n });
+    expect(await scanCreditPayments(t.db, t.chains, { log: t.log })).toEqual([]);
+
+    expect(t.db.invoice(fresh.id)?.paid_tx).toBe(tx("3"));
+    expect(t.db.invoice(stale.id)?.paid_tx).toBeNull();
+    // it started at the fresh request's block, not the stale one's
+    expect(Math.min(...t.chainRpc.ranges.map((range) => Number(range.from)))).toBe(900);
+    expect(t.lines).toEqual([]);
+  });
+
+  it("closes a long cursor lag in one pass, jumping straight to the earliest fresh request", async () => {
+    const t = await twoTokens(6_000n);
+    const usdg = t.chains[1]!;
+    // a cursor left far behind by a quiet spell
+    t.db.db.prepare("INSERT INTO credit_scan_cursors VALUES(?,?,?)").run(4663, usdg.token, "10");
+    const invoice = t.db.createInvoice(account(), usdg, 15, 2_000n, t.now);
+    t.transfers.push({ token: usdg.token, to: treasury, value: BigInt(invoice.token_amount), hash: tx("4"), block: 5_900n });
+
+    await scanCreditPayments(t.db, t.chains, { log: t.log });
+
+    expect(t.db.invoice(invoice.id)?.paid_tx).toBe(tx("4"));
+    const ranges = t.chainRpc.ranges.filter((range) => range.token === usdg.token);
+    expect(ranges[0]).toMatchObject({ from: 2_000n, to: 2_000n + SCAN_CHUNK_BLOCKS - 1n });
+    // contiguous chunks up to the last confirmed block (head 6000, 3 confirmations)
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i]!.from).toBe(ranges[i - 1]!.to + 1n);
+    expect(ranges.at(-1)!.to).toBe(5_998n);
+    expect(t.db.db.prepare("SELECT block FROM credit_scan_cursors WHERE token=?").get(usdg.token)?.block).toBe("5998");
+  });
+
+  it("sets aside a transfer that can never pay its request instead of pinning the cursor", async () => {
+    // every block of this chain is an hour older than the request: its transfer predates it
+    const now = Date.now();
+    const t = await twoTokens(20n, {}, now);
+    const earlier = await fakeChain(t.transfers, 20n, BigInt(Math.floor(now / 1000)) - 3_600n);
+    const usdg = t.chains[1]!;
+    const invoice = t.db.createInvoice(account(), usdg, 15, 10n, now);
+    t.transfers.push({ token: usdg.token, to: treasury, value: BigInt(invoice.token_amount), hash: tx("5"), block: 12n });
+
+    const pass = () => scanCreditPayments(t.db, [{ ...usdg, rpc: earlier.url }], { log: t.log });
+    expect(await pass()).toEqual([]);
+    expect(t.db.invoice(invoice.id)?.paid_tx).toBeNull();
+    expect(t.lines).toEqual([expect.stringContaining(`set aside transfer ${tx("5")} (USDG, chain 4663) for request ${invoice.id}: This transfer predates the payment request.`)]);
+    // the cursor moved past it: the next pass does not trip over the same transfer again
+    expect(t.db.db.prepare("SELECT block FROM credit_scan_cursors WHERE token=?").get(usdg.token)?.block).toBe("18");
+    await pass();
+    expect(t.lines).toHaveLength(1);
+  });
+
+  it("credits the first of two identical transfers once and logs the second as a likely double payment", async () => {
+    const t = await twoTokens(20n);
+    const usdg = t.chains[1]!;
+    const invoice = t.db.createInvoice(account(), usdg, 15, 10n, t.now);
+    // a second request keeps the token scanning after the first is paid
+    t.db.createInvoice(account(), usdg, 49, 10n, t.now);
+    t.transfers.push({ token: usdg.token, to: treasury, value: BigInt(invoice.token_amount), hash: tx("6"), block: 12n });
+    expect(await scanCreditPayments(t.db, t.chains, { log: t.log })).toEqual([]);
+    expect(t.db.invoice(invoice.id)?.paid_tx).toBe(tx("6"));
+    expect(t.lines).toEqual([]);
+
+    // the same amount again, in a later pass: never credited twice, and reported
+    t.transfers.push({ token: usdg.token, to: treasury, value: BigInt(invoice.token_amount), hash: tx("7"), block: 19n });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const later = await fakeChain(t.transfers, 25n, BigInt(Math.floor(Date.now() / 1000)) + 5n);
+    expect(await scanCreditPayments(t.db, [{ ...usdg, rpc: later.url }], { log: t.log })).toEqual([]);
+    expect(t.db.balance(account().id)).toBe(invoice.amount_micros);
+    expect(t.lines).toEqual([`NATION payment scan found a second transfer ${tx("7")} (USDG, chain 4663) for request ${invoice.id}, already credited by ${tx("6")}. Nothing credits it automatically: refund it or credit it by hand.`]);
+    expect(t.db.db.prepare("SELECT block FROM credit_scan_cursors WHERE token=?").get(usdg.token)?.block).toBe("23");
+  });
+
+  it("stays quiet when a pasted hash credited the same transfer first", async () => {
+    const t = await twoTokens(20n);
+    const usdg = t.chains[1]!;
+    const invoice = t.db.createInvoice(account(), usdg, 15, 10n, t.now);
+    t.transfers.push({ token: usdg.token, to: treasury, value: BigInt(invoice.token_amount), hash: tx("8"), block: 12n });
+    // the buyer pastes the hash before the scan reaches it
+    t.db.paid(invoice, tx("8"), invoice.amount_micros);
+    t.db.createInvoice(account(), usdg, 49, 10n, t.now);
+    expect(await scanCreditPayments(t.db, t.chains, { log: t.log })).toEqual([]);
+    expect(t.db.balance(account().id)).toBe(invoice.amount_micros);
+    expect(t.lines).toEqual([]);
+  });
+});
+
+describe("payment scan error text", () => {
+  it("keeps the RPC's words and drops its URL, request body and anything secret-shaped", () => {
+    const viemLike = Object.assign(new Error("HTTP request failed.\n\nURL: https://rpc.example/v2/sk_live_abc123\nRequest body: {\"method\":\"eth_getLogs\"}"), { shortMessage: "HTTP request failed." });
+    expect(scanErrorText(viemLike)).toBe("HTTP request failed.");
+    expect(scanErrorText(new Error("fetch https://user:pass@rpc.example/key123 failed"))).toBe("fetch <rpc> failed");
+    expect(scanErrorText("plain")).toBe("plain");
   });
 });

@@ -405,7 +405,10 @@ function EventEditor({
   const attachmentPending = attachmentPendingCount > 0;
   const fileInput = useRef<HTMLInputElement>(null);
   const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
-  const cloudReady = Boolean(state.config?.box.configured && cloudInstance?.snapshot.state === "available");
+  const cloudReady = Boolean(state.config?.box?.configured && cloudInstance?.snapshot.state === "available");
+  // Where a routine runs is desk setup, which is the owner's: a
+  // server-confirmed member keeps the bot's current setup without a choice.
+  const member = state.config?.isProductOwner === false;
   const rooms = state.groups.filter(roomCanRunGoal);
   const selectedRoom = rooms.find((group) => group.id === groupId);
   const roomMembers = activeRoomMembers(selectedRoom, state.bots);
@@ -960,7 +963,7 @@ function EventEditor({
             </div>}
           </div>
 
-          {kind === "routine" && (
+          {kind === "routine" && (isRoomGoal || !member) && (
             <div className="flex items-start gap-4">
               {isRoomGoal ? <Target size={18} className="mt-2.5 shrink-0 text-ink-secondary" /> : runOn === "cloud" ? <Cloud size={18} className="mt-2.5 shrink-0 text-ink-secondary" /> : <Laptop size={18} className="mt-2.5 shrink-0 text-ink-secondary" />}
               <div className="min-w-0 flex-1">

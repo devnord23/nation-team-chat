@@ -154,7 +154,50 @@ function readPanelWidth(): number {
   return PANEL_DEFAULT_WIDTH;
 }
 
-export function ComputerPanel({
+/** Members never see desk setup. Every Computer route is admin-scoped and Box,
+ * SSH and Local VM setup belong to the owner, so a server-confirmed member
+ * gets one NATION-owned explanation instead of choices that cannot work. */
+export function ComputerPanel(props: {
+  bot: Bot;
+  onOpenVmWorkspace?: (botId: string) => void;
+}) {
+  const { state } = useStore();
+  if (state.config?.isProductOwner === false) return <MemberComputerPanel bot={props.bot} />;
+  return <OwnerComputerPanel {...props} />;
+}
+
+export function MemberComputerPanel({ bot }: { bot: Bot }) {
+  const { dispatch } = useStore();
+  const { padClass } = useCaptionChrome();
+  return (
+    <aside
+      aria-label={t("computer.member.title")}
+      className="animate-panel-in relative flex h-full w-[340px] max-w-full shrink-0 flex-col border-l border-hairline/40 bg-panel"
+    >
+      <div className={cn("flex items-center justify-between px-4 py-3", padClass)}>
+        <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+          <Monitor size={16} className="text-ink-secondary" /> {t("computer.member.title")}
+        </div>
+        <button
+          type="button"
+          aria-label={t("common.close")}
+          onClick={() => dispatch({ type: "toggleComputer", open: false })}
+          className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="px-4 pb-4">
+        <div className="rounded-xl bg-card p-4" data-testid="member-computer">
+          <div className="text-[15px] font-medium text-ink">{t("computer.member.heading")}</div>
+          <p className="mt-1 text-[12.5px] leading-5 text-ink-secondary">{t("computer.member.body", { name: bot.name })}</p>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function OwnerComputerPanel({
   bot: profileBot,
   onOpenVmWorkspace,
 }: {
@@ -459,7 +502,7 @@ export function ComputerPanel({
     .filter((routine) => routine.botId === bot.id)
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity));
   const cloudRoutineReady = Boolean(
-    state.config?.box.configured &&
+    state.config?.box?.configured &&
       state.instances.some((instance) => instance.driverKind === "boxAgent" && instance.snapshot.state === "available"),
   );
   const activeRoutineRun = state.routineRuns.find(

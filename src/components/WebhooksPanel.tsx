@@ -92,7 +92,7 @@ function WebhookEditor({ webhook, bots, onClose, onCredential }: { webhook?: Web
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
-  const cloudReady = Boolean(state.config?.box.configured && cloudInstance?.snapshot.state === "available");
+  const cloudReady = Boolean(state.config?.box?.configured && cloudInstance?.snapshot.state === "available");
 
   useEffect(() => {
     const dialog = dialogRef.current;

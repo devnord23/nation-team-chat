@@ -1481,7 +1481,15 @@ export function reducer(state: AppState, action: Action): AppState {
     case "instances":
       return { ...state, instances: action.instances };
     case "configStatus":
-      return { ...state, config: action.config };
+      // A config without the server's owner verdict (an endpoint that returns the raw
+      // status, or an older server) keeps the verdict this session already has, so a
+      // save never hides the owner's admin sections. Members always receive `false`.
+      return {
+        ...state,
+        config: action.config.isProductOwner === undefined && state.config?.isProductOwner !== undefined
+          ? { ...action.config, isProductOwner: state.config.isProductOwner }
+          : action.config,
+      };
     case "select": {
       if (state.groups.some((g) => g.id === action.id)) {
         return {
