@@ -35,6 +35,13 @@ async function chooseRoot(): Promise<React.ReactNode> {
   return <App />;
 }
 
+// A sign-in link opened in a tab that already shows the app (or the sign-in
+// page) changes only the fragment, which reloads nothing: start again so the
+// link is read like any other.
+window.addEventListener("hashchange", () => {
+  if (/[#&]login=/.test(location.hash)) location.reload();
+});
+
 void Promise.all([bootstrapBrand(), chooseRoot()]).then(([, root]) => {
   createRoot(document.getElementById("root")!).render(<StrictMode>{root}</StrictMode>);
 });
