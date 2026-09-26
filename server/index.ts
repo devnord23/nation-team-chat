@@ -459,10 +459,11 @@ import { createWorkspaceBackupRoutes, isWorkspaceBackupSessionControl } from "./
 import { applyPendingWorkspaceRestore, readLastWorkspaceRestore, type WorkspaceRestoreResult } from "./workspace-backup.ts";
 import { createCustomDomainVerifier, customDomainIpv4, normalizeCustomDomain } from "./custom-domain.ts";
 import { allowedScopes, createEmailSignIn, parseAllowList } from "./account-signin.ts";
-import { AccountStore, normalizeEmail } from "./accounts.ts";
+import { AccountStore } from "./accounts.ts";
 import { createAccountMailer } from "./account-mail.ts";
 import { createAccountGateway, type AccountGateway } from "./account-gateway.ts";
-import { WORKSPACE_ACTIVITY_PATH, WORKSPACE_KEY_HEADER, WORKSPACE_SESSION_PATH, WorkspaceHost } from "./workspace-host.ts";
+import { createWorkspaceEndpoint } from "./workspace-endpoint.ts";
+import { WorkspaceHost } from "./workspace-host.ts";
 import { ProviderAuthSessions } from "./provider-auth-sessions.ts";
 import {
   clearSessionCookie,
@@ -11910,37 +11911,23 @@ ROUTES.push(createComputerInventoryRoutes({
 
 const toolResults = new ToolResults();
 /** A workspace server's two loopback routes for the server that started it
- * (server/workspace-host.ts), gated by the key it was started with. */
-async function workspaceHostRequest(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
-  res.setHeader("cache-control", "no-store");
-  const expected = Buffer.from(process.env.NATION_WORKSPACE_KEY ?? "");
-  const presented = Buffer.from(String(req.headers[WORKSPACE_KEY_HEADER] ?? ""));
-  const peer = req.socket.remoteAddress;
-  const local = !isProxied(req) && (peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1");
-  if (!local || expected.length < 32 || presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
-    return json(res, 403, { error: "forbidden" });
-  }
-  if (path === WORKSPACE_SESSION_PATH && method === "POST") {
-    const body = await readBody(req, 4_096);
-    const email = normalizeEmail(body?.email);
-    const userId = typeof body?.userId === "string" ? body.userId.trim().slice(0, 256) : "";
-    if (!email || !userId) return json(res, 400, { error: "email and userId are required" });
-    // Only the account this workspace was made for (its config's sign-in list).
-    if (!allowedScopes(email, signInAllowList())?.includes("client")) return json(res, 403, { error: "this workspace belongs to another account" });
-    // One credential at a time: the one its host holds now.
+ * (server/workspace-endpoint.ts), gated by the key it was started with. */
+const workspaceEndpoint = WORKSPACE_CHILD ? createWorkspaceEndpoint({
+  key: process.env.NATION_WORKSPACE_KEY,
+  // Only the account this workspace was made for (its config's sign-in list).
+  ownAccount: (email) => Boolean(allowedScopes(email, signInAllowList())?.includes("client")),
+  // One credential at a time: the one its host holds now.
+  replaceSession: ({ userId, email }) => {
     for (const session of sessions.list()) sessions.revoke(session.id);
-    const issued = sessions.issue({ label: "Nation account", scopes: ["client"], userId, email });
-    return json(res, 200, { token: issued.token });
-  }
-  if (path === WORKSPACE_ACTIVITY_PATH && method === "GET") {
-    const busy = store.bots.some((bot) => store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)))
-      || store.groups.some((group) => Boolean(group.busyBotId));
+    return sessions.issue({ label: "Nation account", scopes: ["client"], userId, email }).token;
+  },
+  activity: () => ({
+    busy: store.bots.some((bot) => store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)))
+      || store.groups.some((group) => Boolean(group.busyBotId)),
     // Routines run inside this process, so an enabled one keeps it running.
-    const keepAlive = Boolean(routines?.listRoutines().some((routine) => routine.enabled) || routines?.wakeHold().hold);
-    return json(res, 200, { busy, keepAlive });
-  }
-  return json(res, 404, { error: "not found" });
-}
+    keepAlive: Boolean(routines?.listRoutines().some((routine) => routine.enabled) || routines?.wakeHold().hold),
+  }),
+}) : undefined;
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   creditContext.enterWith(null);
@@ -11994,9 +11981,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const challenge = customDomainVerifier.challenge(domainCheck[1]);
       return json(res, challenge ? 200 : 404, challenge ?? { error: "No active domain check." });
     }
-    if (WORKSPACE_CHILD && (path === WORKSPACE_SESSION_PATH || path === WORKSPACE_ACTIVITY_PATH)) {
-      return await workspaceHostRequest(req, res, path, method);
-    }
+    if (workspaceEndpoint && await workspaceEndpoint(req, res, path, method)) return;
     // Email-link sign-in, and every API request from a browser signed in to
     // an account: those go to the account's own workspace, never this desk.
     if (accountGateway && await accountGateway.handle(req, res, url)) return;

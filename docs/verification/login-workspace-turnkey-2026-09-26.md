@@ -202,6 +202,10 @@ clean start.
   event streaming, idle stop unless busy or kept awake by a routine, the
   running limit, crash restart, a refused credential re-minted without a
   sign-in error.
+- `server/workspace-endpoint.test.ts`: the workspace server's side of that
+  boundary answers only its host (the start key, never through a proxy, never
+  with a short or missing key), mints a session only for its own account, and
+  reports whether a turn or routine should keep it running.
 - `server/routes/nation-wallet.test.ts`: off without Turnkey credentials, the
   API-key stamp, one wallet per account named without the person, balance and
   fee checks, USDG and $NATION payments credited by the scan, nothing

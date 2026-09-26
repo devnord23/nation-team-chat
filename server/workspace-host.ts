@@ -10,7 +10,8 @@
 //
 // What a workspace server gets, and what it does not:
 //   - One `client` session for its one account, minted over loopback with a
-//     key made for that start. Requests are forwarded with that bearer and
+//     key made for that start (server/workspace-endpoint.ts answers on the
+//     workspace server's side). Requests are forwarded with that bearer and
 //     never as the loopback owner: owner means admin, and admin could add
 //     engines, keys, MCP servers or computers.
 //   - The NATION API engine only (see workspaceConfig): no desks, no browser,
