@@ -400,7 +400,26 @@ export async function launchVerificationServer(
     trustedOrigins?: { exact?: string; patterns?: string } },
   /** Programmatic tests only: enables the secret-gated test capability route. */
   testCapabilityKey?: string,
+  /** Public sign-up (server/account-gateway.ts): email links land in the
+   * fixture's own outbox (<data dir>/mail-outbox) and every account gets
+   * its own workspace server. Founder emails sign in to this server's desk.
+   * Payments need an owned loopback Robinhood Chain stand-in. */
+  accounts?: {
+    founderEmails?: string[];
+    payments?: { rpc: string; treasury: string; nationPriceUsd?: string; confirmations?: number; scanSeconds?: number };
+    /** An owned loopback stand-in for the wallet service (server/testing/fake-turnkey.ts). */
+    turnkey?: { url: string; organizationId: string; apiPublicKey: string; apiPrivateKey: string };
+    /** Where sign-in links open (OMB_PUBLIC_URL): a loopback front end, e.g. a production build behind a rewrite proxy. */
+    publicUrl?: string;
+  },
 ): Promise<VerificationServer> {
+  const loopbackUrl = /^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/;
+  if (accounts && (!(accounts.founderEmails ?? []).every((email) => /^[\w.+-]+@example\.test$/.test(email))
+    || (accounts.payments && (!loopbackUrl.test(accounts.payments.rpc) || !/^0x[0-9a-fA-F]{40}$/.test(accounts.payments.treasury)))
+    || (accounts.turnkey && !loopbackUrl.test(accounts.turnkey.url))
+    || (accounts.publicUrl !== undefined && !/^http:\/\/(?:localhost|127\.0\.0\.1):[1-9]\d{0,4}(?:\/[\w-]+)*$/.test(accounts.publicUrl)))) {
+    throw new ControlOmbError("Account verification requires example.test founders and owned loopback chain and wallet services");
+  }
   if (composioFixtureApi && !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/.test(composioFixtureApi)) {
     throw new ControlOmbError("Connector verification requires an owned loopback HTTP provider");
   }
@@ -496,6 +515,25 @@ export async function launchVerificationServer(
     } : {}),
   });
   if (nationFixtureApi) Object.assign(childEnv, { OPENROUTER_API_KEY: "nation_fixture_key_only", OPENROUTER_API_URL: nationFixtureApi, NATION_PRODUCT_OWNER: "1" });
+  if (accounts) Object.assign(childEnv, {
+    NATION_ACCOUNTS: "1",
+    NATION_MAIL_OUTBOX: "1",
+    ...(accounts.publicUrl ? { OMB_PUBLIC_URL: accounts.publicUrl } : {}),
+    ...(accounts.founderEmails?.length ? { OMB_SIGNIN_EMAILS: accounts.founderEmails.join(",") } : {}),
+    ...(accounts.payments ? {
+      NATION_TREASURY_ROBINHOOD: accounts.payments.treasury,
+      NATION_RPC_ROBINHOOD: accounts.payments.rpc,
+      ...(accounts.payments.nationPriceUsd ? { NATION_TOKEN_USD_PRICE: accounts.payments.nationPriceUsd } : {}),
+      ...(accounts.payments.confirmations ? { NATION_CONFIRMATIONS: String(accounts.payments.confirmations) } : {}),
+      ...(accounts.payments.scanSeconds ? { NATION_CREDIT_SCAN_SECONDS: String(accounts.payments.scanSeconds) } : {}),
+    } : {}),
+    ...(accounts.turnkey ? {
+      TURNKEY_API_BASE_URL: accounts.turnkey.url,
+      TURNKEY_ORGANIZATION_ID: accounts.turnkey.organizationId,
+      TURNKEY_API_PUBLIC_KEY: accounts.turnkey.apiPublicKey,
+      TURNKEY_API_PRIVATE_KEY: accounts.turnkey.apiPrivateKey,
+    } : {}),
+  });
   const child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "server", "index.ts")], {
     cwd: ROOT,
     env: childEnv,

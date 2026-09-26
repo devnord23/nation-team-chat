@@ -89,3 +89,16 @@ export const ADMIN_ONLY_SETTINGS_SECTIONS = new Set([
 export function isAdminOnlySettingsSection(id: string): boolean {
   return ADMIN_ONLY_SETTINGS_SECTIONS.has(id);
 }
+
+/**
+ * Sections a server-confirmed member never sees, whatever else is unlocked:
+ * "people" edits the server's sign-in list and "backups" exports or replaces
+ * the whole workspace, both admin routes. Unlike the set above these stay
+ * for an owner behind a PIN and before the config arrives, as they always
+ * have; only `isProductOwner === false` hides them.
+ */
+export const OPERATOR_SETTINGS_SECTIONS = new Set(["people", "backups"]);
+
+export function hiddenFromMember(id: string, config: { isProductOwner?: boolean } | null | undefined): boolean {
+  return config?.isProductOwner === false && OPERATOR_SETTINGS_SECTIONS.has(id);
+}

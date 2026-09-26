@@ -29,7 +29,9 @@ import { ThreadCleanupSettings } from "./ThreadCleanupSettings";
 import { WorkspaceBackupSettings } from "./WorkspaceBackupSettings";
 import { CompanyBackupSettings } from "./CompanyBackupSettings";
 import { cn } from "@/lib/cn";
-import { isProductAdmin, isAdminOnlySettingsSection } from "@/lib/admin-gate";
+import { hiddenFromMember, isProductAdmin, isAdminOnlySettingsSection } from "@/lib/admin-gate";
+import { preferencesRoute } from "@/lib/preferences";
+import { AccountCard } from "./AccountCard";
 import { setShowThreads, useShowThreads } from "@/lib/thread-preferences";
 
 // `labelKey`, not a label: t() reads the active pack when it is called, so a
@@ -47,7 +49,7 @@ const SECTIONS: Array<{
   { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor, keywords: ["vm", "virtual", "desktop"] },
-  { id: "usage", labelKey: "settings.section.usage", icon: Coins, keywords: ["tokens", "cost", "billing"] },
+  { id: "usage", labelKey: "settings.section.usage", icon: Coins, keywords: ["tokens", "cost", "billing", "credits", "credit", "top up", "plans", "wallet"] },
   { id: "people", labelKey: "settings.section.people", icon: Users, keywords: ["people", "users", "invite", "sign in", "members", "admins", "access"] },
   { id: "backups", labelKey: "settings.section.backups", icon: Archive, keywords: ["export", "import", "restore", "full backup", "password", "recovery"] },
 ];
@@ -66,8 +68,10 @@ function ProfileFields() {
   }, [state.config?.profile?.name]);
 
   const save = () => {
-    void fetch(apiUrl("/api/config"), {
-      method: "PUT",
+    const route = preferencesRoute(state.config);
+    if (!route) return;
+    void fetch(apiUrl(route.path), {
+      method: route.method,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile: { name: name.trim() } }),
     })
@@ -179,10 +183,12 @@ function ReplayAppTourButton() {
       <button
         disabled={saving}
         onClick={() => {
+          const route = preferencesRoute(state.config);
+          if (!route) return;
           setSaving(true);
           setFailed(false);
-          void api("/api/config", {
-            method: "PUT",
+          void api(route.path, {
+            method: route.method,
             body: JSON.stringify({ onboarding: {
               // Upgraded users may have completed only the legacy browser gate.
               ...(!state.config?.onboarding?.completedAt ? completionPatch().onboarding : {}),
@@ -207,9 +213,11 @@ function ReplayAppTourButton() {
 }
 
 function ReplayTourRow() {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
+  // Engines and phone setup are the owner's steps; a member's tour is the introduction.
+  const member = state.config?.isProductOwner === false;
   return (
-    <SettingRow title={t("settings.welcome.title")} subtitle={t("settings.welcome.subtitle")}>
+    <SettingRow title={t("settings.welcome.title")} subtitle={t(member ? "settings.welcome.memberSubtitle" : "settings.welcome.subtitle")}>
       <div className="flex flex-wrap gap-2">
         <ReplayAppTourButton />
         <button
@@ -230,12 +238,13 @@ function LanguageRow() {
   const [error, setError] = useState("");
 
   const save = async (language: string) => {
-    if (saving) return;
+    const route = preferencesRoute(state.config);
+    if (saving || !route) return;
     setSaving(true);
     setError("");
     try {
-      const config: ConfigStatus = await api("/api/config", {
-        method: "PATCH",
+      const config: ConfigStatus = await api(route.path, {
+        method: route.method === "PUT" ? "PATCH" : route.method,
         body: JSON.stringify({ language }),
       });
       dispatch({ type: "configStatus", config });
@@ -469,13 +478,15 @@ export function SettingsModal() {
     pinRequired: state.config?.adminGate?.pinRequired,
     isProductOwner: state.config?.isProductOwner,
   });
-  const visibleSections = availableSections.filter((entry) => {
-    if (!admin && isAdminOnlySettingsSection(entry.id)) return false;
-    return sectionMatches(entry, q);
-  });
+  // Profile, language and the tour are the person's own in their own workspace, the owner's on a desk.
+  const ownPreferences = preferencesRoute(state.config) !== null;
+  // The server says this is a member: none of the operator's controls, whose routes would refuse them.
+  const operator = state.config?.isProductOwner !== false;
+  const allowed = (id: string) => (admin || !isAdminOnlySettingsSection(id)) && !hiddenFromMember(id, state.config);
+  const visibleSections = availableSections.filter((entry) => allowed(entry.id) && sectionMatches(entry, q));
   // A member never renders an admin-only section (Local VM, Connections…),
   // not even for the paint before the effect below moves Settings away.
-  const section: AppSettingsSection = admin || !isAdminOnlySettingsSection(requestedSection)
+  const section: AppSettingsSection = allowed(requestedSection)
     ? requestedSection
     : visibleSections[0]?.id ?? "general";
   const sectionLabelKey = SECTIONS.find((entry) => entry.id === section)?.labelKey;
@@ -600,7 +611,7 @@ export function SettingsModal() {
               }}
               className="min-w-0 rounded-lg bg-control px-3 py-2 text-[14px] text-ink sm:hidden"
             >
-              {availableSections.filter((entry) => admin || !isAdminOnlySettingsSection(entry.id)).map(({ id, labelKey }) => (
+              {availableSections.filter((entry) => allowed(entry.id)).map(({ id, labelKey }) => (
                 <option key={id} value={id}>{t(labelKey)}</option>
               ))}
             </select>
@@ -621,22 +632,30 @@ export function SettingsModal() {
             {section === "desktopWorkspaces" && <ConnectedWorkspacesSettings />}
             {section === "general" && (
               <>
-                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
-                  <ProfileFields />
-                </Card>
+                <AccountCard />
+                {/* A member of a shared desk sees its owner's settings, not controls that would be refused. */}
+                {ownPreferences && (
+                  <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
+                    <ProfileFields />
+                  </Card>
+                )}
                 <div>
-                  <LanguageRow />
+                  {ownPreferences && <LanguageRow />}
                   <AnalyticsRow />
                 </div>
-                <Card title={t("settings.roomTurns.title")} subtitle={t("settings.roomTurns.subtitle")}>
-                  <RoomTurnTimeoutSettings />
-                </Card>
-                <ThreadConcurrencySettings />
-                <ThreadCleanupSettings />
+                {operator && (
+                  <>
+                    <Card title={t("settings.roomTurns.title")} subtitle={t("settings.roomTurns.subtitle")}>
+                      <RoomTurnTimeoutSettings />
+                    </Card>
+                    <ThreadConcurrencySettings />
+                    <ThreadCleanupSettings />
+                  </>
+                )}
                 <div>
-                  {!remoteActive && <ReplayTourRow />}
+                  {!remoteActive && ownPreferences && <ReplayTourRow />}
                   <UpdatesRow />
-                  <DiagnosticsRow />
+                  {operator && <DiagnosticsRow />}
                 </div>
               </>
             )}

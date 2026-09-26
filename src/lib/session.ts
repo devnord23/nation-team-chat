@@ -7,7 +7,7 @@ export interface EnvironmentDescriptor {
   label: string;
   platform: string;
   version: string;
-  capabilities: { remoteSessions: true; selfUpdate: "desktop-managed" | "operator"; emailSignIn?: boolean; sharedComputers?: true };
+  capabilities: { remoteSessions: true; selfUpdate: "desktop-managed" | "operator"; emailSignIn?: boolean; accountSignIn?: true; sharedComputers?: true };
 }
 
 export type SessionState =
@@ -45,6 +45,24 @@ export async function readSessionState(fetchImpl: typeof fetch = fetch): Promise
     };
   }
   return { kind: "loopback" };
+}
+
+/** What this server is and how people sign in to it; null when it cannot be read. */
+export async function readEnvironment(fetchImpl: typeof fetch = fetch): Promise<EnvironmentDescriptor | null> {
+  try {
+    const res = await fetchImpl(resolveUrl("/.well-known/nationteamchat/environment"));
+    return res.ok ? ((await res.json()) as EnvironmentDescriptor) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pull `#login=…` (an emailed sign-in link) off the URL and out of history. */
+export function takeLoginTokenFromLocation(): string | null {
+  const m = /[#&]login=([^&]+)/.exec(location.hash);
+  if (!m) return null;
+  history.replaceState(null, "", location.pathname + location.search);
+  return decodeURIComponent(m[1]);
 }
 
 /** Pull `#code=…` off the URL and out of history, the way a pairing link is meant to be consumed. */
@@ -125,6 +143,31 @@ export function startEmailSignIn(email: string, fetchImpl: typeof fetch = fetch)
 /** Exchange the emailed code for a session cookie. */
 export function verifyEmailSignIn(input: { email: string; code: string; label: string }, fetchImpl: typeof fetch = fetch): Promise<{ ok: true } | { ok: false; error: string }> {
   return postAuth("/api/auth/email/verify", { email: input.email, code: input.code, label: input.label }, fetchImpl);
+}
+
+/** Email me a sign-in link (server/account-gateway.ts). */
+export function startMagicLink(email: string, fetchImpl: typeof fetch = fetch): Promise<{ ok: true } | { ok: false; error: string }> {
+  return postAuth("/api/auth/magic/start", { email }, fetchImpl);
+}
+
+/** The address an emailed link is for, without using it. */
+export async function peekMagicLink(token: string, fetchImpl: typeof fetch = fetch): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
+  let res: Response;
+  try {
+    res = await fetchImpl(resolveUrl("/api/auth/magic/peek"), { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+  } catch (error) {
+    return { ok: false, error: `could not reach the server (${error instanceof Error ? error.message : String(error)})` };
+  }
+  const body: unknown = await res.json().catch(() => ({}));
+  const email = Reflect.get(Object(body), "email");
+  if (res.ok && typeof email === "string") return { ok: true, email };
+  const error = Reflect.get(Object(body), "error");
+  return { ok: false, error: typeof error === "string" ? error : `${res.status} ${res.statusText}` };
+}
+
+/** Use an emailed link: the server sets the session cookie. */
+export function verifyMagicLink(input: { token: string; label: string }, fetchImpl: typeof fetch = fetch): Promise<{ ok: true } | { ok: false; error: string }> {
+  return postAuth("/api/auth/magic/verify", { token: input.token, label: input.label }, fetchImpl);
 }
 
 /** The gate's ordinary "you have no session" wording is why the pair page is

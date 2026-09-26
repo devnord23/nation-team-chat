@@ -15,6 +15,7 @@ import type { EIP1193Provider, Hex } from "viem";
 import { api, useStore } from "@/state/store";
 import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier } from "@/lib/nation-credits-ctx";
 import { SettingRow } from "./SettingsPrimitives";
+import { NationWalletPay } from "./NationWalletPay";
 import { cn } from "@/lib/cn";
 
 const BASE_URL = import.meta.env.BASE_URL;
@@ -679,12 +680,20 @@ export function CheckoutPanel({
           Usage is not charged to this account. Test payments still credit the ledger if they complete.
         </p>
       )}
+      <NationWalletPay
+        invoiceId={invoice.id}
+        symbol={chain.symbol}
+        token={invoice.token}
+        amount={amount}
+        disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
+        onSent={onHash}
+      />
       <button
         className="mt-5 w-full rounded-xl bg-ink py-3 font-semibold text-app transition-opacity disabled:opacity-50"
         disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
         onClick={onPay}
       >
-        Pay with wallet
+        Pay with a connected wallet
       </button>
       <div className="mt-5">
         <label className="mb-1 block text-[13px] text-ink-secondary">
@@ -1185,6 +1194,12 @@ export function NationCredits() {
 }
 
 // ─── Settings row (exported for UsageSection) ─────────────────────────────────
+/** "Free plan · $2.97 credit left." — what the account has, before what it can buy. */
+export function billingSummary(status: Pick<CreditStatus, "exempt" | "onFreePlan" | "balanceUsd">): string {
+  if (status.exempt) return "Owner / admin access: your usage is not charged.";
+  return `${status.onFreePlan ? "Free plan" : "Paid credit"} · $${status.balanceUsd.toFixed(2)} credit left.`;
+}
+
 /** Settings → Usage row. "Top up" is a link to Full Plans. */
 export function NationCreditsSettingsRow() {
   const { status } = useNationCredits();
@@ -1192,11 +1207,11 @@ export function NationCreditsSettingsRow() {
   return (
     <SettingRow
       title="Billing & Credits"
-      subtitle={
+      subtitle={`${billingSummary(status)} ${
         status.topUpEnabled
-          ? "Add credit for your team's API usage."
+          ? "Top up any time on Full Plans; credit never expires."
           : status.topUpMessage || "Top up coming soon"
-      }
+      }`}
     >
       {status.topUpEnabled ? (
         <a className="ui-button hover:bg-raised-hover" href={FULL_PLANS_HREF}>

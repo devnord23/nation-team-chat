@@ -576,12 +576,12 @@ describe("CheckoutPanel", () => {
     const html = renderToStaticMarkup(createElement(CheckoutPanel, { ...baseProps, invoice: orphan }));
     expect(html).toContain("no longer offered");
     expect(html).not.toContain(" ?");
-    expect(html).not.toContain("Pay with wallet");
+    expect(html).not.toContain("Pay with a connected wallet");
   });
 
-  it("shows staged action buttons: Pay with wallet + I've paid — confirm", () => {
+  it("shows staged action buttons: Pay with a connected wallet + I've paid — confirm", () => {
     const html = renderToStaticMarkup(createElement(CheckoutPanel, baseProps));
-    expect(html).toContain("Pay with wallet");
+    expect(html).toContain("Pay with a connected wallet");
     expect(html).toContain("I&#x27;ve paid");
   });
 

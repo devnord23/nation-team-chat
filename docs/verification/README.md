@@ -204,6 +204,10 @@ The [launch blockers record](launch-blockers-2026-09-26.md) covers the desk inve
 showed a 502, what a member sees of desks, pending payment requests and the Free plan, and
 lists the $15 USDG smoke to run after the deploy.
 
+The [login, workspaces and NATION wallet record](login-workspace-turnkey-2026-09-26.md) covers
+email sign-in, one isolated workspace per account, a Starter paid from a passkey-held NATION
+wallet, and the founder desk staying out of reach, with a checklist for the live run.
+
 Keep the JSON from `wait` and `messages`, the exact command sequence, and the
 fixture's printed log path. Evidence must show both the action and the resulting
 state. A green unit test alone does not prove a user workflow.

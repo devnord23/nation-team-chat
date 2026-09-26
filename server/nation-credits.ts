@@ -124,6 +124,7 @@ export class CreditLedger {
       CREATE TABLE IF NOT EXISTS credit_sponsors(thread_id TEXT PRIMARY KEY, user_id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_cursors(chain INTEGER PRIMARY KEY, block TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credit_scan_cursors(chain INTEGER NOT NULL, token TEXT NOT NULL, block TEXT NOT NULL, PRIMARY KEY(chain, token));
+      CREATE TABLE IF NOT EXISTS credit_embedded_wallets(account_id TEXT PRIMARY KEY, sub_org_id TEXT NOT NULL, wallet_id TEXT NOT NULL, address TEXT NOT NULL UNIQUE, credential_id TEXT NOT NULL, created_at INTEGER NOT NULL);
     `);
     // credit_cursors kept one block per chain id, which USDG and $NATION share; the payment
     // scan now keeps one per chain + token in credit_scan_cursors and no longer reads it.

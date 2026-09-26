@@ -266,6 +266,9 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
   { methods: ["GET"], path: /^\/api\/credits\/status$/ },
   { methods: ["POST"], path: /^\/api\/credits\/(?:invoices|confirm|wallet\/(?:challenge|verify))$/ },
+  // The account's own NATION wallet (server/routes/nation-wallet.ts): its passkey holds it.
+  { methods: ["GET", "POST"], path: /^\/api\/credits\/wallet\/embedded$/ },
+  { methods: ["POST"], path: /^\/api\/credits\/wallet\/embedded\/(?:prepare|pay)$/ },
   // own session
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
   { methods: ["POST"], path: /^\/api\/auth\/stream-ticket$/ },
@@ -347,6 +350,8 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["GET"], path: /^\/api\/webhooks$/ },
   // configured-or-not booleans; the handler strips the few identifying fields for clients
   { methods: ["GET"], path: /^\/api\/config$/ },
+  // first-run progress, language and display name; only in a workspace of one's own
+  { methods: ["PATCH"], path: /^\/api\/workspace\/preferences$/ },
 ];
 
 export function requiredScope(method: string, path: string, features: { sharedComputers?: boolean } = {}): Scope {

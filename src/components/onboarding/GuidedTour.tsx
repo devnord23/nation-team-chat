@@ -12,6 +12,7 @@ import type { NationState } from "@/lib/mascot";
 import { hintSeenPatch } from "@/lib/onboarding";
 import type { LocaleKey } from "@/locales";
 import { api, useStore } from "@/state/store";
+import { preferencesRoute } from "@/lib/preferences";
 import { Spotlight } from "./Spotlight";
 
 const MASCOT: Record<TourStep["id"], NationState> = {
@@ -54,6 +55,8 @@ export function GuidedTour() {
   const pending = useRef<Promise<unknown>>(Promise.resolve());
   const latestRecord = useRef(record);
   latestRecord.current = record;
+  const saveRoute = useRef(preferencesRoute(state.config));
+  saveRoute.current = preferencesRoute(state.config);
   const closed = useRef(false);
   const [dismissed, setDismissed] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -108,8 +111,9 @@ export function GuidedTour() {
         const patch = finish
           ? { onboarding: { hintsSeen: withTourFinished(latestRecord.current) } }
           : id ? hintSeenPatch(latestRecord.current, id) : null;
-        if (!patch) return;
-        const config = await api("/api/config", { method: "PUT", body: JSON.stringify(patch), signal: AbortSignal.timeout(10_000) });
+        const route = saveRoute.current;
+        if (!patch || !route) return;
+        const config = await api(route.path, { method: route.method, body: JSON.stringify(patch), signal: AbortSignal.timeout(10_000) });
         latestRecord.current = config.onboarding;
         dispatch({ type: "configStatus", config });
       });

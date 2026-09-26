@@ -1,6 +1,6 @@
 import { publicRoutineInput } from "./public-routine-input.ts";
 import { teamImportPreview, normalizeTeamImportManifest } from "./team-import-preview.ts";
-import { creditContext, creditAccount, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId, threadSponsorAccount } from "./nation-credit-context.ts";
+import { creditContext, creditAccount, nationCreditsFile, nationLedger, sponsorCreditThread, creditsEnforced, threadSponsorId, threadSponsorAccount } from "./nation-credit-context.ts";
 import { searchProvider, webRead, webSearch, webToolPrices, webToolsStatus, WebToolError } from "./nation-web-tools.ts";
 import type { CreditAccount } from "./nation-credits.ts";
 import { allowedModelSlug, modelRouteCatalog, recordRoute, routeModel, setRouteReceiptFile, recentRoutes } from "./nation-model-router.ts";
@@ -8,6 +8,8 @@ import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
 import { teamMapFor } from "./team-map-view.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
+import { createNationWalletRoutes } from "./routes/nation-wallet.ts";
+import { createWorkspacePreferencesRoutes } from "./routes/workspace-preferences.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 import { publicResponse } from "./public-response.ts";
@@ -457,6 +459,10 @@ import { createWorkspaceBackupRoutes, isWorkspaceBackupSessionControl } from "./
 import { applyPendingWorkspaceRestore, readLastWorkspaceRestore, type WorkspaceRestoreResult } from "./workspace-backup.ts";
 import { createCustomDomainVerifier, customDomainIpv4, normalizeCustomDomain } from "./custom-domain.ts";
 import { allowedScopes, createEmailSignIn, parseAllowList } from "./account-signin.ts";
+import { AccountStore, normalizeEmail } from "./accounts.ts";
+import { createAccountMailer } from "./account-mail.ts";
+import { createAccountGateway, type AccountGateway } from "./account-gateway.ts";
+import { WORKSPACE_ACTIVITY_PATH, WORKSPACE_KEY_HEADER, WORKSPACE_SESSION_PATH, WorkspaceHost } from "./workspace-host.ts";
 import { ProviderAuthSessions } from "./provider-auth-sessions.ts";
 import {
   clearSessionCookie,
@@ -473,7 +479,7 @@ import {
   sessionCookieName,
 } from "./request-auth.ts";
 import { cookieMaxAgeSeconds, formatPairingCode, SessionRegistry, type Scope } from "./sessions.ts";
-import { describeBrand, loadBrand, publicBrand } from "./brand.ts";
+import { brandFile, describeBrand, loadBrand, publicBrand } from "./brand.ts";
 import { PRODUCT_IDENTITY_LOCK } from "./product-identity.ts";
 import { deliverSseFrame } from "./sse-fanout.ts";
 import {
@@ -594,6 +600,48 @@ const customDomainVerifier = createCustomDomainVerifier({ environmentId: ENVIRON
 const emailSignIn = createEmailSignIn({
   allow: signInAllowList,
 });
+// A workspace server started by the public server for one account
+// (server/workspace-host.ts): it answers only that server, over loopback.
+const WORKSPACE_CHILD = /^ws_[A-Za-z0-9_-]{22}$/.test(process.env.NATION_WORKSPACE_ID ?? "") && Boolean(process.env.NATION_WORKSPACE_KEY);
+// Public sign-up (server/account-gateway.ts): an emailed link, then one
+// workspace per account, each served by its own process over its own data
+// directory. Off unless NATION_ACCOUNTS=1; never on a portal-managed or
+// desktop server, and never inside a workspace server itself.
+let workspaceHost: WorkspaceHost | null = null;
+let accountGateway: AccountGateway | null = null;
+let accountSignIn = false;
+if (process.env.NATION_ACCOUNTS === "1" && !WORKSPACE_CHILD) {
+  if (HOSTED_WORKSPACE || DESKTOP_MANAGED) {
+    console.error("NATION_ACCOUNTS is ignored on a portal-managed or desktop-managed server");
+  } else {
+    const mailer = createAccountMailer({ dataDir: DATA_DIR });
+    if (mailer.kind === "outbox") console.warn("email sign-in: NATION_MAIL_OUTBOX=1 writes sign-in links to disk; never use it on a public server");
+    if (mailer.kind === "none") console.warn("email sign-in: NATION_ACCOUNTS=1 but no mail is configured (NATION_SMTP_URL, NATION_MAIL_FROM); sign-in stays off");
+    accountSignIn = mailer.kind !== "none";
+    workspaceHost = new WorkspaceHost({
+      dataDir: DATA_DIR,
+      creditsDb: nationCreditsFile(),
+      brandFile: () => (existsSync(brandFile()) ? brandFile() : null),
+      // Founder-chosen model routing and web search apply in every workspace.
+      sharedSettings: () => {
+        const current = loadConfig();
+        return { modelRouting: current.modelRouting, webSearch: current.webSearch };
+      },
+    });
+    const maxTotal = Number(process.env.NATION_WORKSPACE_MAX_TOTAL);
+    accountGateway = createAccountGateway({
+      accounts: new AccountStore(join(DATA_DIR, "nation-accounts.db")),
+      host: workspaceHost,
+      mailer,
+      sessions,
+      founderCookie: SESSION_COOKIE,
+      founderScopes: (email) => allowedScopes(email, signInAllowList()),
+      appUrl: () => publicUrl(),
+      environmentId: ENVIRONMENT_ID,
+      maxWorkspaces: Number.isInteger(maxTotal) && maxTotal >= 0 ? maxTotal : 500,
+    });
+  }
+}
 let customDomainRevision = 0;
 function savedCustomDomain(): string | null {
   if (DESKTOP_MANAGED || !cfg.customDomain) return null;
@@ -1574,6 +1622,12 @@ function claimNewThread(threadId: string | undefined): void {
 }
 /** This account's own open conversation with a shared bot (created when it
  * has none, never the bot's globally open task when that is someone else's). */
+/** Conversations viewerActiveThread is creating right now, by account and
+ * bot. The store announces a new conversation before it can be claimed, and
+ * projecting that announcement for the same account must not create another
+ * one: that one would be announced unclaimed too, and so on until the stack
+ * ran out, leaving hundreds of empty conversations behind. */
+const creatingViewerThreads = new Set<string>();
 function viewerActiveThread(viewer: string, botId: string, create = true): string | undefined {
   const bot = store.bot(botId);
   if (!bot) return undefined;
@@ -1587,10 +1641,22 @@ function viewerActiveThread(viewer: string, botId: string, create = true): strin
       .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))[0]?.threadId;
   if (pick) { threadOwnership.setActive(viewer, bot.id, pick); return pick; }
   if (!create) return undefined;
-  const task = threadOwnerContext.run(viewer, () => store.createTask(bot.id, undefined, false));
+  const creating = `${viewer}\u0000${bot.id}`;
+  if (creatingViewerThreads.has(creating)) return undefined;
+  creatingViewerThreads.add(creating);
+  let task: ReturnType<typeof store.createTask>;
+  try {
+    task = threadOwnerContext.run(viewer, () => store.createTask(bot.id, undefined, false));
+  } finally {
+    creatingViewerThreads.delete(creating);
+  }
   if (!task) return undefined;
   threadOwnership.claim(task.threadId, viewer);
   threadOwnership.setActive(viewer, bot.id, task.threadId);
+  // Its announcement went out before the claim, without it: announce the
+  // bot again so this account's open windows show their conversation.
+  const updated = store.bot(bot.id);
+  if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
   return task.threadId;
 }
 /** A wire bot as one account sees it: its own open conversation and tasks. */
@@ -11487,6 +11553,9 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
   // source objects.
   return {
     isProductOwner: false,
+    // A workspace of one's own: its account may save its preferences
+    // (server/routes/workspace-preferences.ts). False on a shared desk.
+    personalWorkspace: WORKSPACE_CHILD,
     adminGate: status.adminGate,
     profile: { name: status.profile.name, email: "" },
     language: status.language,
@@ -11809,9 +11878,23 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
 // boot, after this line, so the dependency reads it per request.
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 
+// Before the credit routes, which answer every other /api/credits path.
+ROUTES.push(createNationWalletRoutes());
+// A workspace's own first-run progress, language and display name.
+ROUTES.push(createWorkspacePreferencesRoutes({
+  personalWorkspace: WORKSPACE_CHILD,
+  save: (patch, admin) => {
+    saveConfig(patch);
+    Object.assign(cfg, loadConfig());
+    const status = configStatus();
+    broadcast({ kind: "config", ...status });
+    return configForAccess(status, admin);
+  },
+}));
 ROUTES.push(createNationCreditRoutes());
 // No payments are enabled without a configured treasury. Scans only read chain data.
-const stopCreditWatcher = startCreditWatcher(nationLedger());
+// Workspace servers share this ledger file; only the public server scans (NATION_CREDIT_WATCHER=0 there).
+const stopCreditWatcher = process.env.NATION_CREDIT_WATCHER === "0" ? () => {} : startCreditWatcher(nationLedger());
 process.once("exit", stopCreditWatcher);
 const creditReconciliation = setInterval(() => { void reconcileModelSpend(); }, 30_000);
 creditReconciliation.unref();
@@ -11826,6 +11909,39 @@ ROUTES.push(createComputerInventoryRoutes({
 }));
 
 const toolResults = new ToolResults();
+/** A workspace server's two loopback routes for the server that started it
+ * (server/workspace-host.ts), gated by the key it was started with. */
+async function workspaceHostRequest(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
+  res.setHeader("cache-control", "no-store");
+  const expected = Buffer.from(process.env.NATION_WORKSPACE_KEY ?? "");
+  const presented = Buffer.from(String(req.headers[WORKSPACE_KEY_HEADER] ?? ""));
+  const peer = req.socket.remoteAddress;
+  const local = !isProxied(req) && (peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1");
+  if (!local || expected.length < 32 || presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    return json(res, 403, { error: "forbidden" });
+  }
+  if (path === WORKSPACE_SESSION_PATH && method === "POST") {
+    const body = await readBody(req, 4_096);
+    const email = normalizeEmail(body?.email);
+    const userId = typeof body?.userId === "string" ? body.userId.trim().slice(0, 256) : "";
+    if (!email || !userId) return json(res, 400, { error: "email and userId are required" });
+    // Only the account this workspace was made for (its config's sign-in list).
+    if (!allowedScopes(email, signInAllowList())?.includes("client")) return json(res, 403, { error: "this workspace belongs to another account" });
+    // One credential at a time: the one its host holds now.
+    for (const session of sessions.list()) sessions.revoke(session.id);
+    const issued = sessions.issue({ label: "Nation account", scopes: ["client"], userId, email });
+    return json(res, 200, { token: issued.token });
+  }
+  if (path === WORKSPACE_ACTIVITY_PATH && method === "GET") {
+    const busy = store.bots.some((bot) => store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)))
+      || store.groups.some((group) => Boolean(group.busyBotId));
+    // Routines run inside this process, so an enabled one keeps it running.
+    const keepAlive = Boolean(routines?.listRoutines().some((routine) => routine.enabled) || routines?.wakeHold().hold);
+    return json(res, 200, { busy, keepAlive });
+  }
+  return json(res, 404, { error: "not found" });
+}
+
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   creditContext.enterWith(null);
   let url: URL;
@@ -11870,7 +11986,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // paired session with the right scope.
     if (method === "GET" && !path.startsWith("/api/") && !path.startsWith("/.well-known/") && serveStatic(res, path)) return;
     if (method === "GET" && ["/.well-known/nationteamchat/environment", "/.well-known/openmausbot/environment"].includes(path)) {
-      return json(res, 200, environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED, emailSignIn: !HOSTED_WORKSPACE && emailSignIn.enabled(), sharedComputers: sharedComputersEnabled(cfg) }));
+      return json(res, 200, environmentDescriptor({ environmentId: ENVIRONMENT_ID, desktopManaged: DESKTOP_MANAGED, emailSignIn: !HOSTED_WORKSPACE && emailSignIn.enabled(), accountSignIn, sharedComputers: sharedComputersEnabled(cfg) }));
     }
     const domainCheck = /^\/\.well-known\/openmausbot\/domain-check\/([a-f0-9]{64})$/.exec(path);
     if (method === "GET" && domainCheck) {
@@ -11878,6 +11994,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const challenge = customDomainVerifier.challenge(domainCheck[1]);
       return json(res, challenge ? 200 : 404, challenge ?? { error: "No active domain check." });
     }
+    if (WORKSPACE_CHILD && (path === WORKSPACE_SESSION_PATH || path === WORKSPACE_ACTIVITY_PATH)) {
+      return await workspaceHostRequest(req, res, path, method);
+    }
+    // Email-link sign-in, and every API request from a browser signed in to
+    // an account: those go to the account's own workspace, never this desk.
+    if (accountGateway && await accountGateway.handle(req, res, url)) return;
     // Sign in with an emailed code (server/account-signin.ts). Public like
     // /api/auth/pair, JSON-only for the same reason, and counted against the
     // same per-source lockout so a code cannot be guessed.
@@ -19669,6 +19791,7 @@ const gracefulShutdown = createGracefulShutdown({
       tunnelListener?.close();
     },
     async () => { await managedDesktop.close(); await registry.disposeAll(); },
+    async () => { await workspaceHost?.close(); },
     async () => {
       await Promise.all([...temporaryBrowserSessions.keys()].map((botId) => forgetTemporaryBrowser(botId)));
       await browserRuntime.closeAll();
@@ -19697,4 +19820,11 @@ const gracefulShutdown = createGracefulShutdown({
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, gracefulShutdown);
+}
+// A workspace server lives only as long as the server that started it: if
+// that one is gone (even killed outright), stop instead of holding its port
+// and data directory as an orphan.
+if (WORKSPACE_CHILD) {
+  const parent = process.ppid;
+  setInterval(() => { if (process.ppid !== parent) gracefulShutdown(); }, 2_000).unref();
 }

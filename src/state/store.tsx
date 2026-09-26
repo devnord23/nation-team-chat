@@ -585,6 +585,9 @@ export interface ConfigStatus {
    * granted admin UI access.
    */
   isProductOwner?: boolean;
+  /** A workspace of one's own (a Nation account's): its member saves their
+   * own first-run progress, language and name. See src/lib/preferences.ts. */
+  personalWorkspace?: boolean;
   /** Voice. `configured` = the engine has what it needs (an ElevenLabs or
    * Fish Audio key, or a Chatterbox server address); `ready` = that AND a voice, which is
    * what it takes to actually speak. The key itself is never echoed back;
