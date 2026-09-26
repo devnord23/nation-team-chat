@@ -166,7 +166,7 @@ clean start.
 
 | Member Settings: account | Member Settings: billing |
 | --- | --- |
-| ![Signed in as alice, Sign out](images/login-workspace-turnkey/member-settings-account.jpg) | ![Free plan and $3 credit, Top up](images/login-workspace-turnkey/member-settings-billing.jpg) |
+| ![Signed in as alice, Sign out](images/login-workspace-turnkey/member-account.jpg) | ![Free plan and $3 credit, Top up](images/login-workspace-turnkey/member-billing.jpg) |
 
 | Full Plans, free plan | Checkout with the NATION wallet |
 | --- | --- |
