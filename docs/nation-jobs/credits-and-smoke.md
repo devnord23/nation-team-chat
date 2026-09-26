@@ -5,6 +5,32 @@ allowance design. It also carries the reviewed branding and connector changes.
 No merge, deployment, production purchase, or live VPS modification was made.
 The combined candidate at `d8fab572acd9fa21795b7490387c906410ca4abc` passes the strict public asset and captured member API guard. Browser and production smoke gates remain pending; this is not a deployment record.
 
+## Current payment configuration (2026-09-26)
+
+This supersedes the Base launch notes further down. Top-up runs on **Robinhood
+Chain (4663) only**; Base (8453) is retired and the server ignores
+`NATION_TREASURY_BASE`. Both tokens pay the founder's treasury
+`0x85E3C2D8f776d9D05b14E108F368070CbD8C1639` (supplied 2026-09-24, confirmed for
+Robinhood Chain 2026-09-26). The addresses below pass EIP-55 checksum validation;
+their on-chain decimals were not queried from this environment.
+
+| Token | Contract | Decimals | Buyer sends |
+| --- | --- | --- | --- |
+| USDG (default) | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | 6 | the pack price |
+| $NATION | `0xc839A88A05B231515a82c71EE97b4F18973C1340` | 18 | pack price × (1 − `NATION_TOKEN_DISCOUNT`) at `NATION_TOKEN_USD_PRICE` |
+
+$NATION is offered only while `NATION_TOKEN_USD_PRICE` is set. A $NATION invoice
+records its discount in `discount_bps` and credits the full pack either way; the
+status response reports the discount as `nationInvoiceDiscount`, which is what
+the Full Plans page shows as "Save 20%". Invoice creation names the token, and
+a request without one (an older client) is billed in USDG. The payment scan keeps
+one block cursor per chain + token (`credit_scan_cursors`): the former cursor per
+chain id let the first token's pass skip blocks for the second, so USDG transfers
+were only credited through a pasted hash while $NATION was enabled. After this
+change each token's first scan starts from its oldest unpaid invoice, 500 blocks
+per 30-second pass, and credits any matching transfer it finds on the way.
+The overlay with the approved values is `deploy/nation-robinhood.env`.
+
 ## Accounting and payment behavior
 
 The authoritative balance is SUM(amount_micros) in `nation-credits.db`, in the
@@ -48,11 +74,9 @@ with persisted block cursors. Payment RPC verifies chain, successful canonical
 receipt, token Transfer event, destination, amount and confirmation depth.
 Transaction hashes have a unique index. The browser cannot mint credit.
 
-The approved launch enables **Base USDC only**: chain 8453, six-decimal token
-`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, receiving treasury
-`0x85E3C2D8f776d9D05b14E108F368070CbD8C1639` (supplied by the founder on 2026-09-24).
-The address checksum and Base-only configuration have been checked. This does
-not prove wallet ownership or a completed transfer. Robinhood remains disabled.
+The first launch candidate enabled Base USDC only (chain 8453) with the same
+treasury; that path is retired, see "Current payment configuration". A checksum
+check does not prove wallet ownership or a completed transfer.
 The payment screen offers exact address/amount, an ERC-681 QR, injected-wallet
 ERC-20 transfer, and transaction-hash fallback. Wallet network gas is separate.
 
@@ -63,11 +87,12 @@ ERC-20 transfer, and transaction-hash fallback. Wallet network gas is separate.
 | NATION_FREE_CREDIT_USD | 3, allowed 2–5 |
 | NATION_CREDIT_MARKUP | 1.0 |
 | NATION_LOW_BALANCE_USD | 0.50 |
-| NATION_PACKS_USD | 10,25,100 |
+| NATION_PACKS_USD | 15,49,99 |
 | NATION_FREE_GRANTS_PER_IP_PER_DAY | 2 |
 | NATION_CONFIRMATIONS | 3 |
-| NATION_TREASURY_BASE / NATION_TREASURY_ROBINHOOD | unset; top-up hidden |
-| NATION_RPC_BASE | https://mainnet.base.org |
+| NATION_TREASURY_ROBINHOOD | unset; top-up hidden (NATION_TREASURY_BASE is ignored) |
+| NATION_TOKEN_USD_PRICE | unset; $NATION not offered |
+| NATION_TOKEN_DISCOUNT | 0.2 ($NATION buyers send 20% less), allowed 0–0.9 |
 | NATION_RPC_ROBINHOOD | https://rpc.mainnet.chain.robinhood.com |
 | NATION_IMAGE_MODEL | openai/gpt-image-2, server-only |
 | NATION_TRUST_PROXY | 0 |
@@ -75,12 +100,10 @@ ERC-20 transfer, and transaction-hash fallback. Wallet network gas is separate.
 | NATION_PRODUCT_OWNER / NATION_PRODUCT_ADMIN | 0; existing authenticated admin scope also required |
 | NATION_DATA_DIR | new directory if present, otherwise existing legacy data in place |
 
-The founder selected Base USDC only and supplied the treasury above. The reviewed
-non-secret overlay is `deploy/nation-base-usdc.env`. Apply only its two values to
-the API process configuration during the approved release; it is not a complete
-.env file and must not replace existing credentials, owner flags or data paths.
-Explicitly clear the Robinhood treasury, including any inherited process value.
-The overlay has not been applied to production. Existing defaults remain as shown
+The reviewed non-secret overlay is `deploy/nation-robinhood.env`. Apply its
+values to the API process configuration during the approved release; it is not a
+complete .env file and must not replace existing credentials, owner flags or data
+paths. The overlay has not been applied to production by this work. Existing defaults remain as shown
 above. RPC capacity, additional disposable domains and proxy configuration remain
 operator settings.
 The unique amount suffix can be up to $0.999999 and is fully credited; review
