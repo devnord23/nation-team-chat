@@ -588,6 +588,14 @@ export interface ConfigStatus {
   /** A workspace of one's own (a Nation account's): its member saves their
    * own first-run progress, language and name. See src/lib/preferences.ts. */
   personalWorkspace?: boolean;
+  /**
+   * True when the operator has pre-assigned a hosted model catalog and members
+   * may select from it when creating or patching bots. Provider credentials
+   * and instance admin remain operator-only; this flag only gates model
+   * selection within the assigned catalog. Set for both the OMB_HOSTED_MODELS
+   * portal path and the NATION workspace-child (WORKSPACE_CHILD) path.
+   */
+  hostedModelSelection?: boolean;
   /** Voice. `configured` = the engine has what it needs (an ElevenLabs or
    * Fish Audio key, or a Chatterbox server address); `ready` = that AND a voice, which is
    * what it takes to actually speak. The key itself is never echoed back;
@@ -646,7 +654,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner"
+  "xai" | "composio" | "box" | "vps" | "rooms" | "threads" | "localVm" | "opencodeGo" | "tts" | "imageGen" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "nationOpenrouter" | "adminGate" | "isProductOwner" | "hostedModelSelection" | "personalWorkspace"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -672,6 +680,8 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     nationOpenrouter: frame.nationOpenrouter,
     adminGate: frame.adminGate,
     isProductOwner: frame.isProductOwner,
+    hostedModelSelection: frame.hostedModelSelection,
+    personalWorkspace: frame.personalWorkspace,
   };
 }
 

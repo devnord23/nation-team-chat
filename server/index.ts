@@ -11556,6 +11556,10 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     // A workspace of one's own: its account may save its preferences
     // (server/routes/workspace-preferences.ts). False on a shared desk.
     personalWorkspace: WORKSPACE_CHILD,
+    // Signals that the workspace operator has pre-assigned a model catalog and
+    // the member may pick from it when creating or editing bots. True for both
+    // the OMB_HOSTED_MODELS portal path and the NATION workspace-child path.
+    hostedModelSelection: Boolean(hostedModels) || WORKSPACE_CHILD,
     adminGate: status.adminGate,
     profile: { name: status.profile.name, email: "" },
     language: status.language,
@@ -15833,7 +15837,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.requireAvailableModel === true && body.modelSelection === undefined) {
         return json(res, 400, { error: "requireAvailableModel requires modelSelection" });
       }
-      if (!auth.scopes.includes("admin") && body.modelSelection !== undefined) {
+      if (!auth.scopes.includes("admin") && !hostedModels && !WORKSPACE_CHILD && body.modelSelection !== undefined) {
         return json(res, 403, { error: "NATION: model settings are available only in Admin." });
       }
       const profileInput = Object.fromEntries(
@@ -16015,7 +16019,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "body must be a JSON object" });
       }
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
-        const field = clientBotPatchViolation(body);
+        const hostedAllowed = (hostedModels || WORKSPACE_CHILD) ? new Set(["modelSelection", "requireAvailableModel"]) : undefined;
+        const field = clientBotPatchViolation(body, hostedAllowed);
         if (field) return json(res, 403, { error: `forbidden: this session may change how a bot looks, not "${field}" (needs the admin scope)` });
       }
       const existingBot = store.bot(m[1]);
@@ -17605,7 +17610,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) return json(res, 400, { error: "body must be a JSON object" });
       const current = store.projectBotForTask(m[1], m[2]);
       if (!current) return json(res, 404, { error: "no such task" });
-      if (!auth.scopes.includes("admin") && (body.modelSelection !== undefined || body.updateBotDefault !== undefined)) return json(res, 403, { error: "NATION: model settings are available only in Admin." });
+      if (!auth.scopes.includes("admin") && !hostedModels && !WORKSPACE_CHILD && (body.modelSelection !== undefined || body.updateBotDefault !== undefined)) return json(res, 403, { error: "NATION: model settings are available only in Admin." });
       const allowed = new Set(["title", "projectId", "modelSelection", "updateBotDefault", "resetApprovalToAsk", "approvalMode", "autoApprove", "requireAvailableModel", "pinnedMessageId", "acknowledgeLocalAuto", "archivedAt", "pinned", "surface"]);
       if (Object.keys(body).some((key) => !allowed.has(key))) return json(res, 400, { error: "unsupported thread setting" });
       for (const key of ["requireAvailableModel", "acknowledgeLocalAuto", "updateBotDefault", "resetApprovalToAsk"] as const) {
@@ -18177,6 +18182,37 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // Ã¢â€â‚¬Ã¢â€â‚¬ provider instances (model picker) Ã¢â€â‚¬Ã¢â€â‚¬
     if (method === "GET" && path === "/api/instances") {
       if (!auth.scopes.includes("admin")) {
+        if (hostedModels) {
+          // Hosted workspace (OMB_HOSTED_MODELS): expose the real read-only
+          // catalog so the member's model picker can show operator-assigned
+          // choices. describeInstances() already strips CLI paths and auth.
+          return json(res, 200, { instances: await describeInstances() });
+        }
+        if (WORKSPACE_CHILD) {
+          // NATION workspace child: expose the nationApi instance with the
+          // routing catalog (fast/standard/strong tiers) so the picker can
+          // show selectable models. The routing catalog never contains
+          // Claude/Anthropic slugs (blocked by allowedModelSlug). Mark
+          // readOnly so the client knows instance config is operator-owned.
+          const catalog = routingCatalog();
+          const uniqueModels = [...new Set([catalog.fast, catalog.standard, catalog.strong])];
+          const nationInst = registry.get("nationApi");
+          const available = nationInst ? (await nationInst.snapshot()).state === "available" : false;
+          const modelOptions = uniqueModels.map((model) => {
+            const existing = nationInst?.models.options.find((o) => o.id === model);
+            return { id: model, label: existing?.label ?? model };
+          });
+          return json(res, 200, { instances: [{
+            instanceId: "nationApi",
+            displayName: "NATION API",
+            driverKind: "nation-openrouter",
+            access: "subscription",
+            readOnly: true,
+            snapshot: { state: available ? "available" : "unavailable" },
+            models: { default: catalog.fast, options: modelOptions },
+            capabilities: {},
+          }] });
+        }
         const selection = await defaultSelection();
         const selected = registry.get(selection.instanceId);
         const available = selected ? (await selected.snapshot()).state === "available" : false;
