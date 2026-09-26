@@ -266,6 +266,9 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/bots\/[\w-]+\/avatar\/generate$/ },
   { methods: ["GET"], path: /^\/api\/credits\/status$/ },
   { methods: ["POST"], path: /^\/api\/credits\/(?:invoices|confirm|wallet\/(?:challenge|verify))$/ },
+  // The account's own NATION wallet (server/routes/nation-wallet.ts): its passkey holds it.
+  { methods: ["GET", "POST"], path: /^\/api\/credits\/wallet\/embedded$/ },
+  { methods: ["POST"], path: /^\/api\/credits\/wallet\/embedded\/(?:prepare|pay)$/ },
   // own session
   { methods: ["GET"], path: /^\/api\/auth\/session$/ },
   { methods: ["POST"], path: /^\/api\/auth\/stream-ticket$/ },

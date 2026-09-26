@@ -34,7 +34,7 @@ describe("what a workspace server inherits", () => {
     NATION_ADMIN_PIN: "1234", NATION_MEMBER_HOST_ENGINES: "1", NATION_WEB_READER_ALLOW_LOOPBACK: "1", OMB_BOX_API: "https://box",
     CONTAINER_HOST: "ssh://root@vps", CONTAINER_SSHKEY: "/root/.ssh/id", OMB_PUBLIC_URL: "https://thenation.city/swarm",
     NATION_TRUSTED_ORIGINS: "https://thenation.city", OMB_HOSTED_MODEL_TOKEN: "omb_workspace_x", NATION_ACCOUNTS: "1",
-    TURNKEY_API_PRIVATE_KEY: "secret", ANTHROPIC_API_KEY: "sk-ant", OPENMAUSBOT_INTERNAL_DATA_DIR_LEASE: "lease",
+    ANTHROPIC_API_KEY: "sk-ant", OPENMAUSBOT_INTERNAL_DATA_DIR_LEASE: "lease", TURNKEY_ORGANIZATION_ID: "org",
   };
   const env = workspaceServerEnvironment(parent, { root: "/data/workspaces/ws_x", port: 41000, workspaceId: REF.id, key: "k".repeat(43), creditsDb: "/data/nation-credits.db", brandFile: "/data/brand.json" });
 
@@ -51,12 +51,12 @@ describe("what a workspace server inherits", () => {
     expect(env.NATION_PRODUCT_ADMIN).toBe("0");
   });
 
-  it("keeps model, credit and connected-app settings, and nothing else", () => {
-    expect(env).toMatchObject({ PATH: "/usr/bin", OPENROUTER_API_KEY: "sk-nation", NATION_MODEL_FAST: "fast/model", NATION_TREASURY_ROBINHOOD: "0xabc", COMPOSIO_API_KEY: "ak_x" });
+  it("keeps model, credit, wallet and connected-app settings, and nothing else", () => {
+    expect(env).toMatchObject({ PATH: "/usr/bin", OPENROUTER_API_KEY: "sk-nation", NATION_MODEL_FAST: "fast/model", NATION_TREASURY_ROBINHOOD: "0xabc", COMPOSIO_API_KEY: "ak_x", TURNKEY_ORGANIZATION_ID: "org" });
     for (const name of ["OMB_SIGNIN_EMAILS", "OMB_SIGNIN_MEMBER_EMAILS", "NATION_ACCOUNT_SERVICE_URL", "OMB_CONTROL_PLANE_URL", "NATION_SMTP_URL",
       "NATION_MAIL_FROM", "NATION_MAIL_OUTBOX", "NATION_ADMIN_PIN", "NATION_MEMBER_HOST_ENGINES", "NATION_WEB_READER_ALLOW_LOOPBACK", "OMB_BOX_API",
       "CONTAINER_HOST", "CONTAINER_SSHKEY", "OMB_PUBLIC_URL", "NATION_TRUSTED_ORIGINS", "OMB_HOSTED_MODEL_TOKEN", "NATION_ACCOUNTS",
-      "TURNKEY_API_PRIVATE_KEY", "ANTHROPIC_API_KEY", "OPENMAUSBOT_INTERNAL_DATA_DIR_LEASE"]) {
+      "ANTHROPIC_API_KEY", "OPENMAUSBOT_INTERNAL_DATA_DIR_LEASE"]) {
       expect(env[name], name).toBeUndefined();
     }
     expect(JSON.stringify(env)).not.toContain("/root/");

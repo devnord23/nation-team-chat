@@ -8,6 +8,7 @@ import { OPERATOR_ACCOUNT, ThreadOwnership } from "./thread-ownership.ts";
 import { teamMapFor } from "./team-map-view.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createNationCreditRoutes } from "./routes/nation-credits.ts";
+import { createNationWalletRoutes } from "./routes/nation-wallet.ts";
 import { startCreditWatcher } from "./nation-payments.ts";
 import { CONNECTORS_ENABLED } from "./connector-policy.ts";
 import { publicResponse } from "./public-response.ts";
@@ -11855,6 +11856,8 @@ const workspaceBackupRoutes = createWorkspaceBackupRoutes({
 // boot, after this line, so the dependency reads it per request.
 ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: () => Boolean(workspaceAccess) && entitled("admin") }));
 
+// Before the credit routes, which answer every other /api/credits path.
+ROUTES.push(createNationWalletRoutes());
 ROUTES.push(createNationCreditRoutes());
 // No payments are enabled without a configured treasury. Scans only read chain data.
 // Workspace servers share this ledger file; only the public server scans (NATION_CREDIT_WATCHER=0 there).

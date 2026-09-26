@@ -15,6 +15,7 @@ import type { EIP1193Provider, Hex } from "viem";
 import { api, useStore } from "@/state/store";
 import { NationCreditsCtx, useNationCredits, type CreditStatus, type CreditTier } from "@/lib/nation-credits-ctx";
 import { SettingRow } from "./SettingsPrimitives";
+import { NationWalletPay } from "./NationWalletPay";
 import { cn } from "@/lib/cn";
 
 const BASE_URL = import.meta.env.BASE_URL;
@@ -679,12 +680,20 @@ export function CheckoutPanel({
           Usage is not charged to this account. Test payments still credit the ledger if they complete.
         </p>
       )}
+      <NationWalletPay
+        invoiceId={invoice.id}
+        symbol={chain.symbol}
+        token={invoice.token}
+        amount={amount}
+        disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
+        onSent={onHash}
+      />
       <button
         className="mt-5 w-full rounded-xl bg-ink py-3 font-semibold text-app transition-opacity disabled:opacity-50"
         disabled={busy || invoice.expires_at <= Date.now() || Boolean(hash)}
         onClick={onPay}
       >
-        Pay with wallet
+        Pay with a connected wallet
       </button>
       <div className="mt-5">
         <label className="mb-1 block text-[13px] text-ink-secondary">
