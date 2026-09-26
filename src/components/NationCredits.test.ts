@@ -10,7 +10,7 @@ vi.mock("@/state/store", () => ({
 }));
 vi.mock("qrcode.react", () => ({ QRCodeSVG: () => null }));
 
-import { NationCreditsStrip, TierCard, TokenToggle, CheckoutPanel } from "./NationCredits";
+import { NationCreditsStrip, TierCard, TokenToggle, CheckoutPanel, filterLivePendingInvoices } from "./NationCredits";
 import type { CreditStatus, CreditTier } from "@/lib/nation-credits-ctx";
 
 type Status = Parameters<typeof NationCreditsStrip>[0]["status"];
@@ -266,3 +266,72 @@ describe("CheckoutPanel", () => {
 //   (c) CheckoutPanel shows Robinhood Chain / USDG / order summary / staged buttons
 //
 // End-to-end: visit /subscription, pick Builder, see checkout modal with USDG.
+
+// ─── filterLivePendingInvoices ────────────────────────────────────────────────
+
+const usdgToken = "0x5fc5360d0400a0fd4f2af552add042d716f1d168" as Hex;
+const nationToken = "0xc839a88a05b231515a82c71ee97b4f18973c1340" as Hex;
+const robinhoodTreasury = "0x1111111111111111111111111111111111111111" as Hex;
+const baseToken = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as Hex;
+
+const liveChains: CreditStatus["chains"] = [
+  { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: usdgToken, treasury: robinhoodTreasury, decimals: 6 },
+  { id: 4663, name: "Robinhood Chain", symbol: "$NATION", token: nationToken, treasury: robinhoodTreasury, decimals: 18 },
+];
+const liveUsdgOnly: CreditStatus["chains"] = [
+  { id: 4663, name: "Robinhood Chain", symbol: "USDG", token: usdgToken, treasury: robinhoodTreasury, decimals: 6 },
+];
+
+const makeInvoice = (chain: number, token: Hex, paid = false): CreditStatus["invoices"][number] => ({
+  id: crypto.randomUUID(),
+  chain, treasury: robinhoodTreasury, token,
+  pack_micros: 15_000_000, amount_micros: 15_000_500, token_amount: "",
+  expires_at: Date.now() + 3_600_000,
+  paid_tx: paid ? ("0x" + "a".repeat(64)) as Hex : null,
+});
+
+describe("filterLivePendingInvoices", () => {
+  it("keeps invoices whose chain+token pair is in live chains", () => {
+    const inv = makeInvoice(4663, usdgToken);
+    expect(filterLivePendingInvoices([inv], liveUsdgOnly)).toHaveLength(1);
+  });
+
+  it("removes invoices on a dropped chain (Base 8453 after Robinhood-only migration)", () => {
+    const orphan = makeInvoice(8453, baseToken);
+    const result = filterLivePendingInvoices([orphan], liveUsdgOnly);
+    expect(result).toHaveLength(0);
+  });
+
+  it("removes paid invoices even when their chain is live", () => {
+    const paid = makeInvoice(4663, usdgToken, true);
+    expect(filterLivePendingInvoices([paid], liveUsdgOnly)).toHaveLength(0);
+  });
+
+  it("distinguishes USDG and $NATION on the same chain id 4663 by token address", () => {
+    const usdgInv = makeInvoice(4663, usdgToken);
+    const nationInv = makeInvoice(4663, nationToken);
+    // Both chains live → both invoices kept
+    expect(filterLivePendingInvoices([usdgInv, nationInv], liveChains)).toHaveLength(2);
+    // Only USDG live → only USDG invoice kept
+    expect(filterLivePendingInvoices([usdgInv, nationInv], liveUsdgOnly)).toHaveLength(1);
+    expect(filterLivePendingInvoices([usdgInv, nationInv], liveUsdgOnly)[0].token).toBe(usdgToken);
+  });
+
+  it("returns empty list when chains is empty", () => {
+    const inv = makeInvoice(4663, usdgToken);
+    expect(filterLivePendingInvoices([inv], [])).toHaveLength(0);
+  });
+
+  it("returns empty list when invoices is empty", () => {
+    expect(filterLivePendingInvoices([], liveChains)).toHaveLength(0);
+  });
+
+  it("mixed: keeps live pending, drops orphan, drops paid", () => {
+    const livePending = makeInvoice(4663, usdgToken);
+    const orphan = makeInvoice(8453, baseToken);
+    const paid = makeInvoice(4663, usdgToken, true);
+    const result = filterLivePendingInvoices([livePending, orphan, paid], liveUsdgOnly);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(livePending);
+  });
+});
